@@ -51,6 +51,18 @@ export function isConnected(): boolean {
   return localStorage.getItem('google_fitness_connected') === 'true';
 }
 
+/** ตรวจว่าการเชื่อมต่อนี้ถูกผูกกับบัญชีระบบที่กำหนดหรือไม่ (คุม 1 Gmail = 1 คน ป้องกันใช้การเชื่อมต่อร่วมกัน) */
+export function isOwnedBy(userId: string): boolean {
+  if (!userId) return false;
+  return isConnected() && getOwnerUserId() === userId;
+}
+
+/** ดึง User_ID (บัญชีระบบ) ที่เป็นเจ้าของการเชื่อมต่อนี้ */
+export function getOwnerUserId(): string | null {
+  const owner = localStorage.getItem('google_fitness_owner');
+  return owner && owner !== '' ? owner : null;
+}
+
 /** ดึง access_token จาก localStorage */
 export function getToken(): string | null {
   const raw = localStorage.getItem('google_fitness_token');
@@ -63,17 +75,23 @@ export function getToken(): string | null {
   }
 }
 
-/** บันทึก tokens + email */
-export function saveTokens(data: {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-  email?: string;
-}): void {
+/** บันทึก tokens + email + เจ้าของบัญชี (ownerUserId = User_ID ที่เชื่อมต่อ) */
+export function saveTokens(
+  data: {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+    email?: string;
+  },
+  ownerUserId?: string
+): void {
   localStorage.setItem('google_fitness_token', JSON.stringify(data));
   localStorage.setItem('google_fitness_connected', 'true');
   if (data.email) {
     localStorage.setItem('google_fitness_email', data.email);
+  }
+  if (ownerUserId) {
+    localStorage.setItem('google_fitness_owner', ownerUserId);
   }
 }
 
@@ -87,6 +105,7 @@ export function disconnect(): void {
   localStorage.removeItem('google_fitness_token');
   localStorage.removeItem('google_fitness_connected');
   localStorage.removeItem('google_fitness_email');
+  localStorage.removeItem('google_fitness_owner');
 }
 
 /** ลบ URL hash (หลังจาก callback เสร็จ) */
@@ -112,7 +131,12 @@ export async function fetchSteps(date: string): Promise<number> {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ date }),
+    body: JSON.stringify({
+      date,
+      // ส่ง email + เจ้าของบัญชี เพื่อให้ฝั่ง server ตรวจ 1 Gmail = 1 คน (ห้ามใช้การเชื่อมต่อของบัญชีอื่น)
+      email: getConnectedEmail(),
+      user_id: getOwnerUserId(),
+    }),
   });
 
   if (!res.ok) {

@@ -180,6 +180,7 @@ export default function StepsPage() {
   const [fetchingGf, setFetchingGf] = useState(false);
   const [gfConnecting, setGfConnecting] = useState(false);
   const [gfErrorMessage, setGfErrorMessage] = useState<string | null>(null);
+  const [gfVersion, setGfVersion] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ช่วงเวลาที่ดูย้อนหลังได้ (วัน / สัปดาห์ / เดือน)
@@ -360,6 +361,13 @@ export default function StepsPage() {
 
   // ══ Google Fit Handlers ══
 
+  // สถานะการเชื่อมต่อ Google Fit — คุม 1 Gmail = 1 คน (ห้ามใช้การเชื่อมต่อของบัญชีอื่นบนเครื่องเดียวกัน)
+  // gfTick: ค่า tick ใช้บังคับ re-render หลังถอดการเชื่อมต่อ (localStorage ไม่ trigger rendering)
+  void gfVersion;
+  const gfConnected = GF.isConnected();
+  const gfOwned = user ? GF.isOwnedBy(user.User_ID) : false;
+  const gfInherited = gfConnected && !gfOwned;
+
   /** Connect Google Fit → redirect to OAuth → come back with code */
   function handleGfConnect(): void {
     setGfConnecting(true);
@@ -367,11 +375,23 @@ export default function StepsPage() {
     GF.connectGoogleFitness(user?.User_ID || '');
   }
 
+  /** ถอดการเชื่อมต่อ Google Fit */
+  function handleGfDisconnect(): void {
+    GF.disconnect();
+    setGoogleFitSteps(null);
+    setGfErrorMessage(null);
+    setGfVersion((v) => v + 1); // trigger re-render
+  }
+
   /** Fetch steps from Google Fit for selected date */
   async function fetchGoogleFitSteps(): Promise<void> {
     if (!logDate) return;
     if (!GF.isConnected()) {
       setGfErrorMessage('ยังไม่ได้เชื่อมต่อกูเกิลฟิต — กด "เชื่อมต่อกูเกิลฟิต" ก่อน');
+      return;
+    }
+    if (user && !GF.isOwnedBy(user.User_ID)) {
+      setGfErrorMessage('การเชื่อมต่อ Google Fit บนเครื่องนี้ถูกผูกกับบัญชีอื่น — ห้ามใช้ร่วมกัน (เพื่อป้องกันการโกงนับก้าว) โปรดถอดการเชื่อมต่อแล้วเชื่อมต่อบัญชีของท่านเอง');
       return;
     }
     setFetchingGf(true);
@@ -383,8 +403,9 @@ export default function StepsPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'ดึงข้อมูลล้มเหลว';
       setGfErrorMessage(msg);
-      if (msg.includes('ไม่ได้') || msg.includes('401')) {
+      if (msg.includes('ไม่ได้') || msg.includes('401') || msg.includes('403') || msg.includes('406')) {
         GF.disconnect();
+        setGfVersion((v) => v + 1);
       }
     } finally {
       setFetchingGf(false);
@@ -725,7 +746,7 @@ export default function StepsPage() {
             {/* Google Fit flow */}
             {logMethod === 'google-fit' && (
               <>
-                {!GF.isConnected() && (
+                {!gfConnected && (
                   <button onClick={handleGfConnect} disabled={gfConnecting}
                     className="w-full py-2.5 rounded-xl font-bold text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                     {gfConnecting ? (<>
@@ -736,7 +757,7 @@ export default function StepsPage() {
                     )}
                   </button>
                 )}
-                {GF.isConnected() && (
+                {gfConnected && gfOwned && (
                   <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-700">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -746,14 +767,33 @@ export default function StepsPage() {
                           <p className="text-[10px] text-emerald-600 dark:text-emerald-500">{GF.getConnectedEmail() || ''}</p>
                         </div>
                       </div>
-                      <button onClick={() => { GF.disconnect(); }}
+                      <button onClick={handleGfDisconnect}
                         className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium">
                         ถอดเชื่อมต่อ
                       </button>
                     </div>
                   </div>
                 )}
-                <button onClick={fetchGoogleFitSteps} disabled={fetchingGf || !logDate || !GF.isConnected()}
+                {gfInherited && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-300 dark:border-amber-700">
+                    <div className="flex items-start gap-2">
+                      <span className="material-symbols-outlined text-amber-500 text-xl">lock_person</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-amber-700 dark:text-amber-400">ห้ามใช้การเชื่อมต่อของบัญชีอื่น</p>
+                        <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 leading-relaxed">
+                          การเชื่อมต่อ Google Fit ที่ค้างอยู่บนเครื่องนี้ ({GF.getConnectedEmail() || 'Gmail เดิม'}) ถูกผูกกับบัญชีระบบอื่น —
+                          ระบบจำกัดให้ 1 Gmail ใช้ได้กับ 1 คนเท่านั้น เพื่อป้องกันการโกงนับก้าว
+                          กรุณากดปุ่ม (ถอดการเชื่อมต่อ) แล้วเชื่อมต่อ Gmail ของท่านเองใหม่
+                        </p>
+                      </div>
+                      <button onClick={handleGfDisconnect}
+                        className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium shrink-0">
+                        ถอดการเชื่อมต่อ
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <button onClick={fetchGoogleFitSteps} disabled={fetchingGf || !logDate || !gfOwned}
                   className="w-full py-2.5 rounded-xl font-bold text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                   {fetchingGf ? (<>
                     <span className="loading loading-spinner loading-xs"></span>

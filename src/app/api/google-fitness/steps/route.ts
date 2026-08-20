@@ -89,10 +89,31 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { date } = body;
+    const { date, email, user_id } = body;
 
     if (!date) {
       return NextResponse.json({ error: 'date is required' }, { status: 400 });
+    }
+
+    // ⚡ ตรวจ 1 Gmail = 1 คน: ถ้า Gmail นี้ถูกผูกกับบัญชีระบบอื่น ไม่อนุญาตให้ดึงข้อมูล
+    if (email && user_id) {
+      try {
+        const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+        const res = await fetch(
+          `${GAS_API_URL}?path=action&action=check-google-fit-email&email=${encodeURIComponent(email)}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.duplicate && data.linkedUser && String(data.linkedUser) !== String(user_id)) {
+            return NextResponse.json(
+              { error: 'Gmail นี้ถูกผูกกับบัญชีอื่น — ไม่สามารถใช้ร่วมกันได้ (ป้องกันการโกงนับก้าว)' },
+              { status: 403 }
+            );
+          }
+        }
+      } catch (e) {
+        console.error('Google Fit owner check failed:', e);
+      }
     }
 
     const totalSteps = await getStepsForDay(accessToken, date);

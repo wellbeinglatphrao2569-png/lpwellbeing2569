@@ -96,13 +96,13 @@ function CallbackContent() {
           }
         }
 
-        // เก็บ token + email ใน localStorage
+        // เก็บ token + email + เจ้าของบัญชี (User_ID ที่เชื่อมต่อ) ใน localStorage
         saveTokens({
           access_token: tokenData.access_token,
           refresh_token: tokenData.refresh_token || '',
           expires_in: tokenData.expires_in,
           email: tokenData.email,
-        });
+        }, userId);
 
         // บันทึก Gmail → User mapping ไป GAS backend
         try {

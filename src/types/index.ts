@@ -29,3 +29,28 @@ export interface SweetFree {
   Entry_ID: string; User_ID: string; Wednesday_Date: string; Status: boolean; Logged_By: string;
   Recorded_At?: string;
 }
+export interface BaselineRecord {
+  Record_ID: string; User_ID: string;
+  Weight_kg: number | string; Height_cm: number | string; BMI_Value: number | string;
+  Source?: string; Recorded_At?: string;
+}
+export interface WeightAfterRecord {
+  Record_ID: string; User_ID: string;
+  Weight_kg: number | string; Height_cm: number | string; BMI_Value: number | string; Recorded_At?: string;
+}
+export interface WeightComparisonItem {
+  User_ID: string;
+  Full_Name: string;
+  Department: string;
+  Height_cm: number;
+  baseline: { Weight_kg: number; BMI_Value: number | null; Height_cm: number } | null;
+  latest: {
+    Weight_kg: number;
+    BMI_Value: number | null;
+    Recorded_At?: string;
+    fromWeightAfter: boolean;
+    fromProfile: boolean;
+  };
+  deltaWeight: number | null;
+  deltaBmi: number | null;
+}

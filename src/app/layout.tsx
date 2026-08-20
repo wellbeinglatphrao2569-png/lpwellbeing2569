@@ -10,7 +10,7 @@ import './globals.css';
 
 // รอบนี้ระบบเปิดใช้งานเฉพาะหน้า Login, หน้าใช้งานทั่วไป และหน้าของเจ้าหน้าที่ นสส. (เมนูอื่นจะถูกสร้างทีละเมนูต่อไป)
 const publicRoutes = ['/login'];
-const allowedRoutes = ['/dashboard', '/home', '/admin', '/steps', '/no-sugar'];
+const allowedRoutes = ['/dashboard', '/home', '/admin', '/steps', '/no-sugar', '/weight-after'];
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);

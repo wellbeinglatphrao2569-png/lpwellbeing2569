@@ -81,6 +81,22 @@ function getData_(sheetName) {
   });
 }
 
+/** เหมือน getData_ แต่ถ้ายังไม่มีชีทจะคืน [] (ไม่สร้างชีท/ไม่เขียน marker row) */
+function getDataIfExists_(sheetName) {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  const headers = data[0];
+  const rows = data.slice(1);
+  return rows.map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i]; });
+    return obj;
+  });
+}
+
 function generateThaiCitizenId_() {
   const prefix = '10999';
   const seq = Math.floor(Math.random() * 9999999).toString().padStart(7, '0');
@@ -333,6 +349,9 @@ function doGet(e) {
         break;
       case 'baseline':
         result = getData_('Baseline');
+        break;
+      case 'weight-comparison':
+        result = getWeightComparison_(e);
         break;
       default:
         result = { status: 'ok', project: 'ลาดพร้าวสร้างสุข', version: '1.0.0' };
@@ -1263,8 +1282,64 @@ function getWeightAfter_(e) {
     records: records,
     baseline: baseline,
     height: user ? user.Height_cm : '',
-    currentWeight: user ? user.Weight_kg : ''
+    currentWeight: user ? user.Weight_kg : '',
+    currentBmi: user ? user.BMI_Value : ''
   };
+}
+
+/**
+ * สรุปการเปรียบเทียบน้ำหนัก/BMI: ครั้งแรก (baseline) vs ครั้งล่าสุด (Weight_After / โปรไฟล์)
+ * — Admin/Committee จะได้ทุกราย; ผู้ใช้อื่นได้เฉพาะของตนเอง
+ */
+function getWeightComparison_(e) {
+  const requesterId = String((e && e.parameter && e.parameter.User_ID) || '');
+  const requester = getData_('Users').find(function (u) { return String(u.User_ID) === requesterId; });
+  const isAdmin = requester && (String(requester.Role) === 'Admin' || String(requester.Role) === 'Committee');
+  const users = isAdmin ? getData_('Users') : (requester ? [requester] : []);
+
+  const baselines = getDataIfExists_('Baseline');
+  const weightAfter = getDataIfExists_('Weight_After');
+
+  const baseMap = {};
+  baselines.forEach(function (b) {
+    const uid = String(b.User_ID || '');
+    if (uid && !baseMap[uid]) baseMap[uid] = b;
+  });
+  const latestMap = {};
+  weightAfter.forEach(function (r) {
+    const uid = String(r.User_ID || '');
+    if (!uid) return;
+    const cur = latestMap[uid];
+    if (!cur || String(r.Recorded_At || '') >= String(cur.Recorded_At || '')) latestMap[uid] = r;
+  });
+
+  return users.map(function (u) {
+    const uid = String(u.User_ID || '');
+    const b = baseMap[uid] || null;
+    const l = latestMap[uid] || null;
+    const baseW = b && Number(b.Weight_kg) ? Number(b.Weight_kg) : (Number(u.Weight_kg) || 0);
+    const baseBmi = (b && Number(b.BMI_Value)) ? Number(b.BMI_Value) : (Number(u.BMI_Value) || null);
+    const baseH = (b && Number(b.Height_cm)) ? Number(b.Height_cm) : (Number(u.Height_cm) || 0);
+    const latestW = l && Number(l.Weight_kg) ? Number(l.Weight_kg) : (Number(u.Weight_kg) || 0);
+    const latestBmi = l && Number(l.BMI_Value) ? Number(l.BMI_Value) : (Number(u.BMI_Value) || null);
+    const latestDate = l ? String(l.Recorded_At || '') : '';
+    return {
+      User_ID: uid,
+      Full_Name: String(u.Full_Name || ''),
+      Department: String(u.Department || ''),
+      Height_cm: baseH || 0,
+      baseline: (baseW > 0) ? { Weight_kg: Math.round(baseW * 10) / 10, BMI_Value: baseBmi, Height_cm: baseH } : null,
+      latest: {
+        Weight_kg: Math.round(latestW * 10) / 10,
+        BMI_Value: latestBmi,
+        Recorded_At: latestDate,
+        fromWeightAfter: !!l,
+        fromProfile: !l
+      },
+      deltaWeight: (baseW > 0 && latestW > 0) ? Math.round((latestW - baseW) * 10) / 10 : null,
+      deltaBmi: (baseBmi != null && latestBmi != null) ? Math.round((latestBmi - baseBmi) * 10) / 10 : null
+    };
+  });
 }
 
 /** เจ้าหน้าที่ นสส. / กรรมการประจำฝ่าย เปิด-ปิดช่วงบันทึกน้ำหนักหลังโครงการ */

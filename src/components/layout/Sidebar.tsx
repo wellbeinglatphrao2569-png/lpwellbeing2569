@@ -11,6 +11,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
 
   const mainItems = [
     { href: '/dashboard', label: 'แดชบอร์ด', icon: 'dashboard' },
+    { href: '/weight-after', label: 'ชั่งน้ำหนัก/BMI', icon: 'monitor_weight' },
     { href: '/steps', label: 'นับก้าวสร้างสุข', icon: 'directions_walk' },
     ...(isAdmin || isCommittee ? [{ href: '/no-sugar', label: 'พุธนี้ไม่มีเชื่อม', icon: 'event_busy' }] : []),
   ];

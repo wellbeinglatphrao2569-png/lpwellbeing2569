@@ -21,7 +21,9 @@ const CONFIG = {
     POINTS_HISTORY: 'Points_History',
     TRAINING: 'Training',
     TRAINING_REGISTRATION: 'Training_Registration',
-    WEIGHT_AFTER: 'Weight_After'
+    WEIGHT_AFTER: 'Weight_After',
+    BASELINE: 'Baseline',
+    GOOGLE_FIT_LINKS: 'Google_Fit_Links'
   },
   LINE: {
     CHANNEL_SECRET: '44d3afb5bbfd7b979641e11c8419e0a2',
@@ -2253,6 +2255,171 @@ function uploadProfileImage_(e) {
     }
   }
   return { success: false, message: 'อัปโหลดสำเร็จแต่ไม่พบแถวผู้ใช้ในชีท' };
+}
+
+// ===== DATABASE MANAGEMENT (จัดการฐานข้อมูล) =====
+
+/** หัวคอลัมน์ของชีท Points_History (อ้างอิงจากคอลัมน์ที่ระบบอ่านผ่าน path 'points') */
+const POINTS_HISTORY_HEADERS = ['Point_ID','User_ID','Points','Source','Reference_ID','Timestamp'];
+
+/** นิยามชีททั้งหมดที่จำเป็นต่อการใช้งานบนเว็บไซต์ + หัวคอลัมน์มาตรฐาน */
+const DATABASE_SHEET_DEFS = [
+  { name: 'Users', headers: USER_HEADERS },
+  { name: 'Steps_Log', headers: STEPS_HEADERS },
+  { name: 'Sweet_Free', headers: SWEET_FREE_HEADERS },
+  { name: 'Happy_Connect', headers: ['Match_ID','User_1_ID','User_2_ID','Match_Date','Mission_ID','Confirmation_1','Confirmation_2','Mission_Image','Feedback_Score'] },
+  { name: 'Voice_Executive', headers: ['Message_ID','User_ID','Category','Content','Is_Anonymous','Timestamp'] },
+  { name: 'News', headers: ['News_ID','Title','Content','Image_URL','Created_By','Created_Date','Send_Line_OA'] },
+  { name: 'Audit_Log', headers: AUDIT_HEADERS },
+  { name: 'Wellness_Assessment', headers: ['Assessment_ID','User_ID','Happiness','Physical_Health','Stress','Assessment_Date','Timestamp'] },
+  { name: 'Points_History', headers: POINTS_HISTORY_HEADERS },
+  { name: 'Training', headers: ['Training_ID','Title','Description','Date_Thai','Time','Location','Max_Seats','Registered_Count','Status'] },
+  { name: 'Training_Registration', headers: ['Reg_ID','Training_ID','User_ID','Status'] },
+  { name: 'Weight_After', headers: WEIGHT_AFTER_HEADERS },
+  { name: 'Baseline', headers: BASELINE_HEADERS },
+  { name: 'Google_Fit_Links', headers: ['User_ID','Gmail','Connected_At'] }
+];
+
+/** อ่านบัญชี Admin (Role = Admin) ทั้งหมดจากชีท Users ก่อนล้างฐานข้อมูล */
+function readAdminRows_() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Users');
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  const headers = data[0];
+  const roleIdx = headers.indexOf('Role');
+  if (roleIdx < 0) return [];
+  const admins = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][roleIdx]) === 'Admin') {
+      const row = {};
+      headers.forEach(function (h, idx) { row[h] = data[i][idx]; });
+      admins.push(row);
+    }
+  }
+  return admins;
+}
+
+/** สร้างบัญชี Admin เริ่มต้น (pass1234) เมื่อล้างฐานข้อมูลแล้วไม่มี Admin เหลืออยู่ */
+function seedDefaultAdmin_() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Users');
+  if (!sheet) return;
+  const headers = sheet.getDataRange().getValues()[0] || [];
+  sheet.appendRow(rowFromHeader_(headers, {
+    User_ID: '1099900000011',
+    Prefix: 'นาย',
+    Full_Name: 'สมชาย รักสุขภาพ',
+    Nickname: 'สมชาย',
+    Position: 'นักจัดการงานทั่วไป',
+    Department: 'ฝ่ายทะเบียน',
+    Birth_Date: '1985-01-01',
+    Gender: 'ชาย',
+    Weight_kg: '72',
+    Height_cm: '175',
+    BMI_Value: '23.5',
+    Waist_Inch: '32',
+    Role: 'Admin',
+    Password: hashPassword_('pass1234'),
+    Total_Points: 0,
+    Level: 'ต้นแบบลาดพร้าวสร้างสุข',
+    Personnel_ID: 'P001',
+    Registration_Status: 'Registered',
+    Created_By: 'ระบบ',
+    Created_Date: getTimestamp_(),
+    First_Name: 'สมชาย',
+    Last_Name: 'รักสุขภาพ',
+    Activities: 'sweet_free,steps,training'
+  }));
+}
+
+/**
+ * รีเซ็ตฐานข้อมูลใหม่ทั้งหมด: ลบชีทเดิมทุกชีท แล้วสร้างชีทที่จำเป็นใหม่พร้อมหัวคอลัมน์
+ * เก็บเฉพาะบัญชี Admin เดิมไว้ (ถ้าไม่มี จะสร้าง Admin เริ่มต้น: 1099900000011 / pass1234)
+ * วิธีใช้: เปิด Apps Script Editor แล้วรัน resetDatabase()
+ */
+function resetDatabase() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const admins = readAdminRows_();
+
+  // ── ลบชีทเดิมทั้งหมด (กันลบชีทสุดท้าย — ใช้ชีทที่เหลือเป็น Users ใหม่) ──
+  let sheets = ss.getSheets();
+  while (sheets.length > 1) {
+    ss.deleteSheet(sheets[sheets.length - 1]);
+    sheets = ss.getSheets();
+  }
+  sheets[0].clear();
+  sheets[0].setName('Users');
+
+  // ── สร้างชีทที่จำเป็นทั้งหมดใหม่พร้อมหัวคอลัมน์ ──
+  DATABASE_SHEET_DEFS.forEach(function (def) {
+    let sheet = ss.getSheetByName(def.name);
+    if (!sheet) sheet = ss.insertSheet(def.name);
+    sheet.clear();
+    sheet.appendRow(def.headers);
+  });
+
+  // ── คืนบัญชี Admin เดิม (หรือสร้าง Admin เริ่มต้นถ้าไม่มี) ──
+  const usersSheet = ss.getSheetByName('Users');
+  const headers = usersSheet.getDataRange().getValues()[0] || [];
+  admins.forEach(function (a) {
+    usersSheet.appendRow(rowFromHeader_(headers, a));
+  });
+  if (admins.length === 0) seedDefaultAdmin_();
+
+  return {
+    success: true,
+    message: 'สร้างชีทใหม่ ' + DATABASE_SHEET_DEFS.length + ' ชีทสำเร็จ (เก็บ Admin ' + (admins.length || 1) + ' ราย)',
+    sheets: DATABASE_SHEET_DEFS.map(function (d) { return d.name; }),
+    adminsKept: admins.length || 1
+  };
+}
+
+/**
+ * ลบข้อมูลจำนวนก้าวทั้งหมดในชีท Steps_Log (คงหัวคอลัมน์ไว้)
+ * วิธีใช้: เปิด Apps Script Editor แล้วรัน clearStepsLog()
+ */
+function clearStepsLog() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Steps_Log');
+  if (!sheet) return { success: false, message: 'ไม่พบชีท Steps_Log' };
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+  }
+  return { success: true, message: 'ลบข้อมูลจำนวนก้าวทั้งหมดแล้ว' };
+}
+
+/**
+ * ล้างข้อมูลทั้งหมดในทุกชีท (คงหัวคอลัมน์ + บัญชี Admin เดิมไว้)
+ * วิธีใช้: เปิด Apps Script Editor แล้วรัน clearAllData()
+ */
+function clearAllData() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const admins = readAdminRows_();
+  const cleared = [];
+  DATABASE_SHEET_DEFS.forEach(function (def) {
+    const sheet = ss.getSheetByName(def.name);
+    if (!sheet) return;
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+    cleared.push(def.name);
+  });
+  if (admins.length > 0) {
+    const usersSheet = ss.getSheetByName('Users');
+    const headers = usersSheet.getDataRange().getValues()[0] || [];
+    admins.forEach(function (a) {
+      usersSheet.appendRow(rowFromHeader_(headers, a));
+    });
+  } else {
+    seedDefaultAdmin_();
+  }
+  return {
+    success: true,
+    message: 'ล้างข้อมูลทั้งหมดในทุกชีทแล้ว (คงโครงสร้าง + Admin ' + (admins.length || 1) + ' ราย)',
+    cleared: cleared
+  };
 }
 
 // ===== EXECUTE SEED (Run this once to populate data) =====

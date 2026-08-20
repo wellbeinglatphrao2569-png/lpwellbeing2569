@@ -1,0 +1,514 @@
+'use client';
+import Link from 'next/link';
+import { Fragment, useState, useEffect, useMemo } from 'react';
+import GlassCard from '@/components/ui/GlassCard';
+import ProofImage from '@/components/ProofImage';
+import ConfirmPopup from '@/components/ui/ConfirmPopup';
+import { useAuth } from '@/hooks/useAuth';
+import { fetchData, postData } from '@/services/api';
+import type { StepsLog, User } from '@/types';
+import { toThaiDateShort, toThaiDateFull } from '@/utils/thaiDate';
+import { profileImageUrl } from '@/utils/personnel';
+
+type VerifyItem = StepsLog & { userName: string; userDept: string; userNickname: string; userProfileImage?: string };
+
+/** แปลงค่า Date_Thai เป็น key "YYYY-MM-DD" (ตามวันท้องถิ่น) สำหรับจัดกลุ่มรายการตามวันที่ส่งก้าว */
+function normalizeDateKey(value: unknown): string {
+  if (!value) return '';
+  const toLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (value instanceof Date && !isNaN(value.getTime())) return toLocal(value);
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? s : toLocal(d);
+}
+
+function driveViewUrl(id: string): string {
+  return `https://drive.google.com/file/d/${id}/view`;
+}
+
+function StatusBadge({ status }: { status?: string }) {
+  if (status === 'Approved') {
+    return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400">อนุมัติแล้ว</span>;
+  }
+  if (status === 'Rejected') {
+    return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400">ไม่อนุมัติ</span>;
+  }
+  return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400">รอตรวจสอบ</span>;
+}
+
+function AlertBadge() {
+  return (
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+      <span className="material-symbols-outlined text-xs">warning</span>
+      ผิดปกติ
+    </span>
+  );
+}
+
+function SameDeptBadge() {
+  return (
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400" title="คุณอยู่ฝ่ายเดียวกับผู้ส่งก้าว — ต้องให้บุคคลต่างฝ่ายตรวจสอบ">
+      <span className="material-symbols-outlined text-xs">lock</span>
+      ฝ่ายเดียวกัน
+    </span>
+  );
+}
+
+function UserAvatar({ item, size = 'md' }: { item: VerifyItem; size?: 'sm' | 'md' | 'lg' }) {
+  const cls = size === 'lg' ? 'w-11 h-11 text-lg' : size === 'sm' ? 'w-8 h-8 text-sm' : 'w-10 h-10';
+  if (item.userProfileImage) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={item.userProfileImage} alt="" className={`${cls} rounded-full object-cover ring-2 ring-emerald-200 dark:ring-emerald-800 shrink-0`} />;
+  }
+  return (
+    <div className={`${cls} rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold shrink-0`}>
+      {(item.userName || 'ส').charAt(0)}
+    </div>
+  );
+}
+
+function AiReasonCell({ item }: { item: VerifyItem }) {
+  const confidence = item.AI_Confidence != null && item.AI_Confidence !== '' ? Number(item.AI_Confidence) : null;
+  const aiSteps = item.AI_Steps != null && item.AI_Steps !== '' ? Number(item.AI_Steps) : null;
+  const dateMatch = item.Date_Match === 'TRUE' || item.Date_Match === true ? true : item.Date_Match === 'FALSE' || item.Date_Match === false ? false : null;
+  const isAlert = item.Alert_Flag === 'TRUE' || item.Alert_Flag === true;
+  return (
+    <div className="min-w-[220px] space-y-1">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+        <span className="text-gray-500 dark:text-gray-400">AI อ่านได้:</span>
+        <span className="font-bold text-purple-600 dark:text-purple-400">{aiSteps != null ? aiSteps.toLocaleString() : '—'}</span>
+        <span className="text-[10px] text-gray-400">(ความมั่นใจ {confidence != null ? Math.round(confidence * 100) : '—'}%)</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 text-xs">
+        <span className="text-gray-500 dark:text-gray-400">วันที่ในภาพ:</span>
+        {dateMatch === true ? (
+          <span className="font-semibold text-emerald-600 dark:text-emerald-400">ตรงกัน</span>
+        ) : dateMatch === false ? (
+          <span className="font-semibold text-red-600 dark:text-red-400">ไม่ตรง</span>
+        ) : (
+          <span className="font-semibold text-amber-600 dark:text-amber-400">ไม่พบ/ไม่ชัด</span>
+        )}
+      </div>
+      {isAlert && item.Alert_Reason && (
+        <div className="flex items-start gap-1 text-xs text-red-600 dark:text-red-400">
+          <span className="material-symbols-outlined text-sm shrink-0">warning</span>
+          <span>{item.Alert_Reason}</span>
+        </div>
+      )}
+      {!isAlert && !aiSteps && !item.Alert_Reason && (
+        <div className="text-xs text-gray-400">— ไม่มีข้อมูลจาก AI —</div>
+      )}
+    </div>
+  );
+}
+
+export default function VerifyStepsPage() {
+  const { user } = useAuth();
+  const [steps, setSteps] = useState<StepsLog[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<VerifyItem | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [rejectFor, setRejectFor] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [editedSteps, setEditedSteps] = useState<string>('');
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ title: string; message: string; variant?: 'primary' | 'danger' | 'warning'; onConfirm: () => void } | null>(null);
+
+  const userMap = useMemo(() => new Map(users.map(u => [u.User_ID, u])), [users]);
+
+  async function load() {
+    setLoading(true);
+    const [s, u] = await Promise.all([
+      fetchData<StepsLog[]>('steps'),
+      fetchData<User[]>('users'),
+    ]);
+    if (s) setSteps(s);
+    if (u) setUsers(u);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/set-state-in-effect
+
+  const imageItems: VerifyItem[] = useMemo(() => {
+    return steps
+      .filter(s => s.Record_Method === 'ภาพถ่าย' || (s.Image_Drive_ID && s.Image_Drive_ID.trim() !== ''))
+      .map(s => {
+        const u = userMap.get(s.User_ID);
+        return {
+          ...s,
+          userName: u?.Full_Name || s.User_ID,
+          userDept: u?.Department || '',
+          userNickname: u?.Nickname || '',
+          userProfileImage: profileImageUrl(u?.Profile_Image) || undefined,
+        };
+      })
+      .sort((a, b) => String(b.Recorded_At || b.Date_Thai || '').localeCompare(String(a.Recorded_At || a.Date_Thai || '')));
+  }, [steps, userMap]);
+
+  // รายการทั้งหมดที่รอตรวจสอบ — รวมฝ่ายเดียวกันด้วย (จะแสดงแต่ล็อกปุ่มตามเงื่อนไข)
+  const pendingItems = useMemo(() => imageItems.filter(i => i.Status === 'Pending'), [imageItems]);
+
+  // จัดกลุ่ม/เรียงตามวันที่ส่งก้าว (ล่าสุดก่อน)
+  const groupedPending = useMemo(() => {
+    const map = new Map<string, VerifyItem[]>();
+    for (const item of pendingItems) {
+      const key = normalizeDateKey(item.Date_Thai) || 'unknown';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(item);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([date, items]) => ({ date, items }));
+  }, [pendingItems]);
+
+  const alertCount = pendingItems.filter(i => (i.Alert_Flag === 'TRUE' || i.Alert_Flag === true)).length;
+  const viewerDept = user?.Department;
+  const sameDeptCount = pendingItems.filter(i => String(i.userDept) === String(viewerDept)).length;
+
+  const canVerifyItem = (item: VerifyItem) => !!user && String(item.userDept) !== String(viewerDept);
+
+  function openDetail(item: VerifyItem) {
+    setRejectFor(null);
+    setRejectReason('');
+    setEditedSteps('');
+    setSelected(item);
+  }
+
+  function openReject(item: VerifyItem) {
+    openDetail(item);
+    setRejectFor(item.Record_ID);
+  }
+
+  const requestVerify = (item: VerifyItem, status: 'Approved' | 'Rejected', reason = '', stepsValue = editedSteps) => {
+    if (!user) return;
+    if (status === 'Approved') {
+      setConfirm({
+        title: 'ยืนยันการอนุมัติ',
+        message: `คุณกำลังจะอนุมัติจำนวนก้าว ${Number(item.Steps_Count).toLocaleString()} ก้าว${stepsValue.trim() !== '' ? ` (แก้ไขเป็น ${parseInt(stepsValue, 10).toLocaleString()} ก้าว)` : ''} ของ "${item.userName}" วันที่ ${toThaiDateShort(item.Date_Thai)} แน่ใจหรือไม่?`,
+        variant: 'primary',
+        onConfirm: () => handleVerify(item, 'Approved', '', stepsValue),
+      });
+    } else {
+      setConfirm({
+        title: 'ยืนยันการไม่อนุมัติ',
+        message: `คุณกำลังจะไม่อนุมัติจำนวนก้าว ${Number(item.Steps_Count).toLocaleString()} ก้าวของ "${item.userName}" วันที่ ${toThaiDateShort(item.Date_Thai)} เหตุผล: "${reason}" แน่ใจหรือไม่?`,
+        variant: 'danger',
+        onConfirm: () => handleVerify(item, 'Rejected', reason),
+      });
+    }
+  };
+
+  async function handleVerify(item: VerifyItem, status: 'Approved' | 'Rejected', reason = '', stepsValue = editedSteps) {
+    setConfirm(null);
+    if (!user) return;
+    const newSteps = parseInt(stepsValue, 10);
+    if (status === 'Approved' && stepsValue.trim() !== '' && (isNaN(newSteps) || newSteps <= 0)) {
+      setNotice({ type: 'error', text: 'จำนวนก้าวที่แก้ไขต้องเป็นตัวเลขที่มากกว่า 0' });
+      return;
+    }
+    setBusyId(item.Record_ID);
+    setNotice(null);
+    const res = await postData('update-step-status', {
+      Record_ID: item.Record_ID,
+      Status: status,
+      Auditor_ID: user.User_ID,
+      Reject_Reason: reason,
+      Steps_Count: stepsValue.trim() !== '' ? newSteps : undefined,
+    });
+    setBusyId(null);
+    if (res?.success) {
+      setNotice({ type: 'success', text: res.message || 'บันทึกสำเร็จ' });
+      setSelected(null);
+      setRejectFor(null);
+      setRejectReason('');
+      setEditedSteps('');
+      load();
+    } else {
+      setNotice({ type: 'error', text: res?.message || 'ดำเนินการไม่สำเร็จ' });
+    }
+  }
+
+  const sel = selected;
+  const selIsAlert = !!sel && (sel.Alert_Flag === 'TRUE' || sel.Alert_Flag === true);
+  const selDateMatch = sel ? (sel.Date_Match === 'TRUE' || sel.Date_Match === true ? true : sel.Date_Match === 'FALSE' || sel.Date_Match === false ? false : null) : null;
+  const selConfidence = sel && sel.AI_Confidence != null && sel.AI_Confidence !== '' ? Number(sel.AI_Confidence) : null;
+  const selAiSteps = sel && sel.AI_Steps != null && sel.AI_Steps !== '' ? Number(sel.AI_Steps) : null;
+  const selCanVerify = sel ? canVerifyItem(sel) : false;
+  const selBusy = !!sel && busyId === sel.Record_ID;
+  const selRejecting = !!sel && rejectFor === sel.Record_ID;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">ตรวจสอบและอนุมัติก้าวเดิน (ภาพ)</h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">รายการที่ยังรอตรวจสอบ เรียงตามวันที่ส่งก้าว — คลิกแถวเพื่อดูภาพหลักฐานและรายละเอียด AI (ผู้ตรวจต้องเป็นบุคคลต่างฝ่ายกับผู้บันทึก)</p>
+        </div>
+        <Link href="/admin/verify-history"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 font-semibold text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors shrink-0">
+          <span className="material-symbols-outlined text-lg">history</span>
+          ประวัติการตรวจสอบ
+        </Link>
+      </div>
+
+      {notice && (
+        <div className={`p-3 rounded-xl text-sm font-medium ${notice.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'}`}>
+          {notice.text}
+        </div>
+      )}
+
+      {alertCount > 0 && (
+        <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 text-sm text-red-700 dark:text-red-400 font-medium">
+          <span className="material-symbols-outlined align-middle mr-1 text-lg">notification_important</span>
+          มี {alertCount} รายการที่ตรวจพบความผิดปกติ (วันที่ไม่ตรง / อ่านไม่ชัดเจน) ควรตรวจสอบเป็นพิเศษ
+        </div>
+      )}
+
+      {sameDeptCount > 0 && (
+        <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-400 font-medium">
+          <span className="material-symbols-outlined align-middle mr-1 text-lg">info</span>
+          มี {sameDeptCount} รายการของผู้ส่งก้าวในฝ่ายเดียวกับคุณ — แสดงให้เห็นแต่ล็อกปุ่ม (ตามเงื่อนไขต้องให้บุคคลต่างฝ่ายตรวจสอบ)
+        </div>
+      )}
+
+      {loading ? (
+        <GlassCard className="p-10 text-center text-gray-400"><span className="loading loading-spinner loading-lg text-emerald-600"></span></GlassCard>
+      ) : pendingItems.length === 0 ? (
+        <GlassCard className="p-10 text-center text-gray-400">
+          <span className="material-symbols-outlined text-4xl block mb-2">task_alt</span>
+          ไม่มีรายการที่รอตรวจสอบ
+        </GlassCard>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+          <table className="w-full text-sm min-w-[900px]">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs text-gray-400 uppercase tracking-wide">
+                <th className="px-4 py-3 font-semibold">ผู้ส่งก้าว</th>
+                <th className="px-4 py-3 font-semibold text-right">จำนวนก้าว</th>
+                <th className="px-4 py-3 font-semibold">เหตุผลจาก AI ตรวจสอบ</th>
+                <th className="px-4 py-3 font-semibold">สถานะ</th>
+                <th className="px-4 py-3 font-semibold text-right">การดำเนินการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupedPending.map(group => (
+                <Fragment key={group.date}>
+                  {/* หัวข้อกลุ่ม: วันที่ส่งก้าว */}
+                  <tr className="bg-emerald-50/70 dark:bg-emerald-900/20">
+                    <td colSpan={5} className="px-4 py-2.5">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 text-lg">calendar_month</span>
+                        <span className="font-bold text-emerald-700 dark:text-emerald-400">{group.date === 'unknown' ? 'วันที่ไม่ระบุ' : toThaiDateFull(group.date)}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">{group.items.length} รายการ</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">รวม {group.items.reduce((s, i) => s + (Number(i.Steps_Count) || 0), 0).toLocaleString()} ก้าว</span>
+                      </div>
+                    </td>
+                  </tr>
+                  {group.items.map(item => {
+                    const isAlert = item.Alert_Flag === 'TRUE' || item.Alert_Flag === true;
+                    const canVerify = canVerifyItem(item);
+                    const busy = busyId === item.Record_ID;
+
+                    return (
+                      <tr key={item.Record_ID} onClick={() => openDetail(item)}
+                        className="border-b border-gray-100 dark:border-gray-700/50 last:border-0 cursor-pointer hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <UserAvatar item={item} />
+                            <div className="min-w-0">
+                              <p className="font-bold text-gray-900 dark:text-white truncate max-w-[200px]">
+                                {item.userName}
+                                {!canVerify && <SameDeptBadge />}
+                              </p>
+                              {item.userNickname && <p className="text-[11px] text-gray-500 dark:text-gray-400">ชื่อเล่น: {item.userNickname}</p>}
+                              <p className="text-[11px] text-gray-500 dark:text-gray-400">{item.userDept || 'ไม่ระบุฝ่าย'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">{Number(item.Steps_Count).toLocaleString()}</td>
+                        <td className="px-4 py-3"><AiReasonCell item={item} /></td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            {isAlert && <AlertBadge />}
+                            <StatusBadge status={item.Status} />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              disabled={!canVerify || busy}
+                              onClick={(e) => { e.stopPropagation(); requestVerify(item, 'Approved', '', ''); }}
+                              title={canVerify ? 'อนุมัติจำนวนก้าวนี้' : 'ฝ่ายเดียวกันกับผู้ส่งก้าว — ไม่สามารถอนุมัติได้'}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 font-bold text-xs hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1">
+                              {busy ? <span className="loading loading-spinner loading-xs"></span> : <span className="material-symbols-outlined text-sm">check_circle</span>}
+                              อนุมัติ
+                            </button>
+                            <button
+                              disabled={!canVerify || busy}
+                              onClick={(e) => { e.stopPropagation(); openReject(item); }}
+                              title={canVerify ? 'ไม่อนุมัติ (ระบุเหตุผล)' : 'ฝ่ายเดียวกันกับผู้ส่งก้าว — ไม่สามารถตรวจสอบได้'}
+                              className="px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 font-bold text-xs hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1">
+                              <span className="material-symbols-outlined text-sm">cancel</span>
+                              ไม่อนุมัติ
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Popup รายละเอียด + ตรวจสอบ */}
+      {sel && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setSelected(null)}>
+          <div className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-800 shadow-2xl my-6" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 p-5 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-3 min-w-0">
+                <UserAvatar item={sel} size="lg" />
+                <div className="min-w-0">
+                  <p className="font-bold text-gray-900 dark:text-white truncate">{sel.userName}</p>
+                  {sel.userNickname && <p className="text-xs text-gray-500 dark:text-gray-400">ชื่อเล่น: {sel.userNickname}</p>}
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{sel.userDept || 'ไม่ระบุฝ่าย'}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {selIsAlert && <AlertBadge />}
+                <StatusBadge status={sel.Status} />
+                <button onClick={() => setSelected(null)} aria-label="ปิด"
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* ภาพหลักฐาน */}
+              {sel.Image_Drive_ID ? (
+                <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
+                  <ProofImage fileId={sel.Image_Drive_ID} alt={`หลักฐานก้าว ${sel.userName}`} onClick={src => window.open(src, '_blank')} />
+                  <span className="absolute top-2 left-2 px-2.5 py-1 rounded-lg bg-black/50 text-white text-xs font-medium flex items-center gap-1">
+                    <span className="material-symbols-outlined text-base">zoom_in</span>
+                    คลิกเพื่อซูม
+                  </span>
+                  <button onClick={() => window.open(driveViewUrl(sel.Image_Drive_ID!), '_blank')}
+                    className="absolute bottom-2 right-2 px-3 py-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs font-medium flex items-center gap-1">
+                    <span className="material-symbols-outlined text-base">open_in_new</span>
+                    เปิดใน Google Drive
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-base">image_not_supported</span>
+                  ไม่มีรูปภาพหลักฐาน (อัปโหลดภาพไม่สำเร็จ)
+                </div>
+              )}
+
+              {/* ข้อมูล */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 mb-0.5">วันที่บันทึก</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{toThaiDateShort(sel.Date_Thai)}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 mb-0.5">จำนวนก้าวที่ส่ง</p>
+                  <p className="text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">{Number(sel.Steps_Count).toLocaleString()}</p>
+                </div>
+                <div className="bg-purple-50 dark:bg-purple-900/10 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 mb-0.5">AI อ่านได้</p>
+                  <p className="text-xl sm:text-2xl font-extrabold text-purple-600 dark:text-purple-400">{selAiSteps != null ? selAiSteps.toLocaleString() : '—'}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">ความมั่นใจ {selConfidence != null ? Math.round(selConfidence * 100) : '—'}%</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
+                  <p className="text-xs text-gray-400 mb-0.5">วันที่ในภาพ</p>
+                  {selDateMatch === true ? (
+                    <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">ตรงกัน</p>
+                  ) : selDateMatch === false ? (
+                    <p className="text-lg font-bold text-red-600 dark:text-red-400">ไม่ตรง</p>
+                  ) : (
+                    <p className="text-lg font-bold text-amber-600 dark:text-amber-400">ไม่พบ/ไม่ชัด</p>
+                  )}
+                </div>
+              </div>
+
+              {selIsAlert && sel.Alert_Reason && (
+                <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+                  <span className="font-bold">โน้ตแจ้งเตือน: </span>{sel.Alert_Reason}
+                </div>
+              )}
+
+              {/* แก้ไขจำนวนก้าวก่อนอนุมัติ */}
+              <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 p-3">
+                <p className="text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-sm">edit_note</span>
+                  แก้ไขจำนวนก้าว (ส่งค่ายืนยันแทนค่าต้นฉบับ)
+                </p>
+                <input
+                  type="number" min="0"
+                  value={editedSteps}
+                  onChange={e => setEditedSteps(e.target.value)}
+                  placeholder={`จำนวนก้าวที่ถูกต้อง (เดิม ${Number(sel.Steps_Count).toLocaleString()})`}
+                  className="w-full p-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-lg font-extrabold text-gray-900 dark:text-white text-center outline-none focus:ring-2 focus:ring-emerald-500" />
+              </div>
+
+              {/* ปุ่มตรวจสอบ */}
+              <div className="flex flex-col gap-2">
+                {!selCanVerify ? (
+                  <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-base">lock</span>
+                    {user ? 'คุณอยู่ฝ่ายเดียวกับผู้ส่งก้าว — ต้องให้บุคคลต่างฝ่ายตรวจสอบ' : 'โปรดเข้าสู่ระบบในฐานะผู้ดูแลระบบ'}
+                  </div>
+                ) : selRejecting ? (
+                  <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                    <p className="text-sm font-bold text-red-700 dark:text-red-400 mb-1.5">เหตุผลที่ไม่อนุมัติ (จำเป็น)</p>
+                    <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={2}
+                      placeholder="เช่น รูปไม่ชัดเจน / วันที่ในภาพไม่ตรง / จำนวนก้าวไม่สมเหตุสมผล"
+                      className="w-full p-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => requestVerify(sel, 'Rejected', rejectReason)} disabled={!rejectReason.trim() || selBusy}
+                        className="flex-1 py-2 rounded-lg bg-red-600 text-white font-bold text-sm disabled:opacity-50">
+                        {selBusy ? 'กำลังบันทึก...' : 'ยืนยันไม่อนุมัติ'}
+                      </button>
+                      <button onClick={() => { setRejectFor(null); setRejectReason(''); }} disabled={selBusy}
+                        className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold text-sm">
+                        ยกเลิก
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => requestVerify(sel, 'Approved', '', editedSteps)} disabled={selBusy}
+                      className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      {selBusy ? <><span className="loading loading-spinner loading-xs"></span>กำลังบันทึก...</> : <><span className="material-symbols-outlined text-lg">check_circle</span>ยืนยันว่าถูกต้อง</>}
+                    </button>
+                    <button onClick={() => setRejectFor(sel.Record_ID)} disabled={selBusy}
+                      className="flex-1 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      <span className="material-symbols-outlined text-lg">cancel</span>ไม่อนุมัติ
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmPopup
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message || ''}
+        variant={confirm?.variant}
+        loading={!!busyId}
+        onConfirm={() => confirm?.onConfirm()}
+        onClose={() => setConfirm(null)}
+      />
+    </div>
+  );
+}

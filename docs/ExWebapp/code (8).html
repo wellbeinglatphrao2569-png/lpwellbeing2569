@@ -1,0 +1,567 @@
+<!DOCTYPE html><html class="light" lang="th" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>ลาดพร้าวสร้างสุข - แดชบอร์ดสุขภาพ</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#d1e4ff",
+                        "inverse-primary": "#9ecaff",
+                        "inverse-on-surface": "#eff1f3",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-tint": "#0061a4",
+                        "surface-container-low": "#f2f4f6",
+                        "primary-fixed-dim": "#9ecaff",
+                        "surface-container-high": "#e6e8ea",
+                        "primary-container": "#2196f3",
+                        "surface-dim": "#d8dadc",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#91f78e",
+                        "on-error-container": "#93000a",
+                        "on-secondary-fixed": "#002204",
+                        "on-secondary-container": "#00731e",
+                        "secondary-fixed-dim": "#78dc77",
+                        "on-tertiary": "#ffffff",
+                        "primary": "#0061a4",
+                        "tertiary-container": "#85949e",
+                        "on-surface": "#191c1e",
+                        "on-primary-fixed": "#001d36",
+                        "surface-container-highest": "#e0e3e5",
+                        "on-primary-fixed-variant": "#00497d",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed": "#d6e5ef",
+                        "surface-container": "#eceef0",
+                        "surface": "#f7f9fb",
+                        "outline-variant": "#bfc7d4",
+                        "outline": "#707883",
+                        "surface-bright": "#f7f9fb",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#e0e3e5",
+                        "secondary": "#006e1c",
+                        "secondary-fixed": "#94f990",
+                        "on-tertiary-container": "#1f2d35",
+                        "on-secondary": "#ffffff",
+                        "on-tertiary-fixed": "#0f1d25",
+                        "on-primary": "#ffffff",
+                        "on-primary-container": "#002c4f",
+                        "tertiary-fixed-dim": "#bac9d3",
+                        "tertiary": "#526069",
+                        "on-tertiary-fixed-variant": "#3b4951",
+                        "on-secondary-fixed-variant": "#005313",
+                        "on-background": "#191c1e",
+                        "on-surface-variant": "#404752",
+                        "background": "#f7f9fb",
+                        "inverse-surface": "#2d3133"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "8px",
+                        "sidebar-width": "280px",
+                        "container-margin": "24px",
+                        "gutter": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Be Vietnam Pro"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "label-md": ["Be Vietnam Pro"],
+                        "body-lg": ["Be Vietnam Pro"],
+                        "headline-md": ["Be Vietnam Pro"],
+                        "headline-lg": ["Be Vietnam Pro"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["26px", {"lineHeight": "36px", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Be Vietnam Pro', sans-serif; background-color: #f7f9fb; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .neon-glow-blue { box-shadow: 0 0 15px rgba(33, 150, 243, 0.3); }
+        .neon-glow-green { box-shadow: 0 0 15px rgba(148, 249, 144, 0.3); }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .active-glow::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            height: 100%;
+            width: 4px;
+            background: #0061a4;
+            box-shadow: 0 0 10px rgba(0, 97, 164, 0.8);
+        }
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+        .floating { animation: float 4s ease-in-out infinite; }
+        .tab-active { border-bottom: 2px solid #0061a4; color: #0061a4; }
+    </style>
+</head>
+<body class="flex min-h-screen">
+<!-- Sidebar Section -->
+<aside class="w-sidebar-width h-screen sticky left-0 top-0 bg-surface/70 backdrop-blur-xl border-r border-white/20 shadow-[40px_0_40px_-10px_rgba(0,97,164,0.1)] hidden md:flex flex-col z-50">
+<div class="flex flex-col h-full py-container-margin px-4">
+<!-- Brand Section -->
+<div class="flex items-center gap-3 mb-10 px-2">
+<img alt="Logo" class="w-12 h-12 object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCqRWnBgz62UJcHe-kuYan5tErGO-cFen5d01rsuX8smWydxoBNLuYLMLAuBMjYGLMrdTSvQ_IHUMomjkC3jvS5ix32wp5hIRo4LaLogKbhSA3Xb6TI56MoBG22C3OtZ_q6aoKhWC_yX8KLbR5AueKs3QjZ-GYS0Bu7sM64T5CN4InaBVD_M9ytykQ5xhkmRMy4x4aOVCU3955UjAvrjZwDu1-rJ1pM739g8eG7y0jiFkQtrOAsaW-vrA">
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">ลาดพร้าวสร้างสุข</h1>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest">Ladprao Happy Health</p>
+</div>
+</div>
+<!-- Navigation Links -->
+<div class="mb-8 px-2 py-4 glass-card rounded-2xl border border-white/20 shadow-sm">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-primary/20">สม</div>
+<div class="flex-1 min-w-0">
+<p class="text-label-md font-bold text-on-surface truncate">สมชาย รักสุขภาพ</p>
+<p class="text-[12px] text-on-surface-variant truncate">ฝ่ายทะเบียน</p>
+</div>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-error transition-colors p-1 rounded-lg hover:bg-error/10">logout</button>
+</div>
+</div><nav class="flex-1 space-y-2">
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl bg-primary-fixed text-on-primary-fixed font-bold relative active-glow transition-all" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="text-body-md font-body-md">หน้าแรก</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">person_add</span>
+<span class="text-body-md font-body-md group-hover:text-primary">ลงทะเบียน</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">directions_walk</span>
+<span class="text-body-md font-body-md group-hover:text-primary">ก้าวเดิน</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">event_busy</span>
+<span class="text-body-md font-body-md group-hover:text-primary">พุธนี้ไม่มีเชื่อม</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">school</span>
+<span class="text-body-md font-body-md group-hover:text-primary">อบรม</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">diversity_3</span>
+<span class="text-body-md font-body-md group-hover:text-primary">Happy Connect</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">health_and_safety</span>
+<span class="text-body-md font-body-md group-hover:text-primary">Wellness Hub</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary">assessment</span>
+<span class="text-body-md font-body-md group-hover:text-primary">รายงาน</span>
+</a>
+</nav>
+<!-- User Footer -->
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="flex-1 flex flex-col min-h-screen relative overflow-x-hidden">
+<!-- Top App Bar -->
+<header class="bg-surface-bright/70 backdrop-blur-lg sticky top-0 z-40 border-b border-white/20 shadow-sm flex justify-between items-center w-full px-container-margin h-16">
+<div class="flex items-center md:hidden">
+<span class="material-symbols-outlined mr-4">menu</span>
+<span class="font-headline-md text-headline-md font-bold text-primary">ลาดพร้าวสร้างสุข</span>
+</div>
+<div class="hidden md:block">
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">แผงควบคุมหลัก</h2>
+</div>
+<div class="flex items-center gap-4">
+
+<div class="flex items-center gap-2">
+<button class="w-10 h-10 rounded-full hover:bg-surface-container-high transition-all flex items-center justify-center relative">
+<span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full"></span>
+</button>
+<button class="w-10 h-10 rounded-full hover:bg-surface-container-high transition-all flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant">settings</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Page Content -->
+<div class="p-container-margin flex-1 space-y-8">
+<!-- Welcome & User Level -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div class="space-y-2">
+<h3 class="font-headline-lg text-headline-lg text-on-surface">สวัสดี สมชาย สุขล้น 👋</h3>
+<div class="flex items-center gap-3 w-full justify-start"><div class="flex items-center gap-3 px-6 py-2.5 bg-gradient-to-r from-[#FFD700] to-[#FFA500] text-on-primary-fixed font-bold rounded-full shadow-[0_0_20px_rgba(255,215,0,0.5)] border border-white/40 transition-transform hover:scale-110 scale-105">
+    <span class="material-symbols-outlined text-2xl" style="font-variation-settings: &quot;FILL&quot; 1;">crown</span>
+    <span class="text-lg">ต้นแบบลาดพร้าวสร้างสุข</span>
+</div><button class="flex items-center gap-2 px-5 py-2.5 bg-primary-container text-white font-bold rounded-full shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer border border-white/20">
+    <span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">stars</span>
+    <div class="flex flex-col items-start leading-none">
+        <span class="text-[10px] opacity-80 font-medium uppercase tracking-wider">แต้มสะสมความสุข</span>
+        <span class="text-lg">1,240 แต้ม</span>
+    </div>
+</button>
+<div class="flex items-center gap-2 text-on-surface-variant opacity-80 bg-surface-container-low px-4 py-2 rounded-full shadow-sm">
+    <span class="material-symbols-outlined text-primary text-lg">calendar_today</span>
+    <span class="text-sm font-medium">วันพุธที่ 22 พฤษภาคม 2567</span>
+</div></div>
+</div>
+
+</div>
+<!-- Core Stats: District Total (Prominent) -->
+<div class="bg-gradient-to-br from-primary to-primary-container rounded-[2rem] p-8 text-white shadow-2xl relative overflow-hidden w-full">
+<div class="absolute -right-20 -top-20 w-80 h-80 bg-white/10 rounded-full blur-3xl"></div>
+<div class="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+<div>
+<h4 class="text-xl font-medium opacity-90 mb-2">ภาพรวมเขตลาดพร้าว</h4>
+<div class="flex items-baseline gap-4">
+<span class="text-6xl md:text-8xl font-black tracking-tight">1,245,670</span>
+<span class="text-2xl font-bold opacity-80">ก้าว</span>
+</div>
+<p class="mt-4 text-primary-fixed font-medium">รวมพลังชาวลาดพร้าวเพื่อสุขภาพที่ดีกว่า</p>
+</div>
+
+</div>
+</div>
+<!-- Bento Grid: Health Statistics -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Personal Stats - Steps & Department -->
+<div class="lg:col-span-8 space-y-6">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Personal Steps Card -->
+<div class="glass-card rounded-3xl p-6 relative overflow-hidden flex flex-col min-h-[300px]">
+<div class="flex justify-between items-start mb-6">
+<div>
+<h4 class="font-bold text-on-surface">การก้าวเดิน (ตนเอง)</h4>
+<div class="flex gap-4 mt-2 text-[12px] font-bold">
+<button class="tab-active pb-1">รายวัน</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors pb-1">รายสัปดาห์</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors pb-1">รายเดือน</button>
+</div>
+</div>
+<span class="bg-primary-fixed text-on-primary-fixed p-2 rounded-xl">
+<span class="material-symbols-outlined">directions_walk</span>
+</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center relative">
+<svg class="w-48 h-48 transform -rotate-90">
+<circle class="text-surface-container-high" cx="96" cy="96" fill="transparent" r="88" stroke="currentColor" stroke-width="12"></circle>
+<circle class="text-primary transition-all duration-1000 ease-out" cx="96" cy="96" fill="transparent" r="88" stroke="currentColor" stroke-dasharray="552.9" stroke-dashoffset="138.2" stroke-linecap="round" stroke-width="12"></circle>
+</svg>
+<div class="absolute flex flex-col items-center">
+<span class="text-4xl font-black text-on-surface">7,240</span>
+<span class="text-sm text-on-surface-variant">เป้าหมาย 8,000</span>
+</div>
+</div>
+<p class="text-center mt-4 text-body-md text-on-surface-variant">อีกเพียง 760 ก้าวจะถึงเป้าหมายรายวัน!</p>
+</div>
+<!-- Department Stats Card -->
+<div class="glass-card rounded-3xl p-6 relative overflow-hidden flex flex-col min-h-[300px]">
+<div class="flex justify-between items-start mb-6">
+<div>
+<h4 class="font-bold text-on-surface">ก้าวเดินรายฝ่าย</h4>
+<p class="text-sm text-on-surface-variant">ฝ่ายทะเบียน</p>
+</div>
+<span class="bg-secondary-container text-on-secondary-container p-2 rounded-xl">
+<span class="material-symbols-outlined">analytics</span>
+</span>
+</div>
+<div class="flex-1 flex flex-col justify-center gap-6">
+<div>
+<div class="flex justify-between text-label-md mb-2">
+<span class="text-on-surface-variant">เฉลี่ยของฝ่าย</span>
+<span class="font-bold text-primary">48,500 / 56,000</span>
+</div>
+<div class="w-full bg-surface-container-high rounded-full h-3">
+<div class="bg-primary h-full rounded-full w-[86%] shadow-lg shadow-primary/20"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="p-3 bg-white/40 border border-[#C0C0C0]/30 rounded-2xl flex items-center gap-3 shadow-sm"><div class="flex flex-col w-full">
+    <p class="text-xs text-on-surface-variant uppercase leading-tight mb-1">ลำดับภายใน<br>สำนักงานเขตฯ</p>
+    <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-[#C0C0C0] text-2xl">workspace_premium</span>
+        <p class="text-on-surface font-bold">
+            <span class="text-sm">ที่</span>
+            <span class="text-3xl">2</span>
+        </p>
+    </div>
+</div></div>
+<div class="p-3 bg-surface-container rounded-2xl">
+<p class="text-[10px] text-on-surface-variant uppercase">อัตราการร่วม</p>
+<p class="text-4xl font-bold text-on-surface">94%</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Wednesday No Sugar Section -->
+<section class="space-y-4">
+<div class="flex items-center justify-between px-2">
+<h4 class="font-headline-md text-headline-md text-on-surface flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-3xl">campaign</span>
+            ข่าวสารและประกาศ (จนท.นสส.)
+        </h4>
+<button class="text-primary font-bold text-sm hover:underline">ดูทั้งหมด</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Featured News Card -->
+<div class="glass-card rounded-[2rem] overflow-hidden group cursor-pointer border border-white/20 shadow-xl transition-all hover:scale-[1.02] relative h-full min-h-[320px]">
+<div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110" style="background-image: url(&quot;https://lh3.googleusercontent.com/aida-public/AB6AXuAyPL68PfrlgVEyHmNOoZq2TKAc_o1OTaajUVi0vz6mWBRa39a_DoUnQ13ETTFb6n1JmCoLakFCrdw1mtRovXrO2tZan8-cpXEsQ370OTZHQhpH8JFN7n8EvSFkkx8XCAZrOPl9olZ_79iYocez8t_RJWhPAB2JI3P_c4QsG-Mf18OXkrvAEsSPHB5ahoUAIOGLcYcNzcbOxFup3wRRWAzRNHGzgFONfMfviUN2Tq9bGpc9UZaujTnMQA&quot;);"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+<div class="absolute top-4 right-4">
+<span class="bg-secondary text-white text-xs px-3 py-1 rounded-full font-bold shadow-lg">กิจกรรมใหม่</span>
+</div>
+<div class="absolute bottom-0 left-0 right-0 p-6">
+<p class="text-xs text-secondary-fixed font-bold mb-2">20 พ.ค. 2567 — โดย จนท.นสส.</p>
+<h5 class="text-xl font-bold text-white leading-tight group-hover:text-secondary-fixed transition-colors">เตรียมพบกับกิจกรรม "เดินกินลม ชมลาดพร้าว" ครั้งที่ 5 สำหรับบุคลากร</h5>
+<div class="mt-3 flex items-center justify-between text-white/80 text-sm">
+<span class="line-clamp-1">ขอเชิญชวนเจ้าหน้าที่ทุกท่านร่วมกิจกรรม...</span>
+<span class="material-symbols-outlined">arrow_forward</span>
+</div>
+</div>
+</div>
+<!-- Secondary News Card -->
+<div class="glass-card rounded-[2rem] overflow-hidden group cursor-pointer border border-white/20 shadow-xl transition-all hover:scale-[1.02] relative h-full min-h-[320px]">
+<div class="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-110" style="background-image: url(&quot;https://lh3.googleusercontent.com/aida-public/AB6AXuClZUcpmJwVgwjqr_eDVz_tLU2N9T3tp69K0H827rczfFNr--XqVg_4agwcGwiXLYDFtsZIZJnYE0hQhn7mOSvbVaBnZRS6dX3XK71UGdcIR6sZOuO3WiGhWSbZhkTHYweP2rSvN0CseTUTDPZuPuyAZJJ_b4JSKZ56ZuOJY50DIrJq1_mdI7Jf5CLwnxt_nzcPtE9JcA7gXUOGLkArWsgza-TihL7fQevFZt_N82HeGEcudYN4DdOETQ&quot;);"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+<div class="absolute top-4 right-4">
+<span class="bg-secondary text-white text-xs px-3 py-1 rounded-full font-bold shadow-lg">สาระสุขภาพ</span>
+</div>
+<div class="absolute bottom-0 left-0 right-0 p-6">
+<p class="text-xs text-secondary-fixed font-bold mb-2">18 พ.ค. 2567 — โดย จนท.นสส.</p>
+<h5 class="text-xl font-bold text-white leading-tight group-hover:text-secondary-fixed transition-colors">5 เคล็ดลับ งดหวานเพื่อลดพุงแบบคนรุ่นใหม่</h5>
+<div class="mt-3 flex items-center justify-between text-white/80 text-sm">
+<span class="">อ่านต่อ 5 นาที</span>
+<span class="material-symbols-outlined">arrow_forward</span>
+</div>
+</div>
+</div>
+</div>
+</section><div class="glass-card rounded-3xl p-8 border-l-8 border-secondary">
+<div class="flex flex-col md:flex-row justify-between gap-6">
+<div class="flex-1">
+<h4 class="font-headline-md text-headline-md text-on-surface mb-4 flex items-center gap-2"><div class="flex items-center justify-between w-full">
+    <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-secondary text-3xl">event_busy</span>
+        <span class="">พุธนี้ไม่มีเชื่อม</span>
+    </div>
+    <span class="text-sm font-medium text-on-surface-variant opacity-80">วันพุธที่ 22 พฤษภาคม 2567</span>
+</div></h4>
+<div class="p-4 bg-secondary-container/20 rounded-2xl mb-4"><p class="text-xl font-bold text-secondary flex items-center gap-2 mb-3">
+<span class="material-symbols-outlined">check_circle</span>
+<span class="">😎 พุธถือศีล (ใจแข็งงดหวาน)</span>
+</p>
+<div class="space-y-2 border-t border-secondary/20 pt-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-secondary">person</span>
+<p class="text-sm font-medium text-on-surface">โดย คุณสมชาย รักสุขภาพ</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">badge</span>
+<p class="text-sm text-on-surface-variant">ตำแหน่ง เจ้าพนักงานธุรการชำนาญงาน</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">schedule</span>
+<p class="text-sm text-on-surface-variant">บันทึกเมื่อวันที่ 22 พฤษภาคม 2567 เวลา 14:30 น.</p>
+</div>
+</div></div>
+</div>
+
+</div>
+</div>
+<!-- Compact Action Buttons -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<button class="glass-card flex items-center justify-center gap-3 px-8 py-5 rounded-[1.5rem] border border-white/20 hover:bg-error/10 hover:border-error/30 transition-all group hover:scale-[1.02] active:scale-[0.98] hover:shadow-[0_0_20px_rgba(186,26,26,0.15)]">
+<span class="material-symbols-outlined text-error text-3xl group-hover:scale-110 transition-transform">favorite</span>
+<span class="font-bold text-headline-md text-on-surface">Thank You Wall</span>
+</button>
+<button class="glass-card flex items-center justify-center gap-3 px-8 py-5 rounded-[1.5rem] border border-white/20 hover:bg-secondary/10 hover:border-secondary/30 transition-all group hover:scale-[1.02] active:scale-[0.98] hover:shadow-[0_0_20px_rgba(0,110,28,0.15)]">
+<span class="material-symbols-outlined text-secondary text-3xl group-hover:scale-110 transition-transform">chat</span>
+<span class="font-bold text-headline-md text-on-surface">เสียงจากคนทำงาน</span>
+</button>
+</div>
+</div>
+<!-- Right Column: Leaderboard, Assessment, News -->
+<div class="lg:col-span-4 space-y-6"><div class="glass-card rounded-3xl p-6 shadow-xl border border-white/20">
+    <div class="flex justify-between items-center mb-6">
+        <h4 class="font-headline-md text-headline-md text-on-surface">ประเมินสุขภาวะรายวัน</h4>
+        <span class="material-symbols-outlined text-primary">mood</span>
+    </div>
+    <div class="space-y-6">
+        <!-- Happiness Score -->
+        <div class="space-y-2">
+            <div class="flex justify-between items-center">
+                <span class="text-sm font-bold text-on-surface-variant">ความสุข</span>
+                <span class="text-sm font-bold text-primary">4/5 😊</span>
+            </div>
+            <div class="flex gap-1 h-2">
+                <div class="flex-1 bg-primary rounded-full"></div>
+                <div class="flex-1 bg-primary rounded-full"></div>
+                <div class="flex-1 bg-primary rounded-full"></div>
+                <div class="flex-1 bg-primary rounded-full"></div>
+                <div class="flex-1 bg-surface-container-high rounded-full"></div>
+            </div>
+        </div>
+        <!-- Physical Health Score -->
+        <div class="space-y-2">
+            <div class="flex justify-between items-center">
+                <span class="text-sm font-bold text-on-surface-variant">สุขภาพร่างกาย</span>
+                <span class="text-sm font-bold text-secondary">5/5 💪</span>
+            </div>
+            <div class="flex gap-1 h-2">
+                <div class="flex-1 bg-secondary rounded-full"></div>
+                <div class="flex-1 bg-secondary rounded-full"></div>
+                <div class="flex-1 bg-secondary rounded-full"></div>
+                <div class="flex-1 bg-secondary rounded-full"></div>
+                <div class="flex-1 bg-secondary rounded-full"></div>
+            </div>
+        </div>
+        <!-- Stress Score -->
+        <div class="space-y-2">
+            <div class="flex justify-between items-center">
+                <span class="text-sm font-bold text-on-surface-variant">ความเครียด</span>
+                <span class="text-sm font-bold text-error">2/5 😌</span>
+            </div>
+            <div class="flex gap-1 h-2">
+                <div class="flex-1 bg-error rounded-full"></div>
+                <div class="flex-1 bg-error rounded-full"></div>
+                <div class="flex-1 bg-surface-container-high rounded-full"></div>
+                <div class="flex-1 bg-surface-container-high rounded-full"></div>
+                <div class="flex-1 bg-surface-container-high rounded-full"></div>
+            </div>
+        </div>
+    </div>
+    <button class="w-full mt-6 py-3 bg-primary/10 text-primary font-bold rounded-2xl hover:bg-primary/20 transition-all" onclick="document.getElementById('assessment-modal').classList.remove('hidden')">ประเมินใหม่</button>
+</div>
+<!-- Daily Wellness Assessment -->
+<!-- Leaderboard (Top 3) -->
+<div class="glass-card rounded-3xl p-6 shadow-xl"><div class="flex justify-between items-center mb-6"><div class="flex flex-col">
+    <h4 class="font-headline-md text-headline-md text-on-surface">ลำดับสถิติรายสัปดาห์</h4>
+    <p class="text-sm font-medium text-on-surface-variant opacity-80">27 ก.ค. - 2 ส.ค. 2569</p>
+</div>
+<span class="material-symbols-outlined text-primary text-3xl">emoji_events</span></div><div class="space-y-8"><div><h5 class="text-sm font-bold text-on-surface-variant mb-4 flex items-center gap-2"><span class="w-1.5 h-4 bg-primary rounded-full"></span> Top 3: รายฝ่าย</h5><div class="space-y-3"><div class="flex items-center gap-3 p-3 rounded-2xl bg-white/40 border border-[#FFD700]/30 shadow-sm"><span class="material-symbols-outlined text-[#FFD700] text-2xl">workspace_premium</span><div class="flex-1"><p class="text-sm font-bold text-on-surface">ฝ่ายรักษาความสะอาดฯ</p></div><span class="text-xs font-bold text-primary">52,412 ก้าว</span></div><div class="flex items-center gap-3 p-3 rounded-2xl bg-white/40 border border-[#C0C0C0]/30 shadow-sm"><span class="material-symbols-outlined text-[#C0C0C0] text-2xl">workspace_premium</span><div class="flex-1"><p class="text-sm font-bold text-on-surface">ฝ่ายทะเบียน</p></div><span class="text-xs font-bold text-on-surface-variant">48,500 ก้าว</span></div><div class="flex items-center gap-3 p-3 rounded-2xl bg-white/40 border border-[#CD7F32]/30 shadow-sm"><span class="material-symbols-outlined text-[#CD7F32] text-2xl">workspace_premium</span><div class="flex-1"><p class="text-sm font-bold text-on-surface">ฝ่ายสิ่งแวดล้อมฯ</p></div><span class="text-xs font-bold text-on-surface-variant">45,218 ก้าว</span></div></div></div><div><h5 class="text-sm font-bold text-on-surface-variant mb-4 flex items-center gap-2"><span class="w-1.5 h-4 bg-secondary rounded-full"></span> Top 3: รายบุคคล</h5><div class="space-y-3"><div class="flex items-center gap-3 p-3 rounded-2xl bg-white/40 border border-[#FFD700]/30 shadow-sm"><span class="material-symbols-outlined text-[#FFD700] text-2xl">military_tech</span><div class="flex-1"><p class="text-sm font-bold text-on-surface">วินัย จันทร์อบ</p><p class="text-[10px] text-on-surface-variant">ฝ่ายรักษาความสะอาดฯ</p></div><span class="text-xs font-bold text-secondary">15,240 ก้าว</span></div><div class="flex items-center gap-3 p-3 rounded-2xl bg-white/40 border border-[#C0C0C0]/30 shadow-sm"><span class="material-symbols-outlined text-[#C0C0C0] text-2xl">military_tech</span><div class="flex-1"><p class="text-sm font-bold text-on-surface">มณี มีทรัพย์</p><p class="text-[10px] text-on-surface-variant">ฝ่ายทะเบียน</p></div><span class="text-xs font-bold text-on-surface-variant">14,800 ก้าว</span></div><div class="flex items-center gap-3 p-3 rounded-2xl bg-white/40 border border-[#CD7F32]/30 shadow-sm"><span class="material-symbols-outlined text-[#CD7F32] text-2xl">military_tech</span><div class="flex-1"><p class="text-sm font-bold text-on-surface">สมศรี สุขใจ</p><p class="text-[10px] text-on-surface-variant">ฝ่ายคลัง</p></div><span class="text-xs font-bold text-on-surface-variant">14,125 ก้าว</span></div></div></div></div><button class="w-full mt-6 py-3 text-primary font-bold hover:bg-primary/5 rounded-2xl transition-all border border-primary/20">ดูเพิ่มเติม</button></div>
+<!-- News & Announcements (Pulling from จนท.นสส.) -->
+</div>
+</div>
+</div>
+<!-- Footer Credits -->
+<footer class="p-container-margin border-t border-white/20 mt-12">
+<div class="flex flex-col md:flex-row justify-between items-center gap-4 opacity-60">
+<p class="text-label-md">© 2567 สำนักงานเขตลาดพร้าว - ลาดพร้าวสร้างสุข</p>
+<div class="flex gap-6 text-label-md">
+<a class="hover:text-primary" href="#">นโยบายความเป็นส่วนตัว</a>
+<a class="hover:text-primary" href="#">ข้อกำหนดการใช้งาน</a>
+<a class="hover:text-primary" href="#">ติดต่อเรา</a>
+</div>
+</div>
+</footer>
+</main>
+<!-- Bottom Navigation for Mobile -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-surface/80 backdrop-blur-xl border-t border-white/20 flex justify-around py-4 z-50">
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: &quot;FILL&quot; 1;">home</span>
+<span class="text-[10px]">หน้าแรก</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">directions_walk</span>
+<span class="text-[10px]">ก้าวเดิน</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">diversity_3</span>
+<span class="text-[10px]">Connect</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="text-[10px]">โปรไฟล์</span>
+</a>
+</nav>
+<script>
+    // Interaction effects
+    document.querySelectorAll('button, a').forEach(el => {
+        el.addEventListener('mousedown', () => {
+            el.style.transform = 'scale(0.97)';
+        });
+        el.addEventListener('mouseup', () => {
+            el.style.transform = '';
+        });
+    });
+</script>
+<div class="fixed inset-0 z-[100] flex items-center justify-center p-4 hidden" id="assessment-modal">
+<div class="absolute inset-0 bg-on-surface/20 backdrop-blur-sm" onclick="document.getElementById('assessment-modal').classList.add('hidden')"></div>
+<div class="glass-card w-full max-w-md rounded-[2rem] p-8 shadow-2xl relative z-10 border border-white/40 neon-glow-blue">
+<div class="flex justify-between items-center mb-8">
+<h3 class="text-2xl font-bold text-on-surface">ประเมินสุขภาวะรายวัน</h3>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-error transition-colors" onclick="document.getElementById('assessment-modal').classList.add('hidden')">close</button>
+</div>
+<div class="space-y-8">
+<!-- Happiness -->
+<div class="space-y-3">
+<label class="font-bold text-on-surface flex justify-between">ความสุข <span class="text-primary text-sm">ระดับ 1-5</span></label>
+<div class="flex justify-between gap-2">
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-primary/10 hover:scale-110 transition-all text-2xl">😫</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-primary/10 hover:scale-110 transition-all text-2xl">🙁</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-primary/10 hover:scale-110 transition-all text-2xl">😐</button>
+<button class="flex-1 py-3 rounded-2xl bg-primary/20 border-2 border-primary scale-110 text-2xl">😊</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-primary/10 hover:scale-110 transition-all text-2xl">🤩</button>
+</div>
+</div>
+<!-- Physical Health -->
+<div class="space-y-3">
+<label class="font-bold text-on-surface flex justify-between">สุขภาพร่างกาย <span class="text-secondary text-sm">ระดับ 1-5</span></label>
+<div class="flex justify-between gap-2">
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-secondary/10 hover:scale-110 transition-all text-2xl">🤒</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-secondary/10 hover:scale-110 transition-all text-2xl">🥱</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-secondary/10 hover:scale-110 transition-all text-2xl">🚶</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-secondary/10 hover:scale-110 transition-all text-2xl">🏃</button>
+<button class="flex-1 py-3 rounded-2xl bg-secondary/20 border-2 border-secondary scale-110 text-2xl">💪</button>
+</div>
+</div>
+<!-- Stress -->
+<div class="space-y-3">
+<label class="font-bold text-on-surface flex justify-between">ความเครียด <span class="text-error text-sm">ระดับ 1-5</span></label>
+<div class="flex justify-between gap-2">
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-error/10 hover:scale-110 transition-all text-2xl">🧘</button>
+<button class="flex-1 py-3 rounded-2xl bg-error/20 border-2 border-error scale-110 text-2xl">😌</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-error/10 hover:scale-110 transition-all text-2xl">🤨</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-error/10 hover:scale-110 transition-all text-2xl">😫</button>
+<button class="flex-1 py-3 rounded-2xl bg-surface-container hover:bg-error/10 hover:scale-110 transition-all text-2xl">🤯</button>
+</div>
+</div>
+</div>
+<div class="mt-10 flex gap-4">
+<button class="flex-1 py-4 rounded-2xl font-bold text-on-surface-variant hover:bg-surface-container-high transition-all" onclick="document.getElementById('assessment-modal').classList.add('hidden')">ยกเลิก</button>
+<button class="flex-[2] py-4 bg-gradient-to-r from-primary to-primary-container text-white rounded-2xl font-bold shadow-lg hover:scale-105 active:scale-95 transition-all neon-glow-blue" onclick="document.getElementById('assessment-modal').classList.add('hidden')">บันทึกข้อมูล</button>
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+
+
+</body></html>

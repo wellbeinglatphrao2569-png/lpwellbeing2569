@@ -1,0 +1,416 @@
+<!DOCTYPE html><html lang="th" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Points History - Ladprao Happy</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "secondary-fixed": "#94f990",
+                    "on-tertiary-fixed": "#0f1d25",
+                    "on-tertiary": "#ffffff",
+                    "on-secondary-container": "#00731e",
+                    "primary": "#0061a4",
+                    "tertiary-fixed-dim": "#bac9d3",
+                    "surface-container-high": "#e6e8ea",
+                    "surface-dim": "#d8dadc",
+                    "surface-container-highest": "#e0e3e5",
+                    "on-tertiary-container": "#1f2d35",
+                    "inverse-primary": "#9ecaff",
+                    "on-background": "#191c1e",
+                    "inverse-surface": "#2d3133",
+                    "secondary-container": "#91f78e",
+                    "primary-fixed": "#d1e4ff",
+                    "error": "#ba1a1a",
+                    "on-primary": "#ffffff",
+                    "on-tertiary-fixed-variant": "#3b4951",
+                    "surface-variant": "#e0e3e5",
+                    "on-surface": "#191c1e",
+                    "on-error-container": "#93000a",
+                    "on-surface-variant": "#404752",
+                    "on-primary-container": "#002c4f",
+                    "on-secondary": "#ffffff",
+                    "on-secondary-fixed-variant": "#005313",
+                    "secondary-fixed-dim": "#78dc77",
+                    "outline": "#707883",
+                    "surface": "#f7f9fb",
+                    "primary-container": "#2196f3",
+                    "surface-container-low": "#f2f4f6",
+                    "on-primary-fixed": "#001d36",
+                    "on-error": "#ffffff",
+                    "on-secondary-fixed": "#002204",
+                    "outline-variant": "#bfc7d4",
+                    "tertiary": "#526069",
+                    "surface-container": "#eceef0",
+                    "primary-fixed-dim": "#9ecaff",
+                    "error-container": "#ffdad6",
+                    "surface-container-lowest": "#ffffff",
+                    "on-primary-fixed-variant": "#00497d",
+                    "surface-tint": "#0061a4",
+                    "secondary": "#006e1c",
+                    "tertiary-fixed": "#d6e5ef",
+                    "tertiary-container": "#85949e",
+                    "surface-bright": "#f7f9fb",
+                    "background": "#f7f9fb",
+                    "inverse-on-surface": "#eff1f3"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sidebar-width": "280px",
+                    "container-margin": "24px",
+                    "gutter": "16px",
+                    "base": "8px"
+            },
+            "fontFamily": {
+                    "label-md": ["Be Vietnam Pro"],
+                    "headline-lg": ["Be Vietnam Pro"],
+                    "headline-lg-mobile": ["Be Vietnam Pro"],
+                    "body-md": ["Be Vietnam Pro"],
+                    "body-lg": ["Be Vietnam Pro"],
+                    "headline-md": ["Be Vietnam Pro"]
+            },
+            "fontSize": {
+                    "label-md": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                    "headline-lg": ["32px", {"lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-lg-mobile": ["26px", {"lineHeight": "36px", "fontWeight": "700"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .neon-glow {
+            box-shadow: 0 0 15px rgba(0, 97, 164, 0.3);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .neon-accent-glow:focus-within {
+            box-shadow: 0 0 8px rgba(33, 150, 243, 0.4);
+            border-color: #2196f3;
+        }
+    </style>
+</head>
+<body class="bg-background font-body-md text-on-background min-h-screen">
+<!-- Top AppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/70 backdrop-blur-xl border-b border-white/20 shadow-[0_8px_32px_0_rgba(0,97,164,0.1)]">
+<div class="flex justify-between items-center h-16 px-6 w-full">
+<h1 class="font-headline-md text-headline-md font-bold text-primary">Ladprao Happy</h1>
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-full hover:bg-primary/10 transition-colors active:scale-95">
+<span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+</button>
+<div class="h-10 w-10 rounded-full overflow-hidden border-2 border-primary/20">
+<img class="w-full h-full object-cover" data-alt="Close-up portrait of a cheerful Thai male healthcare professional in a modern clean medical setting. The lighting is soft and bright, highlighting a friendly and trustworthy expression, consistent with a premium health-tech application aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA9dzQMHwD_7WsNDk51x8anCCDDn2MDxWYk7InsrLoEw_cHapE6HWJF9eVtn0fZnDzUWnP9MiEiyo3VkKfmod_1yg1zVncVxBLr_N6b7A5OEPMDh_PVTmP2AXYKP6E0u8XduMmMiihq6fAHs5IvQLbd_s0_SUwke6JrIxc-xQIgEVm4oPiU7P4JkDO5zb2RycnGcxC8saweRHEjRMY0d6GncqkR6nTRJizlpLCl9StL5sj9Qb9vx1kLCg">
+</div>
+</div>
+</div>
+</header>
+<!-- Side Navigation Bar -->
+<nav class="fixed left-0 top-0 h-full w-[280px] hidden md:block bg-surface/70 backdrop-blur-3xl border-r border-white/20 shadow-[4px_0_24px_rgba(0,0,0,0.05)] pt-20">
+<div class="flex flex-col py-8 px-4 space-y-2">
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all active:translate-x-1" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all active:translate-x-1" href="#">
+<span class="material-symbols-outlined">monitor_heart</span>
+<span class="font-label-md text-label-md">Health Log</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-primary bg-primary/10 border-r-4 border-primary shadow-[0_0_15px_rgba(0,97,164,0.3)] transition-all active:translate-x-1" href="#">
+<span class="material-symbols-outlined">database</span>
+<span class="font-label-md text-label-md">Points History</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all active:translate-x-1" href="#">
+<span class="material-symbols-outlined">workspace_premium</span>
+<span class="font-label-md text-label-md">Challenges</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all active:translate-x-1" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+<div class="mt-auto pt-8">
+<button class="w-full bg-primary-container text-on-primary-container py-3 px-4 rounded-xl font-bold hover:opacity-90 transition-opacity active:scale-95 shadow-lg shadow-primary/20">
+                    Check Rewards
+                </button>
+</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="pt-24 pb-20 md:pb-8 md:ml-[280px] px-4 md:px-8 max-w-6xl mx-auto">
+<!-- Points Summary Section -->
+<section class="mb-8">
+<div class="glass-card rounded-[2rem] p-8 relative overflow-hidden shadow-[0_12px_40px_rgba(0,97,164,0.12)]" style="--mouse-x: 731px; --mouse-y: 136px;">
+<!-- Abstract Glow Background -->
+<div class="absolute -top-24 -right-24 w-64 h-64 bg-primary/10 rounded-full blur-[80px]"></div>
+<div class="absolute -bottom-24 -left-24 w-64 h-64 bg-secondary/10 rounded-full blur-[80px]"></div>
+<div class="flex flex-col md:flex-row md:items-end justify-between relative z-10 gap-6">
+<div>
+<p class="text-on-surface-variant font-label-md text-label-md mb-2">แต้มสะสมความสุข (Happiness Points)</p>
+<div class="flex items-baseline gap-2">
+<span class="text-primary font-headline-lg text-headline-lg">1,240</span>
+<span class="text-on-surface-variant font-body-lg text-body-lg">แต้ม</span>
+</div>
+</div>
+<div class="flex-1 md:max-w-md">
+<div class="flex justify-between items-center mb-3">
+<div class="flex items-center gap-2">
+<span class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-xs font-bold">Lv. 4 Runner (สร้างสุข)</span>
+<span class="text-xs text-on-surface-variant">อีก 260 แต้มเพื่อเลื่อนระดับ</span>
+</div>
+<span class="text-xs font-bold text-primary">82%</span>
+</div>
+<div class="h-3 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-gradient-to-r from-primary to-secondary-fixed w-[82%] rounded-full relative">
+<div class="absolute inset-0 bg-white/20 animate-pulse"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Filters and Table Section -->
+<section class="glass-card rounded-[1.5rem] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.04)]" style="--mouse-x: 898px; --mouse-y: 569.5454406738281px;">
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+<h2 class="font-headline-md text-headline-md text-on-surface">ประวัติคะแนนสะสม</h2>
+<div class="flex flex-wrap items-center gap-3 w-full md:w-auto"><button class="flex items-center gap-2 bg-surface-container text-on-surface-variant px-4 py-2 rounded-xl text-sm font-medium hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">info</span>
+                        เกณฑ์การให้คะแนน
+                    </button>
+<!-- Search Field -->
+<div class="relative flex-1 md:w-64 neon-accent-glow group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="w-full bg-surface-container-lowest border-outline-variant rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 transition-all outline-none" placeholder="ค้นหากิจกรรม..." type="text">
+</div>
+<!-- Date Filter -->
+<button class="flex items-center gap-2 bg-surface-container text-on-surface-variant px-4 py-2 rounded-xl text-sm font-medium hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">calendar_today</span>
+                        30 วันล่าสุด
+                    </button>
+<!-- Category Filter -->
+<button class="flex items-center gap-2 bg-surface-container text-on-surface-variant px-4 py-2 rounded-xl text-sm font-medium hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+                        หมวดหมู่
+                    </button>
+</div>
+</div>
+<!-- Table Container -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-surface-variant">
+<th class="pb-4 font-label-md text-label-md text-on-surface-variant px-2">วันที่</th>
+<th class="pb-4 font-label-md text-label-md text-on-surface-variant px-2">กิจกรรม</th>
+<th class="pb-4 font-label-md text-label-md text-on-surface-variant px-2">หมวดหมู่</th>
+<th class="pb-4 font-label-md text-label-md text-on-surface-variant px-2 text-right">แต้มที่ได้รับ</th>
+<th class="pb-4 font-label-md text-label-md text-on-surface-variant px-2 text-center">สถานะ</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-variant/50">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-4 px-2 text-sm text-on-surface">15 ต.ค. 2566</td>
+<td class="py-4 px-2 text-sm font-medium text-on-surface">บันทึกก้าวเดิน 8,542 ก้าว</td>
+<td class="py-4 px-2">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">directions_run</span>
+</div>
+<span class="text-xs font-medium text-on-surface-variant">Step Tracking</span>
+</div>
+</td>
+<td class="py-4 px-2 text-right">
+<span class="font-bold text-secondary">+50</span>
+</td>
+<td class="py-4 px-2 text-center">
+<span class="inline-flex items-center gap-1 bg-secondary-container/30 text-on-secondary-container px-2 py-1 rounded-full text-[10px] font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                                    สำเร็จ
+                                </span>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-4 px-2 text-sm text-on-surface">14 ต.ค. 2566</td>
+<td class="py-4 px-2 text-sm font-medium text-on-surface">ทำแบบประเมินสุขภาวะประจำสัปดาห์</td>
+<td class="py-4 px-2">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-lg bg-tertiary/10 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[18px]">health_and_safety</span>
+</div>
+<span class="text-xs font-medium text-on-surface-variant">Wellness</span>
+</div>
+</td>
+<td class="py-4 px-2 text-right">
+<span class="font-bold text-secondary">+20</span>
+</td>
+<td class="py-4 px-2 text-center">
+<span class="inline-flex items-center gap-1 bg-secondary-container/30 text-on-secondary-container px-2 py-1 rounded-full text-[10px] font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                                    สำเร็จ
+                                </span>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-4 px-2 text-sm text-on-surface">14 ต.ค. 2566</td>
+<td class="py-4 px-2 text-sm font-medium text-on-surface">งดหวานสำเร็จ (No Sugar Day)</td>
+<td class="py-4 px-2">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-lg bg-error/10 flex items-center justify-center text-error">
+<span class="material-symbols-outlined text-[18px]">no_food</span>
+</div>
+<span class="text-xs font-medium text-on-surface-variant">Dietary Control</span>
+</div>
+</td>
+<td class="py-4 px-2 text-right">
+<span class="font-bold text-secondary">+30</span>
+</td>
+<td class="py-4 px-2 text-center">
+<span class="inline-flex items-center gap-1 bg-secondary-container/30 text-on-secondary-container px-2 py-1 rounded-full text-[10px] font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                                    สำเร็จ
+                                </span>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-4 px-2 text-sm text-on-surface">13 ต.ค. 2566</td>
+<td class="py-4 px-2 text-sm font-medium text-on-surface">บันทึกก้าวเดิน 10,200 ก้าว</td>
+<td class="py-4 px-2">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">directions_run</span>
+</div>
+<span class="text-xs font-medium text-on-surface-variant">Step Tracking</span>
+</div>
+</td>
+<td class="py-4 px-2 text-right">
+<span class="font-bold text-secondary">+100</span>
+</td>
+<td class="py-4 px-2 text-center">
+<span class="inline-flex items-center gap-1 bg-secondary-container/30 text-on-secondary-container px-2 py-1 rounded-full text-[10px] font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                                    สำเร็จ
+                                </span>
+</td>
+</tr>
+<!-- Row 5 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="py-4 px-2 text-sm text-on-surface">12 ต.ค. 2566</td>
+<td class="py-4 px-2 text-sm font-medium text-on-surface">เข้าร่วมเวิร์กชอป "อาหารคลีนเพื่อสุขภาพ"</td>
+<td class="py-4 px-2">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-lg bg-secondary-container flex items-center justify-center text-on-secondary-container">
+<span class="material-symbols-outlined text-[18px]">restaurant</span>
+</div>
+<span class="text-xs font-medium text-on-surface-variant">Community</span>
+</div>
+</td>
+<td class="py-4 px-2 text-right">
+<span class="font-bold text-secondary">+150</span>
+</td>
+<td class="py-4 px-2 text-center">
+<span class="inline-flex items-center gap-1 bg-secondary-container/30 text-on-secondary-container px-2 py-1 rounded-full text-[10px] font-bold">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                                    สำเร็จ
+                                </span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="mt-8 flex justify-between items-center px-2">
+<p class="text-xs text-on-surface-variant">แสดง 1 ถึง 5 จาก 24 รายการ</p>
+<div class="flex items-center gap-1">
+<button class="p-2 rounded-lg hover:bg-surface-container transition-colors disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined text-sm">chevron_left</span>
+</button>
+<button class="w-8 h-8 rounded-lg bg-primary text-white text-xs font-bold">1</button>
+<button class="w-8 h-8 rounded-lg hover:bg-surface-container text-xs font-bold transition-colors">2</button>
+<button class="w-8 h-8 rounded-lg hover:bg-surface-container text-xs font-bold transition-colors">3</button>
+<button class="p-2 rounded-lg hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+<!-- CTA Cards Section -->
+
+</main>
+<!-- Bottom Navigation Bar (Mobile only) -->
+<nav class="fixed bottom-0 w-full md:hidden bg-surface/80 backdrop-blur-lg border-t border-white/20 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] rounded-t-xl z-50">
+<div class="flex justify-around items-center h-16 px-4">
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:opacity-80 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-[10px]">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-primary bg-secondary-container/50 rounded-xl p-2 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: &quot;FILL&quot; 1;">stars</span>
+<span class="font-label-md text-[10px]">Points</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:opacity-80 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">assignment</span>
+<span class="font-label-md text-[10px]">Tasks</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-2 hover:opacity-80 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-md text-[10px]">Profile</span>
+</a>
+</div>
+</nav>
+<!-- Floating Action Button (Only relevant for dashboard/tasks, but illustrative here) -->
+<button class="fixed bottom-20 right-6 md:bottom-10 md:right-10 w-14 h-14 bg-gradient-to-br from-primary to-primary-container text-white rounded-full flex items-center justify-center shadow-lg shadow-primary/40 hover:scale-110 active:scale-95 transition-all md:hidden">
+<span class="material-symbols-outlined">add</span>
+</button>
+<script>
+        // Simple search interactivity
+        const searchInput = document.querySelector('input[placeholder="ค้นหากิจกรรม..."]');
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('tbody tr');
+            
+            rows.forEach(row => {
+                const activityText = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+                if (activityText.includes(query)) {
+                    row.style.display = 'table-row';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+
+        // Atmosphere micro-interactions
+        document.querySelectorAll('.glass-card').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.setProperty('--mouse-x', `${x}px`);
+                card.style.setProperty('--mouse-y', `${y}px`);
+            });
+        });
+    </script>
+
+
+</body></html>

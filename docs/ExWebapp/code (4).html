@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+
+<html lang="th"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>พุธนี้ไม่มีเชื่อม - ลาดพร้าวสร้างสุข</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            font-family: 'Be Vietnam Pro', sans-serif;
+            background: radial-gradient(circle at top right, #d1e4ff 0%, #f7f9fb 40%);
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 15px rgba(0, 97, 164, 0.3);
+        }
+        .neon-glow-success {
+            box-shadow: 0 0 20px rgba(0, 110, 28, 0.2);
+        }
+        .active-selection {
+            border: 2px solid #0061a4;
+            transform: scale(1.02);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-on-surface": "#eff1f3",
+                        "surface-tint": "#0061a4",
+                        "on-error": "#ffffff",
+                        "secondary-fixed-dim": "#78dc77",
+                        "on-secondary-container": "#00731e",
+                        "on-tertiary": "#ffffff",
+                        "on-surface-variant": "#404752",
+                        "on-secondary-fixed-variant": "#005313",
+                        "on-primary-fixed-variant": "#00497d",
+                        "inverse-surface": "#2d3133",
+                        "on-surface": "#191c1e",
+                        "surface-container-high": "#e6e8ea",
+                        "inverse-primary": "#9ecaff",
+                        "secondary": "#006e1c",
+                        "error-container": "#ffdad6",
+                        "primary-container": "#2196f3",
+                        "on-secondary-fixed": "#002204",
+                        "outline-variant": "#bfc7d4",
+                        "tertiary-container": "#85949e",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-container": "#91f78e",
+                        "primary-fixed-dim": "#9ecaff",
+                        "background": "#f7f9fb",
+                        "surface-container-highest": "#e0e3e5",
+                        "primary": "#0061a4",
+                        "on-primary-container": "#002c4f",
+                        "on-error-container": "#93000a",
+                        "outline": "#707883",
+                        "secondary-fixed": "#94f990",
+                        "on-tertiary-fixed": "#0f1d25",
+                        "tertiary": "#526069",
+                        "on-background": "#191c1e",
+                        "surface-container-low": "#f2f4f6",
+                        "on-tertiary-fixed-variant": "#3b4951",
+                        "on-tertiary-container": "#1f2d35",
+                        "error": "#ba1a1a",
+                        "surface-container": "#eceef0",
+                        "on-secondary": "#ffffff",
+                        "primary-fixed": "#d1e4ff",
+                        "on-primary": "#ffffff",
+                        "surface-variant": "#e0e3e5",
+                        "on-primary-fixed": "#001d36",
+                        "surface": "#f7f9fb",
+                        "tertiary-fixed-dim": "#bac9d3",
+                        "tertiary-fixed": "#d6e5ef",
+                        "surface-dim": "#d8dadc",
+                        "surface-bright": "#f7f9fb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sidebar-width": "280px",
+                        "base": "8px",
+                        "gutter": "16px",
+                        "container-margin": "24px"
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface min-h-screen flex overflow-x-hidden">
+<!-- Side Navigation Bar -->
+<aside class="w-sidebar-width h-screen sticky left-0 top-0 bg-surface/70 backdrop-blur-xl border-r border-white/20 shadow-[40px_0_40px_-10px_rgba(0,97,164,0.1)] hidden md:flex flex-col py-6 px-4 z-50">
+<div class="flex items-center gap-3 px-2 mb-10">
+<div class="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">health_and_safety</span>
+</div>
+<div>
+<h1 class="font-headline-md text-[20px] font-bold text-primary leading-tight">ลาดพร้าวสร้างสุข</h1>
+<p class="text-[12px] text-on-surface-variant uppercase tracking-wider">Ladprao Happy Health</p>
+</div>
+</div>
+<nav class="flex-grow space-y-1">
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-medium">หน้าแรก</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all" href="#">
+<span class="material-symbols-outlined">person_add</span>
+<span class="font-medium">ลงทะเบียน</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all" href="#">
+<span class="material-symbols-outlined">directions_walk</span>
+<span class="font-medium">ก้าวเดิน</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl bg-primary-fixed text-on-primary-fixed font-bold relative after:absolute after:left-0 after:h-full after:w-1 after:bg-primary after:shadow-[0_0_8px_rgba(0,97,164,0.8)]" href="#">
+<span class="material-symbols-outlined">event_busy</span>
+<span class="font-medium">พุธนี้ไม่มีเชื่อม</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all" href="#">
+<span class="material-symbols-outlined">school</span>
+<span class="font-medium">อบรม</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all" href="#">
+<span class="material-symbols-outlined">diversity_3</span>
+<span class="font-medium">Happy Connect</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all" href="#">
+<span class="material-symbols-outlined">health_and_safety</span>
+<span class="font-medium">Wellness Hub</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:bg-surface-variant/50 transition-all" href="#">
+<span class="material-symbols-outlined">assessment</span>
+<span class="font-medium">รายงาน</span>
+</a>
+</nav>
+<div class="mt-auto pt-6 border-t border-outline-variant/30 px-2 flex items-center gap-3">
+<img class="w-10 h-10 rounded-full border-2 border-primary/20" data-alt="A professional profile portrait of a smiling Thai health officer in a clean, modern medical uniform, captured with soft natural lighting in a bright, minimalist office setting that reflects the light-mode health-tech aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBS6yYFjS2jPKwVEesb9x6zN4OqmhuGj3ffx7Wn8fhGLTpKEgzoJEmQInRQ8vCYKS0WjRVBTGRbHN4dmkRIcu1eigLSndUqPxy4cQ42901LfcVW6EyjoKsYPI0x3VcSt0gHbTyGcrH5XuOLCTE5601c_BYXURcihkmi-wQtL-S_58d5ObhtS2qm-DdO7qtQHZ4HLAAQgT6ITtm9JSMPH5tMMHT9-kAbbk-EU86-iG2eR0-4QT66CNAeMg"/>
+<div class="overflow-hidden">
+<p class="text-sm font-bold truncate">เจ้าหน้าที่ ลาดพร้าว</p>
+<p class="text-xs text-on-surface-variant">Admin Dashboard</p>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-grow flex flex-col min-h-screen relative overflow-y-auto">
+<!-- Top App Bar -->
+<header class="h-16 flex justify-between items-center px-container-margin sticky top-0 bg-surface-bright/70 backdrop-blur-lg border-b border-white/20 z-40">
+<h2 class="font-headline-md text-headline-md font-bold text-primary md:hidden">พุธนี้ไม่มีเชื่อม</h2>
+<div class="hidden md:flex flex-grow items-center justify-end gap-4">
+<div class="relative w-64">
+<input class="w-full bg-surface-container-low border-none rounded-full py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20" placeholder="ค้นหาข้อมูล..." type="text"/>
+<span class="material-symbols-outlined absolute left-3 top-2 text-on-surface-variant text-[20px]">search</span>
+</div>
+<div class="flex gap-2">
+<button class="p-2 hover:bg-surface-container-high/50 rounded-full transition-all text-on-surface-variant">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 hover:bg-surface-container-high/50 rounded-full transition-all text-on-surface-variant">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Content Canvas -->
+<div class="p-container-margin max-w-5xl mx-auto w-full space-y-8">
+<!-- Hero Header Section -->
+<section class="space-y-4"><div class="flex flex-col md:flex-row md:items-end justify-between gap-4"><div class="space-y-4"><div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary font-bold text-sm"><span class="material-symbols-outlined text-[18px]">group</span><span>บันทึกผลรายกลุ่ม</span></div><h3 class="font-headline-lg text-[32px] md:text-[40px] font-bold text-on-surface tracking-tight">พุธนี้ไม่มีเชื่อม <span class="text-primary">(No Sugar Wednesday)</span></h3><p class="text-on-surface-variant text-body-lg max-w-2xl leading-relaxed">บันทึกผลการงดน้ำตาลประจำสัปดาห์สำหรับบุคลากรในหน่วยงาน</p></div><div class="glass-card px-6 py-3 rounded-2xl flex items-center gap-3 border-primary/20"><span class="material-symbols-outlined text-primary">corporate_fare</span><div><p class="text-xs text-on-surface-variant uppercase font-bold">หน่วยงาน</p><p class="font-bold text-on-surface">ฝ่ายทะเบียน</p></div></div></div></section>
+<!-- Recording Section -->
+<section class="glass-card rounded-[2rem] overflow-hidden border-none shadow-lg"><table class="w-full text-left border-collapse"><thead class="bg-surface-container-low text-on-surface-variant border-b border-outline-variant/30"><tr class="text-sm font-bold"><th class="px-6 py-5">บุคลากร</th><th class="px-6 py-5">รหัสพนักงาน</th><th class="px-6 py-5 text-center">สถานะการงดหวาน</th></tr></thead><tbody class="divide-y divide-outline-variant/20"> <tr class="hover:bg-white/40 transition-colors"><td class="px-6 py-4"><div class="flex items-center gap-3"><img class="w-10 h-10 rounded-full border border-primary/10" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBS6yYFjS2jPKwVEesb9x6zN4OqmhuGj3ffx7Wn8fhGLTpKEgzoJEmQInRQ8vCYKS0WjRVBTGRbHN4dmkRIcu1eigLSndUqPxy4cQ42901LfcVW6EyjoKsYPI0x3VcSt0gHbTyGcrH5XuOLCTE5601c_BYXURcihkmi-wQtL-S_58d5ObhtS2qm-DdO7qtQHZ4HLAAQgT6ITtm9JSMPH5tMMHT9-kAbbk-EU86-iG2eR0-4QT66CNAeMg"/><div class="flex flex-col"><span class="font-bold">สมชาย ใจดี</span><span class="text-xs text-on-surface-variant">นักจัดการงานทั่วไป</span></div></div></td><td class="px-6 py-4 text-on-surface-variant font-medium">EMP-2024-001</td><td class="px-6 py-4"><div class="flex justify-center gap-2"><button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-secondary-container text-on-secondary-container font-bold text-sm border-2 border-secondary"><span class="text-xl">😎</span> ถือศีล</button><button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-variant/30 text-on-surface-variant font-bold text-sm border-2 border-transparent hover:border-outline-variant"><span class="text-xl">🫠</span> หลุดศีล</button></div></td></tr> <tr class="hover:bg-white/40 transition-colors"><td class="px-6 py-4"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">วน</div><div class="flex flex-col"><span class="font-bold">วิภา นามสมมติ</span><span class="text-xs text-on-surface-variant">เจ้าพนักงานธุรการ</span></div></div></td><td class="px-6 py-4 text-on-surface-variant font-medium">EMP-2024-002</td><td class="px-6 py-4"><div class="flex justify-center gap-2"><button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-variant/30 text-on-surface-variant font-bold text-sm border-2 border-transparent hover:border-outline-variant"><span class="text-xl">😎</span> ถือศีล</button><button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-tertiary-fixed text-on-tertiary-container font-bold text-sm border-2 border-tertiary"><span class="text-xl">🫠</span> หลุดศีล</button></div></td></tr> <tr class="hover:bg-white/40 transition-colors"><td class="px-6 py-4"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">กส</div><div class="flex flex-col"><span class="font-bold">กิตติศักดิ์ รักเรียน</span><span class="text-xs text-on-surface-variant">นายช่างโยธา</span></div></div></td><td class="px-6 py-4 text-on-surface-variant font-medium">EMP-2024-003</td><td class="px-6 py-4"><div class="flex justify-center gap-2"><button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-variant/30 text-on-surface-variant font-bold text-sm border-2 border-transparent hover:border-outline-variant"><span class="text-xl">😎</span> ถือศีล</button><button class="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface-variant/30 text-on-surface-variant font-bold text-sm border-2 border-transparent hover:border-outline-variant"><span class="text-xl">🫠</span> หลุดศีล</button></div></td></tr> </tbody></table></section>
+<!-- Save Action -->
+<div class="flex justify-center pt-4">
+<button class="bg-primary text-white font-bold py-4 px-12 rounded-full shadow-lg shadow-primary/30 hover:scale-105 active:scale-95 transition-all flex items-center gap-3 disabled:opacity-50 disabled:grayscale" id="save-btn"><span class="material-symbols-outlined">send</span> บันทึกข้อมูลทั้งหมด</button>
+</div><section class="space-y-4 mt-12">
+<div class="flex items-center justify-between">
+<h3 class="font-headline-md text-xl font-bold text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">history</span>
+      ประวัติการบันทึก
+    </h3>
+<button class="text-primary font-bold text-sm hover:underline">ดูทั้งหมด</button>
+</div>
+<div class="glass-card rounded-[2rem] overflow-hidden border-none shadow-lg">
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-container-low text-on-surface-variant border-b border-outline-variant/30">
+<tr class="text-sm font-bold">
+<th class="px-6 py-4">วัน-เวลาที่บันทึก</th>
+<th class="px-6 py-4">ผู้บันทึก</th>
+<th class="px-6 py-4">สรุปผล</th>
+<th class="px-6 py-4 text-right">รายละเอียด</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/20">
+<tr class="hover:bg-white/40 transition-colors">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-bold text-on-surface">22 พ.ค. 2567</span>
+<span class="text-xs text-on-surface-variant">14:30 น.</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] text-primary font-bold">จท</div>
+<span class="text-sm">เจ้าหน้าที่ ลาดพร้าว</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex gap-3">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container/50 text-on-secondary-container text-xs font-bold">
+<span class="text-[14px]">😎</span> ถือศีล 12
+              </span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed/50 text-on-tertiary-container text-xs font-bold">
+<span class="text-[14px]">🫠</span> หลุดศีล 3
+              </span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="p-2 hover:bg-primary/10 rounded-full text-primary transition-colors">
+<span class="material-symbols-outlined">visibility</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-white/40 transition-colors">
+<td class="px-6 py-4">
+<div class="flex flex-col">
+<span class="font-bold text-on-surface">15 พ.ค. 2567</span>
+<span class="text-xs text-on-surface-variant">09:15 น.</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] text-primary font-bold">จท</div>
+<span class="text-sm">เจ้าหน้าที่ ลาดพร้าว</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<div class="flex gap-3">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container/50 text-on-secondary-container text-xs font-bold">
+<span class="text-[14px]">😎</span> ถือศีล 14
+              </span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed/50 text-on-tertiary-container text-xs font-bold">
+<span class="text-[14px]">🫠</span> หลุดศีล 1
+              </span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="p-2 hover:bg-primary/10 rounded-full text-primary transition-colors">
+<span class="material-symbols-outlined">visibility</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Dashboard Stats (Bento Grid) -->
+<!-- History Table -->
+</div>
+<!-- Decorative Floating Health Element -->
+<div class="fixed -bottom-20 -right-20 w-80 h-80 bg-primary/10 rounded-full blur-[100px] pointer-events-none"></div>
+</main>
+<script>
+        let selectedStatus = null;
+
+        function selectStatus(status, element) {
+            selectedStatus = status;
+            
+            // Reset styles
+            document.getElementById('card-success').classList.remove('active-selection', 'neon-glow-success');
+            document.getElementById('card-fail').classList.remove('active-selection');
+            
+            // Apply new style
+            element.classList.add('active-selection');
+            if(status === 'success') {
+                element.classList.add('neon-glow-success');
+            }
+            
+            // Update button state
+            document.getElementById('save-btn').disabled = false;
+        }
+
+        document.getElementById('save-btn').addEventListener('click', function() {
+            if (!selectedStatus) return;
+            
+            const btn = this;
+            const originalContent = btn.innerHTML;
+            
+            // Simple micro-interaction
+            btn.innerHTML = `<span class="material-symbols-outlined animate-spin">sync</span> กำลังบันทึก...`;
+            btn.disabled = true;
+            
+            setTimeout(() => {
+                btn.innerHTML = `<span class="material-symbols-outlined">check_circle</span> บันทึกสำเร็จแล้ว!`;
+                btn.classList.replace('bg-primary', 'bg-secondary');
+                
+                // Alert success
+                const statusText = selectedStatus === 'success' ? 'ยินดีด้วยที่คุณรักษาสัญญา!' : 'ไม่เป็นไรนะ พยายามใหม่สัปดาห์หน้า!';
+                alert(`บันทึกผลสำเร็จ: ${statusText}`);
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalContent;
+                    btn.classList.replace('bg-secondary', 'bg-primary');
+                    btn.disabled = false;
+                }, 2000);
+            }, 1000);
+        });
+
+        // Initialize button as disabled until selection
+        document.getElementById('save-btn').disabled = true;
+    </script>
+</body></html>

@@ -1,0 +1,144 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+@theme inline {
+  --color-primary: #059669;
+  --color-secondary: #0284c7;
+  --color-accent: #f59e0b;
+  --color-success: #10b981;
+  --color-info: #06b6d4;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --font-sans: 'Noto Sans Thai', sans-serif;
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+  --font-weight-black: 900;
+}
+
+body {
+  font-family: 'Noto Sans Thai', sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Smooth text rendering for better readability */
+* {
+  text-rendering: optimizeLegibility;
+}
+
+/* Glassmorphism base */
+.glass {
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.3);
+}
+.dark .glass {
+  background: rgba(15,23,42,0.7);
+  border-color: rgba(255,255,255,0.06);
+}
+
+/* Animations */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scaleIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+.animate-scale-in { animation: scaleIn 0.3s ease-out; }
+.animate-slide-up { animation: slideUp 0.4s ease-out; }
+.animate-float { animation: float 6s ease-in-out infinite; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+/* Hide scrollbar for activity buttons */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ===== ปุ่มกด (Button) — กรอบ + สี ให้เห็นชัดว่าเป็นปุ่ม ===== */
+.btn-primary, .btn-ghost, .btn-danger, .btn-outline,
+.btn-outline-emerald, .btn-outline-amber, .btn-outline-red {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 0.6rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  padding: 0.65rem 1.25rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.btn-primary:disabled, .btn-ghost:disabled, .btn-danger:disabled,
+.btn-outline:disabled, .btn-primary[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ปุ่มหลัก (สีเขียวไล่เฉด) */
+.btn-primary {
+  background: linear-gradient(135deg, #34d399, #059669);
+  color: #ffffff;
+  border-color: #059669;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);
+}
+.btn-primary:hover { background: linear-gradient(135deg, #6ee7b7, #10b981); box-shadow: 0 6px 18px rgba(5, 150, 105, 0.4); }
+
+/* ปุ่มรอง (ขาว/เทา) */
+.btn-ghost {
+  background: #ffffff;
+  color: #374151;
+  border-color: #d1d5db;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.btn-ghost:hover { border-color: #34d399; color: #059669; background: #f0fdf4; }
+.dark .btn-ghost { background: #1f2937; color: #e5e7eb; border-color: #4b5563; }
+.dark .btn-ghost:hover { border-color: #34d399; color: #34d399; background: rgba(6, 95, 70, 0.3); }
+
+/* ปุ่มลบ/อันตราย */
+.btn-danger {
+  background: #ffffff;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+.btn-danger:hover { background: #fef2f2; border-color: #f87171; }
+.dark .btn-danger { background: #1f2937; color: #f87171; border-color: #7f1d1d; }
+.dark .btn-danger:hover { background: rgba(127, 29, 29, 0.3); }
+
+/* ปุ่ม outline พื้น */
+.btn-outline { background: #ffffff; color: #374151; border-color: #d1d5db; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.btn-outline:hover { border-color: #9ca3af; background: #f9fafb; }
+.dark .btn-outline { background: #1f2937; color: #e5e7eb; border-color: #4b5563; }
+.dark .btn-outline:hover { border-color: #9ca3af; }
+
+/* ปุ่ม outline ตามสี (ใช้คู่กับ .btn-outline) */
+.btn-outline-emerald { color: #047857; border-color: #6ee7b7; }
+.btn-outline-emerald:hover { background: #ecfdf5; border-color: #34d399; color: #047857; }
+.dark .btn-outline-emerald { color: #34d399; border-color: #065f46; }
+.dark .btn-outline-emerald:hover { background: rgba(6, 95, 70, 0.25); color: #34d399; }
+
+.btn-outline-amber { color: #b45309; border-color: #fcd34d; }
+.btn-outline-amber:hover { background: #fffbeb; border-color: #f59e0b; color: #b45309; }
+.dark .btn-outline-amber { color: #fbbf24; border-color: #78350f; }
+.dark .btn-outline-amber:hover { background: rgba(120, 53, 15, 0.3); color: #fbbf24; }
+
+.btn-outline-red { color: #b91c1c; border-color: #fca5a5; }
+.btn-outline-red:hover { background: #fef2f2; border-color: #f87171; color: #b91c1c; }
+.dark .btn-outline-red { color: #f87171; border-color: #7f1d1d; }
+.dark .btn-outline-red:hover { background: rgba(127, 29, 29, 0.3); color: #f87171; }
+
+/* ปุ่มขนาดเล็ก */
+.btn-xs { padding: 0.3rem 0.6rem; font-size: 0.75rem; border-radius: 0.45rem; }

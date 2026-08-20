@@ -1,0 +1,50 @@
+'use client';
+import { useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/hooks/useTheme';
+import { getCurrentThaiDate } from '@/utils/thaiDate';
+import { profileImageUrl } from '@/utils/personnel';
+import ProfilePopup from '@/components/layout/ProfilePopup';
+
+export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
+  const { user } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  const avatar = profileImageUrl(user?.Profile_Image);
+
+  return (
+    <header className="sticky top-0 z-40 bg-white/70 dark:bg-gray-900/70 backdrop-blur-lg border-b border-gray-100 dark:border-gray-800">
+      <div className="flex items-center justify-between px-4 md:px-6 h-14">
+        <div className="flex items-center gap-3">
+          <button onClick={onMenuClick} className="md:hidden p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
+            <span className="material-symbols-outlined text-gray-600 dark:text-gray-400">menu</span>
+          </button>
+          <span className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">{getCurrentThaiDate()}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={toggleTheme} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
+            <span className="material-symbols-outlined text-gray-600 dark:text-gray-400">
+              {theme === 'light' ? 'dark_mode' : 'light_mode'}
+            </span>
+          </button>
+          <button onClick={() => setProfileOpen(true)} className="flex items-center gap-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 p-1.5 transition-colors cursor-pointer" aria-label="เปิดโปรไฟล์">
+            {avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatar} alt="รูปโปรไฟล์" className="w-8 h-8 rounded-full object-cover ring-2 ring-emerald-200 dark:ring-emerald-800" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-sm font-bold">
+                {user?.Full_Name?.charAt(0) || 'ส'}
+              </div>
+            )}
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:block">
+              {user?.Full_Name || 'สมชาย รักสุขภาพ'}
+            </span>
+            <span className="material-symbols-outlined text-base text-gray-400 hidden sm:block">expand_more</span>
+          </button>
+        </div>
+      </div>
+      {profileOpen && <ProfilePopup onClose={() => setProfileOpen(false)} />}
+    </header>
+  );
+}

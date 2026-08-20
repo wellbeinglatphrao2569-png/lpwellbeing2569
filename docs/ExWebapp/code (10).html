@@ -1,0 +1,168 @@
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>AI OCR Step Tracker - Success State - Ladprao Happy</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&amp;family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "secondary": "#006e1c",
+                    "on-tertiary": "#ffffff",
+                    "inverse-on-surface": "#eff1f3",
+                    "surface": "#f7f9fb",
+                    "on-surface": "#191c1e",
+                    "primary-fixed": "#d1e4ff",
+                    "on-surface-variant": "#404752",
+                    "on-secondary-fixed-variant": "#005313",
+                    "surface-variant": "#e0e3e5",
+                    "secondary-container": "#91f78e",
+                    "on-secondary": "#ffffff",
+                    "inverse-surface": "#2d3133",
+                    "on-tertiary-fixed": "#0f1d25",
+                    "outline": "#707883",
+                    "on-error": "#ffffff",
+                    "tertiary-fixed": "#d6e5ef",
+                    "tertiary-fixed-dim": "#bac9d3",
+                    "on-tertiary-container": "#1f2d35",
+                    "error-container": "#ffdad6",
+                    "on-primary-fixed": "#001d36",
+                    "on-background": "#191c1e",
+                    "on-primary-fixed-variant": "#00497d",
+                    "error": "#ba1a1a",
+                    "surface-container-lowest": "#ffffff",
+                    "primary": "#0061a4",
+                    "surface-container-highest": "#e0e3e5",
+                    "on-tertiary-fixed-variant": "#3b4951",
+                    "surface-container-high": "#e6e8ea",
+                    "primary-fixed-dim": "#9ecaff",
+                    "surface-container-low": "#f2f4f6",
+                    "secondary-fixed-dim": "#78dc77",
+                    "on-secondary-fixed": "#002204",
+                    "surface-dim": "#d8dadc",
+                    "tertiary-container": "#85949e",
+                    "surface-container": "#eceef0",
+                    "background": "#f7f9fb",
+                    "secondary-fixed": "#94f990",
+                    "surface-tint": "#0061a4",
+                    "on-secondary-container": "#00731e",
+                    "on-primary": "#ffffff",
+                    "on-error-container": "#93000a",
+                    "outline-variant": "#bfc7d4",
+                    "primary-container": "#2196f3",
+                    "inverse-primary": "#9ecaff",
+                    "on-primary-container": "#002c4f",
+                    "surface-bright": "#f7f9fb",
+                    "tertiary": "#526069"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "sans": ["Be Vietnam Pro", "Noto Sans Thai", "sans-serif"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .success-glow {
+            box-shadow: 0 0 20px rgba(0, 110, 28, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex items-center justify-center p-4">
+<!-- Background Decoration -->
+<div class="fixed inset-0 z-0 overflow-hidden pointer-events-none">
+<div class="absolute inset-0 w-full h-full opacity-30 bg-gradient-to-br from-primary-fixed to-secondary-fixed"></div>
+</div>
+<!-- Modal Container -->
+<div class="relative z-10 w-full max-w-[560px] glass-panel rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
+<!-- Header -->
+<div class="flex items-center justify-between p-6 border-b border-outline-variant">
+<h2 class="text-headline-md font-bold text-on-surface">บันทึกก้าวเดินด้วยรูปภาพ (AI OCR)</h2>
+<button class="p-2 hover:bg-surface-container rounded-full transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">close</span>
+</button>
+</div>
+<!-- Scrollable Content -->
+<div class="p-6 max-h-[716px] overflow-y-auto space-y-8">
+<!-- Date Picker Section -->
+<section><label class="block text-label-md text-on-surface-variant mb-3">เลือกวันที่ต้องการบันทึก</label><div class="bg-surface-container rounded-2xl p-4"><div class="relative flex items-center"><input class="w-full bg-surface-container-low border border-outline-variant rounded-xl py-3 px-4 text-on-surface font-bold focus:outline-none focus:ring-2 focus:ring-primary" readonly="" type="text" value="10/22/2023"><span class="material-symbols-outlined absolute right-4 text-on-surface-variant">calendar_today</span></div><p class="text-[11px] text-on-surface-variant mt-2 px-1">รูปแบบ: MM/DD/YYYY</p></div></section>
+<!-- Image Upload/Preview Area (Success State) -->
+<section>
+<label class="block text-label-md text-on-surface-variant mb-3">รูปภาพที่ตรวจสอบแล้ว</label>
+<div class="relative group">
+<div class="w-full aspect-video rounded-2xl border-2 border-secondary-container bg-surface-container overflow-hidden relative success-glow">
+<!-- Image Preview -->
+<img alt="Screenshot preview" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida/AP1WRLskCyUqql5pHpu5YSk5FGvADIgXBqPF1TwocdRtkfSeNFR73WZCIpe0ivUx_Kx0nd05FFknIpQdwXrOfGYu0dFYIUaylmYVnDHQDXc-5JwgFWcQQOX7Qj8OWJtVbewKMU1OzntEhOTb8J-7RTkyI8-iKhIJBTNMMeDVlg8ZRFdiDzPhR0Gv767LDuUWJIMBG_7oVbLq9ch1nF78T2LC2Y1cW-gQwz2L6ALBFv7uVV-7AIjo7NVdSjE4kog">
+<!-- Success Overlay Badge -->
+<div class="absolute inset-0 bg-secondary/10 flex items-center justify-center">
+<div class="bg-white/90 backdrop-blur-md px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2 animate-in zoom-in duration-500">
+<div class="bg-secondary text-white rounded-full p-1 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px] font-bold">check</span>
+</div>
+<span class="font-bold text-secondary text-sm">ตรวจสอบสำเร็จ</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- OCR Result Display -->
+<section class="animate-in slide-in-from-bottom-4 duration-500">
+<div class="bg-secondary-container/20 rounded-2xl p-6 border border-secondary-container/30 flex flex-col items-center text-center">
+<div class="text-secondary font-bold text-sm mb-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">verified</span>
+                        AI Verified
+                    </div>
+<div class="flex items-center gap-3 w-full justify-center">
+<div class="relative flex items-baseline gap-2 group">
+<input class="text-5xl font-black text-on-surface tracking-tight bg-transparent border-b-2 border-transparent focus:border-primary focus:outline-none w-40 text-center transition-all" type="text" value="8,452">
+<span class="text-xl font-bold text-on-surface-variant">ก้าว</span>
+<button class="absolute -right-8 top-1/2 -translate-y-1/2 p-1 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">edit</span>
+</button>
+</div>
+</div>
+<p class="text-xs text-on-surface-variant mt-2 italic">8,452 steps detected • ความแม่นยำสูง (High Confidence) <span class="block mt-1 text-primary not-italic font-medium hidden">* แก้ไขโดยผู้ใช้งาน</span></p>
+</div>
+</section>
+<!-- Action Buttons -->
+<div class="flex justify-center gap-3">
+<button class="flex items-center gap-2 bg-surface-container-high text-on-surface-variant px-6 py-3 rounded-xl font-bold hover:bg-surface-variant transition-all active:scale-95">
+<span class="material-symbols-outlined text-[20px]">refresh</span>
+                    ตรวจสอบใหม่
+                </button>
+<button class="flex items-center gap-2 bg-surface-container-high text-on-surface-variant px-6 py-3 rounded-xl font-bold hover:bg-surface-variant transition-all active:scale-95">
+<span class="material-symbols-outlined text-[20px]">add_a_photo</span>
+                    เปลี่ยนรูปภาพ
+                </button>
+</div>
+</div>
+<!-- Footer Buttons -->
+<div class="p-6 bg-surface-container-low flex flex-col sm:flex-row gap-3">
+<button class="flex-1 order-2 sm:order-1 py-3.5 rounded-xl font-bold text-on-surface-variant hover:bg-surface-variant transition-colors">
+                ยกเลิก
+            </button>
+<button class="flex-1 order-1 sm:order-2 py-3.5 rounded-xl font-bold bg-primary text-white shadow-lg shadow-primary/20 hover:opacity-90 active:scale-95 transition-all">
+                บันทึกข้อมูล
+            </button>
+</div>
+</div>
+</body></html>

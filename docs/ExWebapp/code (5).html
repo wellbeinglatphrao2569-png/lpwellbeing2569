@@ -1,0 +1,234 @@
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Ladprao Happy - Match Notification</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@100;300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-container": "#00731e",
+                        "on-error-container": "#93000a",
+                        "surface-container-lowest": "#ffffff",
+                        "outline-variant": "#bfc7d4",
+                        "secondary-container": "#91f78e",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#9ecaff",
+                        "on-secondary": "#ffffff",
+                        "on-surface-variant": "#404752",
+                        "on-secondary-fixed-variant": "#005313",
+                        "surface-container": "#eceef0",
+                        "error": "#ba1a1a",
+                        "surface-bright": "#f7f9fb",
+                        "on-primary-fixed-variant": "#00497d",
+                        "on-tertiary-fixed-variant": "#3b4951",
+                        "tertiary-fixed-dim": "#bac9d3",
+                        "surface-container-high": "#e6e8ea",
+                        "on-tertiary-container": "#1f2d35",
+                        "surface-variant": "#e0e3e5",
+                        "on-primary-container": "#002c4f",
+                        "surface": "#f7f9fb",
+                        "primary-container": "#2196f3",
+                        "tertiary-fixed": "#d6e5ef",
+                        "surface-dim": "#d8dadc",
+                        "on-background": "#191c1e",
+                        "surface-tint": "#0061a4",
+                        "inverse-on-surface": "#eff1f3",
+                        "tertiary-container": "#85949e",
+                        "outline": "#707883",
+                        "primary-fixed-dim": "#9ecaff",
+                        "on-primary-fixed": "#001d36",
+                        "secondary-fixed": "#94f990",
+                        "surface-container-low": "#f2f4f6",
+                        "secondary-fixed-dim": "#78dc77",
+                        "primary-fixed": "#d1e4ff",
+                        "tertiary": "#526069",
+                        "primary": "#0061a4",
+                        "background": "#f7f9fb",
+                        "on-error": "#ffffff",
+                        "inverse-surface": "#2d3133",
+                        "on-tertiary-fixed": "#0f1d25",
+                        "error-container": "#ffdad6",
+                        "surface-container-highest": "#e0e3e5",
+                        "secondary": "#006e1c",
+                        "on-secondary-fixed": "#002204",
+                        "on-primary": "#ffffff",
+                        "on-surface": "#191c1e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "8px",
+                        "sidebar-width": "280px",
+                        "gutter": "16px",
+                        "container-margin": "24px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Be Vietnam Pro"],
+                        "headline-md": ["Be Vietnam Pro"],
+                        "body-md": ["Be Vietnam Pro"],
+                        "headline-lg": ["Be Vietnam Pro"],
+                        "body-lg": ["Be Vietnam Pro"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Be Vietnam Pro', sans-serif; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 20px rgba(0, 97, 164, 0.3);
+        }
+        .neon-glow-secondary {
+            box-shadow: 0 0 20px rgba(0, 110, 28, 0.3);
+        }
+        .shimmer {
+            background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
+            background-size: 200% 100%;
+            animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface overflow-hidden">
+<!-- Dashboard Background Container (Blurred) -->
+<div class="fixed inset-0 flex blur-md scale-105 pointer-events-none overflow-hidden">
+<!-- Sidebar Shell (Mockup for background) -->
+<aside class="w-sidebar-width h-screen bg-surface/70 border-r border-outline/20 p-gutter flex flex-col gap-6">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary/20"></div>
+<div>
+<div class="h-4 w-24 bg-primary/20 rounded"></div>
+<div class="h-3 w-32 bg-on-surface-variant/20 rounded mt-2"></div>
+</div>
+</div>
+<div class="flex flex-col gap-2 mt-8">
+<div class="h-12 w-full bg-primary/10 rounded-xl"></div>
+<div class="h-12 w-full bg-surface-container rounded-xl"></div>
+<div class="h-12 w-full bg-surface-container rounded-xl"></div>
+</div>
+</aside>
+<!-- Main Content Shell (Mockup for background) -->
+<main class="flex-1 p-container-margin overflow-y-auto">
+<header class="flex justify-between items-center mb-8">
+<div class="h-10 w-48 bg-on-surface/10 rounded-lg"></div>
+<div class="flex gap-4">
+<div class="h-10 w-10 rounded-full bg-on-surface/10"></div>
+<div class="h-10 w-10 rounded-full bg-on-surface/10"></div>
+</div>
+</header>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Bento Grid Mockup Elements -->
+<div class="md:col-span-2 h-64 glass-card rounded-2xl"></div>
+<div class="h-64 glass-card rounded-2xl"></div>
+<div class="h-48 glass-card rounded-2xl"></div>
+<div class="h-48 glass-card rounded-2xl"></div>
+<div class="h-48 glass-card rounded-2xl"></div>
+</div>
+</main>
+</div>
+<!-- Overlay Backdrop -->
+<div class="fixed inset-0 bg-on-surface/30 backdrop-blur-sm z-40 flex items-center justify-center p-gutter">
+<!-- Animated Background Shader for Modal -->
+<div class="absolute inset-0 pointer-events-none opacity-40">
+</div>
+<!-- Match Modal -->
+<div class="relative w-full max-w-lg glass-card rounded-2xl p-8 shadow-2xl flex flex-col items-center text-center overflow-hidden z-50">
+<!-- Top Gradient Glow -->
+<div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary to-secondary"></div>
+<!-- Confetti/Celebration Icon -->
+<div class="mb-6 relative">
+<div class="absolute inset-0 animate-ping bg-primary/20 rounded-full scale-150"></div>
+<div class="w-20 h-20 rounded-full bg-primary-container flex items-center justify-center neon-glow-primary relative z-10">
+<span class="material-symbols-outlined text-on-primary-container text-4xl" style="font-variation-settings: 'FILL' 1;">celebration</span>
+</div>
+</div>
+<h1 class="font-headline-md text-headline-md text-on-surface mb-2">ยินดีด้วย! คุณพบคู่บัดดี้ใหม่แล้ว</h1>
+<p class="font-body-md text-on-surface-variant mb-8">เราได้จัดสรรผู้เชี่ยวชาญด้านสุขภาพที่เหมาะสมกับไลฟ์สไตล์ของคุณ</p>
+<!-- Buddy Profile Section -->
+<div class="w-full bg-white/40 dark:bg-surface-container/20 rounded-xl p-6 border border-white/30 mb-8 flex flex-col items-center transition-all hover:shadow-lg">
+<div class="w-24 h-24 rounded-full border-4 border-white neon-glow-primary overflow-hidden mb-4">
+<img class="w-full h-full object-cover" data-alt="A professional and friendly portrait of a Thai man in his 40s, wearing a clean light-blue health staff uniform. He has a warm, welcoming smile and is standing in a brightly lit, modern medical office with soft glass textures and lush green plants in the blurred background. The lighting is soft, clean, and optimistic, reflecting a futuristic health-tech aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB9UekoJDNxlr1ch5qnJTFwbOTatbjM-fhWHg3xghKPD4ufZ7KOEKYXDLpo1JzPVELZ-a2DwAngwASTox5WDOqASZxINjOGmc3M_kcb7mp42i2kKjmxJAvEboJCXKAnq6OMOCLV12IjI_wsKQiYcCDePolFViurSwopQLTgsa9tI5EXRQj_0rRNHWYXuO5HklEkRJox1m5U0A1kqEKX6Alsi1vKnd4Q4TCYPKou-muqKWC15O0Nd-DGKw">
+</div>
+<h2 class="font-headline-md text-headline-md text-primary">คุณสมชาย รักสะอาด</h2>
+<p class="font-label-md text-on-secondary-container bg-secondary-container/50 px-3 py-1 rounded-full mt-1">ฝ่ายรักษาความสะอาด</p>
+</div>
+<!-- Mission Card -->
+<div class="w-full bg-gradient-to-br from-primary/5 to-secondary/5 rounded-2xl p-6 border border-primary/10 mb-8 flex gap-4 items-start text-left">
+<div class="w-12 h-12 rounded-xl bg-white/60 flex-shrink-0 flex items-center justify-center text-primary shadow-sm">
+<span class="material-symbols-outlined text-3xl">task_alt</span>
+</div>
+<div>
+<p class="font-label-md text-primary font-bold uppercase tracking-wider mb-1">ภารกิจประจำสัปดาห์</p>
+<p class="font-body-md text-on-surface font-medium">ชวนบัดดี้เดินพิชิต 10,000 ก้าวร่วมกันใน 1 วัน</p>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="w-full flex flex-col gap-3">
+<button class="w-full h-14 bg-primary text-on-primary font-bold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-primary/20 hover:shadow-primary/40 relative overflow-hidden group">
+<div class="absolute inset-0 shimmer opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<span class="material-symbols-outlined">forum</span>
+<span class="font-label-md">แชทหาบัดดี้</span>
+</button>
+<button class="w-full h-14 bg-white/50 text-on-surface-variant font-medium rounded-xl border border-outline/20 flex items-center justify-center gap-2 transition-all hover:bg-white/80 active:scale-95">
+<span class="material-symbols-outlined">assignment</span>
+<span class="font-label-md text-on-surface">ดูรายละเอียดภารกิจ</span>
+</button>
+</div>
+<!-- Close Button -->
+<button class="absolute top-4 right-4 p-2 rounded-full text-on-surface-variant hover:bg-black/5 transition-colors">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+</div>
+<!-- Micro-interaction Script -->
+<script>
+        // Simple entrance animation for the modal
+        document.addEventListener('DOMContentLoaded', () => {
+            const modal = document.querySelector('.glass-card');
+            modal.style.opacity = '0';
+            modal.style.transform = 'scale(0.9) translateY(20px)';
+            
+            setTimeout(() => {
+                modal.style.transition = 'all 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
+                modal.style.opacity = '1';
+                modal.style.transform = 'scale(1) translateY(0)';
+            }, 100);
+        });
+
+        // Toggle hover effect on button
+        const mainBtn = document.querySelector('button.bg-primary');
+        mainBtn.addEventListener('mousemove', (e) => {
+            const rect = mainBtn.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            mainBtn.style.setProperty('--x', `${x}px`);
+            mainBtn.style.setProperty('--y', `${y}px`);
+        });
+    </script>
+</body></html>

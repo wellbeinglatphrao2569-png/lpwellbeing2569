@@ -1,0 +1,446 @@
+<!DOCTYPE html><html class="light" lang="th" style="width: 1280px; height: 1024px; overflow: hidden; position: relative;"><head></head><body class="bg-background text-on-surface min-h-screen flex"><svg aria-hidden="true" class="inline-defs-container" style="position:absolute;width:0;height:0;overflow:hidden"></svg>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>บันทึกก้าวเดิน - ลาดพร้าวสร้างสุข</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 15px rgba(0, 97, 164, 0.3);
+        }
+        body {
+            font-family: 'Be Vietnam Pro', sans-serif;
+            background: radial-gradient(circle at top right, #d1e4ff 0%, #f7f9fb 40%);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-lowest": "#ffffff",
+                        "outline-variant": "#bfc7d4",
+                        "primary-fixed-dim": "#9ecaff",
+                        "inverse-surface": "#2d3133",
+                        "on-primary": "#ffffff",
+                        "primary-fixed": "#d1e4ff",
+                        "inverse-primary": "#9ecaff",
+                        "on-surface": "#191c1e",
+                        "on-background": "#191c1e",
+                        "secondary-fixed-dim": "#78dc77",
+                        "on-error": "#ffffff",
+                        "primary": "#0061a4",
+                        "on-secondary-fixed": "#002204",
+                        "surface-container-high": "#e6e8ea",
+                        "surface-bright": "#f7f9fb",
+                        "on-tertiary-fixed": "#0f1d25",
+                        "on-primary-fixed-variant": "#00497d",
+                        "surface": "#f7f9fb",
+                        "on-primary-fixed": "#001d36",
+                        "secondary-container": "#91f78e",
+                        "tertiary-fixed": "#d6e5ef",
+                        "background": "#f7f9fb",
+                        "surface-dim": "#d8dadc",
+                        "primary-container": "#2196f3",
+                        "on-surface-variant": "#404752",
+                        "on-primary-container": "#002c4f",
+                        "on-secondary-container": "#00731e",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#85949e",
+                        "surface-tint": "#0061a4",
+                        "tertiary": "#526069",
+                        "on-tertiary-fixed-variant": "#3b4951",
+                        "on-tertiary": "#ffffff",
+                        "surface-variant": "#e0e3e5",
+                        "on-error-container": "#93000a",
+                        "error": "#ba1a1a",
+                        "surface-container-low": "#f2f4f6",
+                        "outline": "#707883",
+                        "surface-container-highest": "#e0e3e5",
+                        "tertiary-fixed-dim": "#bac9d3",
+                        "inverse-on-surface": "#eff1f3",
+                        "secondary-fixed": "#94f990",
+                        "secondary": "#006e1c",
+                        "on-secondary-fixed-variant": "#005313",
+                        "on-secondary": "#ffffff",
+                        "surface-container": "#eceef0",
+                        "on-tertiary-container": "#1f2d35"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "base": "8px",
+                        "gutter": "16px",
+                        "sidebar-width": "280px",
+                        "container-margin": "24px"
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<!-- Sidebar Navigation -->
+<aside class="w-sidebar-width h-screen sticky left-0 top-0 bg-surface/70 backdrop-blur-xl border-r border-white/20 shadow-[40px_0_40px_-10px_rgba(0,97,164,0.1)] hidden md:flex flex-col py-container-margin px-4 z-50">
+<div class="flex items-center gap-3 mb-10 px-2">
+<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white shadow-lg">
+<span class="material-symbols-outlined" data-icon="health_and_safety">health_and_safety</span>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">ลาดพร้าวสร้างสุข</h1>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-wider">Ladprao Happy Health</p>
+</div>
+</div>
+<nav class="flex-1 space-y-2">
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:text-primary transition-colors hover:bg-surface-variant/50" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-body-md text-body-md">หน้าแรก</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:text-primary transition-colors hover:bg-surface-variant/50" href="#">
+<span class="material-symbols-outlined" data-icon="person_add">person_add</span>
+<span class="font-body-md text-body-md">ลงทะเบียน</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl bg-primary-fixed text-on-primary-fixed font-bold relative after:absolute after:left-0 after:h-full after:w-1 after:bg-primary after:shadow-[0_0_8px_rgba(0,97,164,0.8)]" href="#">
+<span class="material-symbols-outlined" data-icon="directions_walk" style="font-variation-settings: &quot;FILL&quot; 1;">directions_walk</span>
+<span class="font-body-md text-body-md">ก้าวเดิน</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:text-primary transition-colors hover:bg-surface-variant/50" href="#">
+<span class="material-symbols-outlined" data-icon="event_busy">event_busy</span>
+<span class="font-body-md text-body-md">พุธนี้ไม่มีเชื่อม</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:text-primary transition-colors hover:bg-surface-variant/50" href="#">
+<span class="material-symbols-outlined" data-icon="school">school</span>
+<span class="font-body-md text-body-md">อบรม</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:text-primary transition-colors hover:bg-surface-variant/50" href="#">
+<span class="material-symbols-outlined" data-icon="diversity_3">diversity_3</span>
+<span class="font-body-md text-body-md">Happy Connect</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:text-primary transition-colors hover:bg-surface-variant/50" href="#">
+<span class="material-symbols-outlined" data-icon="health_and_safety">health_and_safety</span>
+<span class="font-body-md text-body-md">Wellness Hub</span>
+</a>
+<a class="flex items-center gap-4 px-4 py-3 rounded-xl text-on-surface-variant hover:text-primary transition-colors hover:bg-surface-variant/50" href="#">
+<span class="material-symbols-outlined" data-icon="assessment">assessment</span>
+<span class="font-body-md text-body-md">รายงาน</span>
+</a>
+</nav>
+<div class="mt-auto p-4 bg-primary/5 rounded-2xl border border-primary/10">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/20">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA557TMKCEJgXbarH_0jNfHlfZKP9T7OkAQFXxD6D3LNnnk9BnZVFXOjg_7LQ6ts7l48_krZz4oPbJ-zRLuk23J8f02HMCc8QQcL7glWZGR-_7GxBlgmc-YW52l8xWa_K5FRhBDDAkZ3-2OcLcemLtWrqTAlAaWjIo7SwwlXJTtV4Wx5KVMEy2bU4mQl5tbqXScQ4EKVx1AOc6Wcba6iwW60lpr5C8_q1MEUTdFvRPrqaMVswteam2qZQ">
+</div>
+<div>
+<p class="text-label-md font-bold text-on-surface">สมชาย รักษ์ดี</p>
+<p class="text-[11px] text-on-surface-variant">Lv. 4 Runner</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto">
+<!-- Top App Bar -->
+<header class="sticky top-0 z-40 bg-surface-bright/70 backdrop-blur-lg border-b flex justify-between items-center w-full px-container-margin h-16 shrink-0 shadow-md">
+<div class="md:hidden flex items-center gap-2">
+<button class="p-2 text-primary hover:bg-surface-variant/50 rounded-full">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">ก้าวเดิน</h1>
+</div>
+<div class="hidden md:block">
+<h2 class="font-headline-md text-headline-md text-primary font-bold">บันทึกข้อมูลก้าวเดิน</h2>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" data-icon="search">search</span>
+<input class="pl-10 pr-4 py-2 rounded-full border-none bg-surface-container-high/50 focus:ring-2 focus:ring-primary/20 w-64 text-label-md" placeholder="ค้นหาข้อมูล..." type="text">
+</div>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high/50 rounded-full transition-all">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+</div>
+</header>
+<!-- Content Canvas -->
+<div class="p-container-margin space-y-8 max-w-7xl mx-auto w-full">
+<!-- Header Section -->
+<section class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<p class="text-primary font-bold tracking-widest uppercase text-xs mb-1">Step Tracking Input</p>
+<h3 class="font-headline-lg text-headline-lg text-on-surface">บันทึกก้าวเดิน</h3>
+<p class="text-on-surface-variant font-body-md mt-1">เลือกวิธีการส่งข้อมูลก้าวเดินที่สะดวกที่สุดสำหรับคุณ</p>
+</div>
+</section>
+<!-- PRIMARY FOCUS: Step Tracking Input -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+<!-- Google Fit Sync Card (Prominent) -->
+<button class="group relative overflow-hidden bg-gradient-to-br from-[#4285F4] to-[#34A853] p-[2px] rounded-3xl shadow-[0_20px_50px_rgba(66,133,244,0.2)] hover:shadow-[0_25px_60px_rgba(66,133,244,0.3)] transition-all duration-300 transform hover:-translate-y-1 border-2 border-primary ring-4 ring-primary/10">
+<div class="bg-white rounded-[22px] p-8 h-full flex flex-col items-center text-center relative z-10"><div class="absolute top-4 right-4 bg-primary text-white rounded-full p-1 shadow-lg flex items-center justify-center z-20"><span class="material-symbols-outlined text-sm" style="font-variation-settings: &quot;wght&quot; 700;">check</span></div>
+<div class="w-20 h-20 mb-6 bg-blue-50 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-6xl text-[#4285F4]" data-icon="sync_saved_locally" style="font-variation-settings: &quot;FILL&quot; 1;">sync_saved_locally</span>
+</div>
+<h4 class="text-2xl font-bold text-on-surface mb-3">เชื่อมต่อ Google Fit</h4>
+<p class="text-body-md text-on-surface-variant max-w-sm mb-6 leading-relaxed">วิธีที่ง่ายที่สุด! ข้อมูลของคุณจะถูกซิงค์โดยอัตโนมัติ แม่นยำ และน่าเชื่อถือที่สุด</p>
+<div class="flex flex-col items-center gap-3">
+<div class="bg-[#4285F4] text-white px-8 py-3 rounded-full font-bold shadow-lg flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="link">link</span>
+                                เชื่อมต่อเดี๋ยวนี้
+                            </div>
+<div class="px-4 py-1.5 bg-surface-container-low rounded-full text-[12px] text-on-surface-variant font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="lock">lock</span>
+                                SECURE DATA SYNC
+                            </div>
+</div>
+</div>
+<!-- Background pattern for visual flair -->
+<div class="absolute inset-0 opacity-10 pointer-events-none">
+<svg class="w-full h-full" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+<defs><pattern height="20" id="dots" patternUnits="userSpaceOnUse" width="20"><circle cx="2" cy="2" fill="currentColor" r="1.5"></circle></pattern></defs>
+<rect fill="url(#dots)" height="100%" width="100%"></rect>
+</svg>
+</div>
+</button>
+<!-- AI OCR Upload Card (Prominent) -->
+<button class="group relative overflow-hidden bg-surface-container-low/50 backdrop-blur-xl border-2 border-surface-variant/30 rounded-3xl p-8 flex flex-col items-center text-center shadow-none cursor-not-allowed transition-all duration-300">
+<!-- Inactive Overlay Effect -->
+<div class="absolute inset-0 bg-white/40 backdrop-blur-[2px] z-10 pointer-events-none"></div>
+<div class="relative z-20 flex flex-col items-center">
+<div class="w-20 h-20 mb-6 bg-surface-variant/50 text-on-surface-variant/50 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-5xl" data-icon="add_a_photo">add_a_photo</span>
+</div>
+<h4 class="text-2xl font-bold text-on-surface/60 mb-3">อัปโหลดภาพหลักฐาน</h4>
+<p class="text-body-md text-on-surface-variant/60 max-w-sm mb-6 leading-relaxed">หากไม่มีสมาร์ทวอทช์ คุณสามารถถ่ายภาพหน้าจอแอปนับก้าวอื่นๆ แล้วส่งให้ AI ตรวจสอบได้</p>
+<div class="flex flex-col items-center gap-3">
+<div class="bg-surface-variant text-on-surface-variant/70 px-8 py-3 rounded-full font-bold shadow-none flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="upload">upload</span>
+        เลือกไฟล์รูปภาพ
+      </div>
+<div class="px-4 py-1.5 bg-surface-container-high/50 text-on-surface-variant/70 rounded-full text-[12px] font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="history_toggle_off">history_toggle_off</span>
+        รอการตรวจสอบ (1-3 วัน)
+      </div>
+</div>
+</div>
+</button>
+</div>
+<!-- SECONDARY: Statistics (Reduced Visual Weight) -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Today's Stats -->
+<div class="glass-card p-5 rounded-2xl border border-white/40 flex items-center gap-4">
+<div class="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined" data-icon="today">today</span>
+</div>
+<div>
+<p class="text-[12px] text-on-surface-variant font-medium uppercase tracking-wider">ก้าวเดินวันนี้</p>
+<div class="flex items-baseline gap-1">
+<span class="text-2xl font-bold text-on-surface">8,452</span>
+<span class="text-xs text-on-surface-variant">ก้าว</span>
+</div>
+</div>
+</div>
+<!-- Weekly Target Mini Card -->
+<div class="glass-card p-5 rounded-2xl border border-white/40 flex flex-col justify-center"><div class="flex justify-between items-center mb-1"><p class="text-[12px] text-on-surface-variant font-medium uppercase tracking-wider">ความคืบหน้าสัปดาห์นี้</p><span class="text-label-md font-bold text-primary">70%</span></div><div class="h-2 w-full bg-surface-variant rounded-full overflow-hidden mb-2"><div class="h-full bg-primary rounded-full" style="width: 70%"></div></div><div class="flex justify-end items-baseline gap-1"><span class="text-lg font-bold text-on-surface">39,200</span><span class="text-xs text-on-surface-variant">/ 56,000 ก้าว</span></div></div>
+</div>
+<!-- History Table (Secondary) -->
+<section class="glass-card rounded-3xl overflow-hidden shadow-xl border border-white/20">
+<div class="px-8 py-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-surface-variant/50">
+<h4 class="font-bold text-lg text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="history">history</span>
+                        ประวัติกิจกรรมล่าสุด
+                    </h4>
+<div class="flex gap-2">
+<button class="px-3 py-1.5 bg-surface-container text-on-surface-variant rounded-full text-[12px] hover:bg-surface-variant transition-colors flex items-center gap-1.5 font-bold">
+<span class="material-symbols-outlined text-sm" data-icon="filter_list">filter_list</span>
+                            ตัวกรอง
+                        </button>
+<button class="px-3 py-1.5 bg-primary/10 text-primary rounded-full text-[12px] hover:bg-primary/20 transition-colors flex items-center gap-1.5 font-bold">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+                            ส่งออก CSV
+                        </button>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-container-low/50 text-on-surface-variant uppercase text-[10px] font-bold tracking-widest">
+<tr>
+<th class="px-8 py-3">วันที่</th>
+<th class="px-6 py-3">จำนวนก้าว</th>
+<th class="px-6 py-3">วิธีการ</th>
+<th class="px-6 py-3">สถานะ</th>
+<th class="px-8 py-3 text-right"></th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-variant/30">
+<tr class="hover:bg-primary/5 transition-colors group">
+<td class="px-8 py-4">
+<p class="font-bold text-on-surface text-sm">22 ต.ค. 2566</p>
+<p class="text-[10px] text-on-surface-variant uppercase">วันนี้</p>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-lg font-bold text-primary">8,452</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-[12px]">
+<span class="material-symbols-outlined text-blue-500 text-sm" data-icon="sync" style="font-variation-settings: &quot;wght&quot; 700;">sync</span>
+                                        Google Fit
+                                    </div>
+</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-secondary-container/30 text-on-secondary-container rounded-full text-[10px] font-bold">APPROVED</span>
+</td>
+<td class="px-8 py-4 text-right">
+<span class="material-symbols-outlined text-on-surface-variant opacity-30 group-hover:opacity-100 transition-opacity" data-icon="chevron_right">chevron_right</span>
+</td>
+</tr>
+<tr class="hover:bg-primary/5 transition-colors group">
+<td class="px-8 py-4">
+<p class="font-bold text-on-surface text-sm">21 ต.ค. 2566</p>
+<p class="text-[10px] text-on-surface-variant uppercase">เมื่อวานนี้</p>
+</td>
+<td class="px-6 py-4">
+<span class="text-body-lg font-bold text-on-surface">10,120</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-[12px]">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="image">image</span>
+                                        Manual (OCR)
+                                    </div>
+</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-secondary-container/30 text-on-secondary-container rounded-full text-[10px] font-bold">APPROVED</span>
+</td>
+<td class="px-8 py-4 text-right">
+<span class="material-symbols-outlined text-on-surface-variant opacity-30 group-hover:opacity-100 transition-opacity" data-icon="chevron_right">chevron_right</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="p-4 bg-surface-container-lowest/50 text-center">
+<button class="text-primary font-bold text-label-md hover:underline underline-offset-4">ดูประวัติทั้งหมด</button>
+</div>
+</section>
+<!-- Bottom Call-to-action Section -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6 pb-12">
+<div class="bg-primary-container p-8 rounded-3xl flex items-center justify-between shadow-lg relative overflow-hidden">
+<div class="absolute -right-4 -bottom-4 opacity-10">
+<span class="material-symbols-outlined text-[160px]" data-icon="military_tech">military_tech</span>
+</div>
+<div class="relative z-10">
+<p class="text-on-primary-container font-bold mb-1">Rank ของคุณ</p>
+<h5 class="text-headline-lg font-bold text-on-primary-container leading-none">Healthy Leader</h5>
+<p class="text-on-primary-container/70 text-label-md mt-2">อันดับที่ 42 ในเขตลาดพร้าว</p>
+</div>
+<button class="relative z-10 bg-white text-primary px-6 py-3 rounded-2xl font-bold shadow-xl hover:-translate-y-1 transition-all">
+                        ดูบอร์ดผู้นำ
+                    </button>
+</div>
+<div class="relative overflow-hidden rounded-3xl h-full min-h-[160px] group">
+</div>
+</section>
+</div>
+<!-- Footer Footer padding for mobile bottom bar -->
+<div class="h-20 md:hidden"></div>
+</main>
+<!-- Mobile Bottom Navigation -->
+<nav class="fixed bottom-0 left-0 right-0 h-16 bg-surface/90 backdrop-blur-xl md:hidden border-t border-white/20 flex items-center justify-around px-4 z-50">
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="text-[10px] font-bold">หน้าแรก</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-primary">
+<span class="material-symbols-outlined" data-icon="directions_walk" style="font-variation-settings: &quot;FILL&quot; 1;">directions_walk</span>
+<span class="text-[10px] font-bold">ก้าวเดิน</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="school">school</span>
+<span class="text-[10px] font-bold">อบรม</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="text-[10px] font-bold">โปรไฟล์</span>
+</button>
+</nav>
+<script>
+        const mainCanvas = document.querySelector('main');
+        const header = document.querySelector('header');
+        mainCanvas.addEventListener('scroll', () => {
+            if (mainCanvas.scrollTop > 20) {
+                header.classList.add('shadow-md');
+                header.classList.remove('border-white/20');
+            } else {
+                header.classList.remove('shadow-md');
+                header.classList.add('border-white/20');
+            }
+        });
+    </script>
+<div class="fixed inset-0 z-[100] flex items-center justify-center p-4" id="google-fit-modal">
+<!-- Overlay -->
+<div class="absolute inset-0 bg-on-surface/60 backdrop-blur-sm"></div>
+<!-- Modal Content -->
+<div class="relative glass-card w-full max-w-md rounded-3xl shadow-2xl border border-white/40 overflow-hidden animate-in fade-in zoom-in duration-300">
+<div class="p-8">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-headline-md font-bold text-primary">เชื่อมต่อข้อมูลจาก Google Fit</h3>
+<button class="text-on-surface-variant hover:bg-surface-variant/50 p-2 rounded-full transition-colors">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="space-y-6">
+<!-- Date Selector -->
+<div class="space-y-2">
+<label class="text-label-md font-bold text-on-surface-variant">เลือกวันที่ต้องการบันทึก</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-primary">calendar_today</span>
+<input class="w-full pl-10 pr-4 py-3 rounded-2xl border border-surface-variant bg-surface-container-low focus:ring-2 focus:ring-primary/20 outline-none text-body-md" type="date" value="2023-10-22">
+</div>
+</div>
+<!-- Steps Display -->
+<button class="w-full bg-[#4285F4] text-white py-4 rounded-2xl font-bold shadow-lg hover:shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-3 mb-2">
+  <svg class="w-5 h-5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#fff"></path>
+    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-1 .67-2.28 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#fff"></path>
+    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#fff"></path>
+    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#fff"></path>
+  </svg>
+  <span class="">ดึงข้อมูลจาก Google Fit</span>
+</button><div class="bg-primary/5 rounded-2xl p-6 border border-primary/10 text-center">
+<p class="text-label-md text-on-surface-variant mb-1">จำนวนก้าวที่ดึงได้</p>
+<div class="flex items-baseline justify-center gap-2">
+<span class="text-5xl font-bold text-primary">8,452</span>
+<span class="text-body-lg text-on-surface-variant">ก้าว</span>
+</div>
+</div>
+<!-- Action Buttons -->
+<div class="flex flex-col gap-3 pt-2">
+<button class="w-full bg-primary text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-primary/90 transition-all active:scale-[0.98]">
+            บันทึกข้อมูล
+          </button>
+<button class="w-full bg-surface-container text-on-surface-variant py-4 rounded-2xl font-bold hover:bg-surface-variant transition-all active:scale-[0.98]">
+            ยกเลิก
+          </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+</body></html>

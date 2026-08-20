@@ -779,11 +779,9 @@ export default function StepsPage() {
                     <div className="flex items-start gap-2">
                       <span className="material-symbols-outlined text-amber-500 text-xl">lock_person</span>
                       <div className="flex-1">
-                        <p className="text-sm font-bold text-amber-700 dark:text-amber-400">ห้ามใช้การเชื่อมต่อของบัญชีอื่น</p>
+                        <p className="text-sm font-bold text-amber-700 dark:text-amber-400">บัญชี E-mail นี้มีผู้ใช้งานแล้ว</p>
                         <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 leading-relaxed">
-                          การเชื่อมต่อ Google Fit ที่ค้างอยู่บนเครื่องนี้ ({GF.getConnectedEmail() || 'Gmail เดิม'}) ถูกผูกกับบัญชีระบบอื่น —
-                          ระบบจำกัดให้ 1 Gmail ใช้ได้กับ 1 คนเท่านั้น เพื่อป้องกันการโกงนับก้าว
-                          กรุณากดปุ่ม (ถอดการเชื่อมต่อ) แล้วเชื่อมต่อ Gmail ของท่านเองใหม่
+                          โปรดเชื่อมต่อบัญชีของท่านอีกครั้ง
                         </p>
                       </div>
                       <button onClick={handleGfDisconnect}

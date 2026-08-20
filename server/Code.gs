@@ -37,6 +37,7 @@ const AUDIT_HEADERS = ['Audit_ID','Record_ID','Action','User_ID','Detail','Times
 const USER_HEADERS = ['User_ID','Prefix','Full_Name','Nickname','Position','Department','Birth_Date','Gender','Weight_kg','Height_cm','BMI_Value','Waist_Inch','Role','Password','Total_Points','Level','Personnel_ID','Registration_Status','Created_By','Created_Date','First_Name','Last_Name','Profile_Image','Activities'];
 const PASSWORD_SALT_LENGTH = 16;
 const WEIGHT_AFTER_HEADERS = ['Record_ID','User_ID','Weight_kg','Height_cm','BMI_Value','Recorded_At'];
+const BASELINE_HEADERS = ['Record_ID','User_ID','Weight_kg','Height_cm','BMI_Value','Source','Recorded_At'];
 
 // ===== HELPER FUNCTIONS =====
 /**
@@ -118,6 +119,33 @@ function computeBmi_(weight, height) {
   const h = Number(height);
   if (!w || !h || h <= 0 || w <= 0) return '';
   return Math.round(w / ((h / 100) * (h / 100)) * 10) / 10;
+}
+
+/**
+ * บันทึกค่าแรก (baseline) น้ำหนัก/ส่วนสูง/BMI ของผู้ใช้ตอนลงทะเบียนยืนยันตัวตน
+ * เพื่อใช้เทียบกับค่า "ครั้งล่าสุด" (ชีท Weight_After) หลังจบโครงการ
+ * จะบันทึกก็ต่อเมื่อยังไม่มี baseline ของผู้ใช้นั้น — กันการทับเมื่อแก้โปรไฟล์ภายหลัง
+ */
+function captureBaseline_(uid, weight, height, bmi, source) {
+  if (!uid) return { captured: false, message: 'missing uid' };
+  ensureHeaders_('Baseline', BASELINE_HEADERS);
+  const existing = getData_('Baseline').filter(function (b) {
+    return String(b.User_ID) === String(uid);
+  });
+  if (existing.length > 0) return { captured: false, message: 'baseline already exists' };
+  const w = Number(weight);
+  const h = Number(height);
+  if (!w || !h || w <= 0 || h <= 0) return { captured: false, message: 'invalid weight/height' };
+  appendData_('Baseline', {
+    Record_ID: generateSequentialId_('Baseline', 'B'),
+    User_ID: String(uid),
+    Weight_kg: w,
+    Height_cm: h,
+    BMI_Value: (bmi !== undefined && bmi !== null && bmi !== '') ? bmi : computeBmi_(w, h),
+    Source: source || 'register',
+    Recorded_At: getTimestamp_()
+  });
+  return { captured: true };
 }
 
 /** สถานะการลงทะเบียน — รองรับแถว legacy (ไม่มีคอลัมน์ใหม่) ด้วยการดูจาก Password */
@@ -302,6 +330,9 @@ function doGet(e) {
         break;
       case 'training-registrations':
         result = getData_('Training_Registration');
+        break;
+      case 'baseline':
+        result = getData_('Baseline');
         break;
       default:
         result = { status: 'ok', project: 'ลาดพร้าวสร้างสุข', version: '1.0.0' };
@@ -642,7 +673,9 @@ function registerUser_(data) {
   set('Level', 'เริ่มต้น');
   set('Registration_Status', 'Registered');
 
-  return { success: true, message: 'ลงทะเบียนสำเร็จ' };
+  // บันทึกค่าแรก (baseline) — ใช้เทียบหลังจบโครงการ และกันค่าที่จะถูกทับตอนแก้โปรไฟล์
+  const baseline = captureBaseline_(uid, data.Weight_kg, data.Height_cm, data.BMI_Value, 'register');
+  return { success: true, message: 'ลงทะเบียนสำเร็จ', baselineCaptured: !!baseline.captured };
 }
 
 /**
@@ -1217,11 +1250,18 @@ function getWeightAfter_(e) {
     .sort(function (a, b) {
       return String(b.Recorded_At) < String(a.Recorded_At) ? -1 : (String(b.Recorded_At) > String(a.Recorded_At) ? 1 : 0);
     });
+  // ค่าแรก (baseline) จากชีท Baseline — สำหรับเปรียบเทียบกับครั้งล่าสุดหลังจบโครงการ
+  const baseline = getData_('Baseline')
+    .filter(function (b) { return String(b.User_ID) === uid; })
+    .sort(function (a, b) {
+      return String(a.Recorded_At) < String(b.Recorded_At) ? -1 : (String(a.Recorded_At) > String(b.Recorded_At) ? 1 : 0);
+    })[0] || null;
 
   return {
     success: true,
     open: open,
     records: records,
+    baseline: baseline,
     height: user ? user.Height_cm : '',
     currentWeight: user ? user.Weight_kg : ''
   };
@@ -1623,8 +1663,8 @@ function getWeekNumber_() {
   const diff = (now - start + (start.getTimezoneOffset() - now.getTimezoneOffset()) * 60000) / 86400000;
   return Math.ceil((diff + start.getDay() + 1) / 7);
 }
-
 // ===== SAMPLE DATA SEEDER =====
+
 function seedSampleData() {
   const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
 

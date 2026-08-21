@@ -281,12 +281,13 @@ export default function AdminPersonnelPage() {
     });
   };
   const changeMode = async (u: User, mode: string) => {
-    const res = await postDataJson('set-step-record-mode', { Logged_By: user?.User_ID, Personnel_ID: u.Personnel_ID, Step_Record_Mode: mode });
+    const res = await postDataJson('set-step-record-mode', { Logged_By: user?.User_ID, Personnel_ID: u.Personnel_ID, User_ID: (u as any).User_ID || u.User_ID, Step_Record_Mode: mode });
     if (res?.success) {
       setNotice({ type: 'success', text: res.message || 'เปลี่ยนโหมดสำเร็จ' });
       load();
     } else {
-      setNotice({ type: 'error', text: res?.message || 'เปลี่ยนโหมดไม่สำเร็จ' });
+      setNotice({ type: 'error', text: (res?.message || 'เปลี่ยนโหมดไม่สำเร็จ') + (res?.error ? ' ('+res.error+')':'' ) });
+      console.error('set-step-record-mode failed', res);
     }
   };
 

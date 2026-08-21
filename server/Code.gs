@@ -2583,16 +2583,32 @@ function setStepRecordMode_(data) {
       break;
     }
   }
-  if (rowIndex < 1) return { success: false, message: 'ไม่พบบุคลากร' };
+  // fallback: หากไม่พบด้วย Personnel_ID ให้ลองหาด้วย User_ID (กรณีบุคลากรลงทะเบียนแล้ว)
+  if (rowIndex < 1 && data.User_ID) {
+    var uidCol = col('User_ID');
+    for (var i2 = 1; i2 < rows.length; i2++) {
+      if (uidCol > 0 && String(rows[i2][uidCol - 1]) === String(data.User_ID)) {
+        rowIndex = i2;
+        break;
+      }
+    }
+  }
+  if (rowIndex < 1) return { success: false, message: 'ไม่พบบุคลากร (Personnel_ID=' + String(data.Personnel_ID||'') + ', User_ID=' + String(data.User_ID||'') + ')' };
   
   var modeCol = col('Step_Record_Mode');
+  if (modeCol < 1) {
+    ensureHeaders_('Users', USER_HEADERS);
+    // รีโหลด headers หลังเพิ่มคอลัมน์
+    rows = sheet.getDataRange().getValues();
+    headers = rows[0] || [];
+    col = function (name) { return headers.indexOf(name) + 1; };
+    modeCol = col('Step_Record_Mode');
+    pidCol = col('Personnel_ID');
+  }
   if (modeCol > 0) {
     sheet.getRange(rowIndex + 1, modeCol).setValue(mode);
   } else {
-    // คอลัมน์ยังไม่มี — เพิ่มหัวก่อน
-    ensureHeaders_('Users', USER_HEADERS);
-    modeCol = col('Step_Record_Mode');
-    if (modeCol > 0) sheet.getRange(rowIndex + 1, modeCol).setValue(mode);
+    return { success: false, message: 'เพิ่มคอลัมน์ Step_Record_Mode ไม่สำเร็จ กรุณาตรวจสอบชีท Users' };
   }
   
   var modeLabel = mode === '1' ? 'บันทึกเอง' : 'เจ้าหน้าที่ นสส. บันทึกให้';

@@ -7,6 +7,7 @@ export interface User {
   Personnel_ID?: string; Registration_Status?: 'Pending' | 'Registered' | 'Inactive' | '';
   Created_By?: string; Created_Date?: string; LGBTQ_Identity?: string;
   First_Name?: string; Last_Name?: string; Profile_Image?: string; Activities?: string;
+  Step_Record_Mode?: '1' | '2';
 }
 export interface StepsLog {
   Record_ID: string; User_ID: string; Date_Thai: string; Steps_Count: number;
@@ -14,6 +15,7 @@ export interface StepsLog {
   Recorded_At?: string; Reject_Reason?: string;
   AI_Steps?: number | string; AI_Confidence?: number | string; Date_Match?: string | boolean;
   Alert_Flag?: string | boolean; Alert_Reason?: string; Auditor_ID?: string; Reviewed_At?: string;
+  Notes?: string;
 }
 export interface AiImageAnalysis {
   steps: number | null;

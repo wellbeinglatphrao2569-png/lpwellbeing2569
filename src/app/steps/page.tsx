@@ -489,6 +489,7 @@ export default function StepsPage() {
 
   const requestSave = () => {
     if (!user) return;
+    if (isMode2) { setAiError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || aiExtractedSteps);
     if (!steps || steps <= 0) return;
     if (logMethod === 'image-upload' && !imagePreview) {
@@ -501,6 +502,7 @@ export default function StepsPage() {
   async function handleSave() {
     setConfirmSave(false);
     if (!user) return;
+    if (isMode2) { setAiError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || aiExtractedSteps);
     if (!steps || steps <= 0) return;
     setSaving(true);
@@ -569,6 +571,7 @@ export default function StepsPage() {
 
   const activeSteps = logMethod === 'google-fit' ? googleFitSteps : (stepInput ? parseInt(stepInput) : aiExtractedSteps);
   const isCurrentDate = logDate === todayStr;
+  const isMode2 = String(user?.Step_Record_Mode || '1') === '2';
 
   return (
     <div className="space-y-6">
@@ -752,8 +755,19 @@ export default function StepsPage() {
             <h3 className="font-bold text-gray-900 dark:text-white text-lg">บันทึกก้าวเดิน</h3>
           </div>
 
+          {isMode2 && (
+            <div className="mb-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-300 dark:border-amber-700">
+              <div className="flex items-start gap-2">
+                <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-xl">block</span>
+                <div>
+                  <p className="text-sm font-bold text-amber-800 dark:text-amber-300">คุณอยู่ในโหมดเจ้าหน้าที่ นสส. บันทึกให้ (Mode 2)</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 leading-relaxed">ไม่สามารถบันทึกด้วยตนเองได้ — กรุณาติดต่อเจ้าหน้าที่ นสส. ประจำส่วนราชการของคุณเพื่อให้บันทึกจำนวนก้าวให้ จนกว่าจะเปลี่ยนโหมดเป็น &quot;บันทึกด้วยตนเอง&quot; (Mode 1)</p>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Method selector */}
-          <div className="flex gap-3 mb-5">
+          <div className={`flex gap-3 mb-5 ${isMode2 ? 'opacity-40 pointer-events-none' : ''}`}>
             <button onClick={() => { setLogMethod('google-fit'); resetSteps(); setImageFile(null); setImagePreview(null); }}
               className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all border-2 ${
                 logMethod === 'google-fit'

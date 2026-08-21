@@ -267,6 +267,29 @@ export default function AdminPersonnelPage() {
     }
   };
 
+  // Step record mode toggle
+  const requestChangeMode = (u: User) => {
+    const cur = String(u.Step_Record_Mode || '1') === '2' ? '2' : '1';
+    const next = cur === '1' ? '2' : '1';
+    const nextLabel = next === '2' ? 'เจ้าหน้าที่ นสส. บันทึกให้ (Mode 2)' : 'บันทึกด้วยตนเอง (Mode 1)';
+    const warn = next === '2' ? ' — เมื่อเปลี่ยนเป็น Mode 2 บุคลากรจะไม่สามารถบันทึกเองได้จนกว่าจะเปลี่ยนกลับ' : '';
+    setConfirm({
+      title: 'ยืนยันการเปลี่ยนโหมดบันทึก',
+      message: `เปลี่ยนโหมดบันทึกของ "${displayName(u)}" (${u.Department}) จาก Mode ${cur} → Mode ${next} (${nextLabel})${warn} แน่ใจหรือไม่?`,
+      variant: next === '2' ? 'warning' : 'primary',
+      onConfirm: () => changeMode(u, next),
+    });
+  };
+  const changeMode = async (u: User, mode: string) => {
+    const res = await postDataJson('set-step-record-mode', { Logged_By: user?.User_ID, Personnel_ID: u.Personnel_ID, Step_Record_Mode: mode });
+    if (res?.success) {
+      setNotice({ type: 'success', text: res.message || 'เปลี่ยนโหมดสำเร็จ' });
+      load();
+    } else {
+      setNotice({ type: 'error', text: res?.message || 'เปลี่ยนโหมดไม่สำเร็จ' });
+    }
+  };
+
   // ---- edit modal ----
   const openEdit = (u: User) => {
     setEditTarget(u);
@@ -537,6 +560,12 @@ export default function AdminPersonnelPage() {
         onClose={() => setShowSaved(false)}
       />
 
+      {user?.Department && (
+        <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
+          <span className="material-symbols-outlined">info</span>
+          คุณ (เจ้าหน้าที่ นสส.) สังกัด <strong>{user.Department}</strong> — คุณสามารถจัดการโหมดบันทึกของบุคลากรฝ่ายคุณได้ (Mode 1 = บันทึกเอง, Mode 2 = จนท.บันทึกให้ เมื่อเป็น Mode 2 จะบล็อกการบันทึกเอง)
+        </div>
+      )}
       <GlassCard className="p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="font-bold text-gray-900 dark:text-white">รายชื่อบุคลากรทั้งหมด ({users.length} คน)</h3>
@@ -569,6 +598,7 @@ export default function AdminPersonnelPage() {
               <th className="px-4 py-3 font-medium">ส่วนราชการ</th>
               <th className="px-4 py-3 font-medium">บทบาท</th>
               <th className="px-4 py-3 font-medium">สถานะ</th>
+              <th className="px-4 py-3 font-medium">โหมดบันทึก</th>
               <th className="px-4 py-3 font-medium">จัดการ</th>
             </tr></thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -606,6 +636,25 @@ export default function AdminPersonnelPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
+                      {(() => {
+                        const mode = String(u.Step_Record_Mode || '1') === '2' ? '2' : '1';
+                        const isMode2 = mode === '2';
+                        return (
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${isMode2 ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'}`}>
+                              <span className="material-symbols-outlined text-sm">{isMode2 ? 'support_agent' : 'edit_note'}</span>
+                              {isMode2 ? 'Mode 2: จนท.บันทึกให้' : 'Mode 1: บันทึกเอง'}
+                            </span>
+                            {isAdmin && u.Personnel_ID && (
+                              <button onClick={() => requestChangeMode(u)} className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                                สลับเป็น Mode {isMode2 ? '1' : '2'}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex flex-col gap-1.5 min-w-[150px]">
                         {u.Personnel_ID && isAdmin ? (
                           <>
@@ -626,7 +675,7 @@ export default function AdminPersonnelPage() {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">ไม่พบข้อมูลบุคลากร</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">ไม่พบข้อมูลบุคลากร</td></tr>
               )}
             </tbody>
           </table>

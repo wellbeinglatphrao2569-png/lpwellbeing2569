@@ -19,6 +19,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const adminItems = isAdmin
     ? [
         { href: '/admin/personnel', label: 'จัดการบุคลากร', icon: 'group_add' },
+        { href: '/admin/batch-steps', label: 'บันทึกนับก้าวแบบกลุ่ม', icon: 'upload' },
         { href: '/admin/verify-steps', label: 'ตรวจสอบนับก้าว', icon: 'verified_user' },
         { href: '/admin/verify-history', label: 'ประวัติตรวจสอบนับก้าว', icon: 'history' },
       ]

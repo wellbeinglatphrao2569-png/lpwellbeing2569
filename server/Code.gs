@@ -34,9 +34,9 @@ const CONFIG = {
 };
 
 const SWEET_FREE_HEADERS = ['Entry_ID','User_ID','Wednesday_Date','Status','Logged_By','Recorded_At'];
-const STEPS_HEADERS = ['Record_ID','User_ID','Date_Thai','Steps_Count','Record_Method','Image_Drive_ID','AI_Steps','AI_Confidence','Date_Match','Alert_Flag','Alert_Reason','Status','Week_Number','Auditor_ID','Recorded_At','Reject_Reason','Reviewed_At'];
+const STEPS_HEADERS = ['Record_ID','User_ID','Date_Thai','Steps_Count','Record_Method','Image_Drive_ID','AI_Steps','AI_Confidence','Date_Match','Alert_Flag','Alert_Reason','Status','Week_Number','Auditor_ID','Recorded_At','Reject_Reason','Reviewed_At','Notes'];
 const AUDIT_HEADERS = ['Audit_ID','Record_ID','Action','User_ID','Detail','Timestamp'];
-const USER_HEADERS = ['User_ID','Prefix','Full_Name','Nickname','Position','Department','Birth_Date','Gender','Weight_kg','Height_cm','BMI_Value','Waist_Inch','Role','Password','Total_Points','Level','Personnel_ID','Registration_Status','Created_By','Created_Date','First_Name','Last_Name','Profile_Image','Activities'];
+const USER_HEADERS = ['User_ID','Prefix','Full_Name','Nickname','Position','Department','Birth_Date','Gender','Weight_kg','Height_cm','BMI_Value','Waist_Inch','Role','Password','Total_Points','Level','Personnel_ID','Registration_Status','Created_By','Created_Date','First_Name','Last_Name','Profile_Image','Activities','Step_Record_Mode'];
 const PASSWORD_SALT_LENGTH = 16;
 const WEIGHT_AFTER_HEADERS = ['Record_ID','User_ID','Weight_kg','Height_cm','BMI_Value','Recorded_At'];
 const BASELINE_HEADERS = ['Record_ID','User_ID','Weight_kg','Height_cm','BMI_Value','Source','Recorded_At'];
@@ -314,6 +314,7 @@ function doGet(e) {
           case 'get-weight-after': result = getWeightAfter_(e); break;
           case 'set-weight-after-window': result = setWeightAfterWindow_(e.parameter); break;
           case 'test-drive': result = testDrive_(); break;
+          case 'set-step-record-mode': result = setStepRecordMode_(e.parameter); break;
           default: result = { error: 'Unknown action: ' + action };
         }
         break;
@@ -472,6 +473,12 @@ function doPost(e) {
         break;
       case 'test-drive':
         result = testDrive_();
+        break;
+      case 'set-step-record-mode':
+        result = setStepRecordMode_(data);
+        break;
+      case 'add-batch-steps':
+        result = addBatchSteps_(data);
         break;
       default:
         result = { error: 'Unknown action: ' + action };
@@ -802,7 +809,8 @@ function addPersonnel_(data) {
       Personnel_ID: pid,
       Registration_Status: 'Pending',
       Created_By: (creator.Prefix ? String(creator.Prefix) + ' ' : '') + String(creator.Full_Name || ''),
-      Created_Date: now
+      Created_Date: now,
+      Step_Record_Mode: '1',
     };
     sheet.appendRow(rowFromHeader_(headers, dataRow));
     added.push({ Full_Name: fullName, Department: dept, Personnel_ID: pid, status: 'added' });
@@ -1057,6 +1065,7 @@ function updatePersonnel_(data) {
   if (data.Activities !== undefined) set('Activities', data.Activities || 'sweet_free');
   if (data.Role !== undefined) set('Role', data.Role);
   if (data.Registration_Status !== undefined) set('Registration_Status', data.Registration_Status);
+  if (data.Step_Record_Mode !== undefined && (data.Step_Record_Mode === '1' || data.Step_Record_Mode === '2')) set('Step_Record_Mode', data.Step_Record_Mode);
 
   return { success: true, message: 'อัปเดตข้อมูลบุคลากรสำเร็จ', Full_Name: fullName };
 }
@@ -1378,6 +1387,12 @@ function loginUser_(data) {
 }
 
 function addStepLog_(data) {
+  // ตรวจสอบโหมดบันทึก — Mode 2 บันทึกเองไม่ได้
+  var checkUsers = getData_('Users');
+  var checkUser = checkUsers.find(function (u) { return String(u.User_ID) === String(data.User_ID); });
+  if (checkUser && String(checkUser.Step_Record_Mode || '1').trim() === '2') {
+    return { success: false, message: 'คุณอยู่ในโหมดบันทึกโดยเจ้าหน้าที่ นสส. — ไม่สามารถบันทึกเองได้' };
+  }
   ensureHeaders_('Steps_Log', STEPS_HEADERS);
 
   // อัปโหลดภาพหลักฐานไป Google Drive (โฟลเดอร์ Step_Proofs) + ตั้งชื่อไฟล์ User_ID_ชื่อ-สกุล_DDMMYYYY(BE)HHMM
@@ -1408,7 +1423,8 @@ function addStepLog_(data) {
     Status: data.Status || 'Pending',
     Week_Number: getWeekNumber_(),
     Auditor_ID: '',
-    Recorded_At: getTimestamp_()
+    Recorded_At: getTimestamp_(),
+    Notes: data.Notes || ''
   });
   return { success: true, message: 'บันทึกก้าวเดินสำเร็จ', image_drive_id: imageDriveId };
 }
@@ -2531,3 +2547,251 @@ function clearAllData() {
 }
 
 // ===== EXECUTE SEED (Run this once to populate data) =====
+
+// ===== STEP RECORD MODE MANAGEMENT =====
+
+/**
+ * เปลี่ยนโหมดการบันทึกนับก้าวของบุคลากร (1 = บันทึกเอง, 2 = เจ้าหน้าที่ นสส. บันทึกให้)
+ * Admin เท่านั้น
+ */
+function setStepRecordMode_(data) {
+  ensureHeaders_('Users', USER_HEADERS);
+  
+  const actor = getData_('Users').find(function (u) {
+    return String(u.User_ID) === String(data.Logged_By);
+  });
+  if (!actor) return { success: false, message: 'ไม่พบผู้ดำเนินการ' };
+  if (String(actor.Role) !== 'Admin') {
+    return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. เท่านั้นที่เปลี่ยนโหมดบันทึกได้' };
+  }
+  
+  var mode = String(data.Step_Record_Mode || '').trim();
+  if (mode !== '1' && mode !== '2') {
+    return { success: false, message: 'โหมดบันทึกต้องเป็น 1 หรือ 2 เท่านั้น' };
+  }
+  
+  var sheet = getSheet_('Users');
+  var rows = sheet.getDataRange().getValues();
+  var headers = rows[0] || [];
+  var col = function (name) { return headers.indexOf(name) + 1; };
+  var pidCol = col('Personnel_ID');
+  
+  var rowIndex = -1;
+  for (var i = 1; i < rows.length; i++) {
+    if (pidCol > 0 && String(rows[i][pidCol - 1]) === String(data.Personnel_ID)) {
+      rowIndex = i;
+      break;
+    }
+  }
+  if (rowIndex < 1) return { success: false, message: 'ไม่พบบุคลากร' };
+  
+  var modeCol = col('Step_Record_Mode');
+  if (modeCol > 0) {
+    sheet.getRange(rowIndex + 1, modeCol).setValue(mode);
+  } else {
+    // คอลัมน์ยังไม่มี — เพิ่มหัวก่อน
+    ensureHeaders_('Users', USER_HEADERS);
+    modeCol = col('Step_Record_Mode');
+    if (modeCol > 0) sheet.getRange(rowIndex + 1, modeCol).setValue(mode);
+  }
+  
+  var modeLabel = mode === '1' ? 'บันทึกเอง' : 'เจ้าหน้าที่ นสส. บันทึกให้';
+  return { success: true, message: 'เปลี่ยนโหมดบันทึกเป็น "' + modeLabel + '" สำเร็จ', Step_Record_Mode: mode };
+}
+
+/**
+ * เจ้าหน้าที่ นสส. บันทึกนับก้าวแบบกลุ่ม (Batch) — ให้ Mode 2 โดยเฉพาะ
+ * บันทึกทันทีเป็น Approved (ไม่ต้องรออนุมัติ)
+ * ป้องกันการบันทึกซ้ำ: ถ้าวันนั้นมี Approved แล้ว จะข้ามไป (ไม่เขียนทับ)
+ */
+function addBatchSteps_(data) {
+  ensureHeaders_('Steps_Log', STEPS_HEADERS);
+  
+  // 1. ตรวจสิทธิ์: ต้องเป็น Admin
+  var actor = getData_('Users').find(function (u) {
+    return String(u.User_ID) === String(data.Logged_By);
+  });
+  if (!actor) return { success: false, message: 'ไม่พบผู้ดำเนินการ' };
+  if (String(actor.Role) !== 'Admin') {
+    return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. เท่านั้นที่บันทึกแบบกลุ่มได้' };
+  }
+  
+  var weekStart = String(data.Week_Start || '').trim();
+  if (!weekStart) return { success: false, message: 'กรุณาระบุวันที่เริ่มต้นสัปดาห์ (จันทร์)' };
+  
+  var allowOverwrite = String(data.Allow_Overwrite || data.allowOverwrite || data.AllowOverwrite || '') === '1' || String(data.Allow_Overwrite || '').toLowerCase() === 'true' || data.Allow_Overwrite === true;
+
+  var stepsList = data.Steps;
+  if (!stepsList || !stepsList.length) {
+    return { success: false, message: 'ไม่มีข้อมูลที่ต้องบันทึก' };
+  }
+  
+  // 2. โหลด users เพื่อตรวจ Mode
+  var users = getData_('Users');
+  
+  // 3. โหลด Steps_Log ที่มีอยู่แล้วในสัปดาห์นี้ (สำหรับตรวจซ้ำ)
+  var allSteps = getData_('Steps_Log');
+  var existingApproved = {};
+  for (var j = 0; j < allSteps.length; j++) {
+    var s = allSteps[j];
+    if (String(s.Status) === 'Approved') {
+      var dateKey = normalizeDateKey_(s.Date_Thai);
+      var userKey = String(s.User_ID);
+      if (!existingApproved[userKey]) existingApproved[userKey] = {};
+      existingApproved[userKey][dateKey] = s;
+    }
+  }
+  
+  var saved = 0;
+  var skipped = 0;
+  var errors = 0;
+  var details = [];
+  
+  for (var i = 0; i < stepsList.length; i++) {
+    var item = stepsList[i];
+    var userId = String(item.User_ID || '').trim();
+    var dayStr = String(item.Day || '').trim();
+    var stepsCount = Number(item.Steps_Count) || 0;
+    
+    // ตรวจ user
+    var targetUser = users.find(function (u) { return String(u.User_ID) === userId; });
+    if (!targetUser) {
+      details.push({ User_ID: userId, Day: dayStr, status: 'error', message: 'ไม่พบผู้ใช้' });
+      errors++;
+      continue;
+    }
+    
+    // ตรวจ Mode — บันทึกได้เฉพาะ Mode 2
+    var recordMode = String(targetUser.Step_Record_Mode || '1').trim();
+    if (recordMode !== '2') {
+      details.push({ User_ID: userId, Day: dayStr, status: 'error', message: 'บุคลากรอยู่ใน Mode บันทึกเอง (Mode 1)' });
+      errors++;
+      continue;
+    }
+    
+    // ตรวจซ้ำ — ถ้าวันนั้นมี Approved แล้ว → ข้าม หรือแทนที่ถ้า allowOverwrite
+    var dayKey = normalizeDateKey_(dayStr);
+    var existingForDay = existingApproved[userId] ? existingApproved[userId][dayKey] : null;
+    if (existingForDay) {
+      if (!allowOverwrite) {
+        details.push({ User_ID: userId, Day: dayStr, status: 'skipped', message: 'วันนี้มีข้อมูล Approved แล้ว' });
+        skipped++;
+        continue;
+      }
+      // allowOverwrite = true → อัปเดตรายการเดิมแทนการข้าม
+    }
+    
+    // ตรวจจำนวนก้าว
+    if (stepsCount <= 0) {
+      details.push({ User_ID: userId, Day: dayStr, status: 'error', message: 'จำนวนก้าวต้องมากกว่า 0' });
+      errors++;
+      continue;
+    }
+    
+    // อัปโหลดรูปภาพ
+    var imageDriveId = '';
+    if (item.Image_Base64) {
+      var uploaded = uploadProofImage_(item.Image_Base64, userId, targetUser.Full_Name || '');
+      if (uploaded && uploaded.error) {
+        details.push({ User_ID: userId, Day: dayStr, status: 'error', message: 'อัปโหลดรูปไม่สำเร็จ: ' + uploaded.error });
+        errors++;
+        continue;
+      }
+      if (uploaded && uploaded.id) imageDriveId = uploaded.id;
+    }
+    
+    // บันทึกลง Steps_Log — ถ้า allowOverwrite และมีรายการเดิม ให้อัปเดตแทน append
+    if (existingForDay && allowOverwrite) {
+      // หาแถวในชีทแล้วอัปเดต
+      var sheet = getSheet_('Steps_Log');
+      var rows = sheet.getDataRange().getValues();
+      var headers = rows[0] || [];
+      var col = function(name){ return headers.indexOf(name)+1; };
+      var uidCol = col('User_ID');
+      var dateCol = col('Date_Thai');
+      var statusCol = col('Status');
+      var targetRow = -1;
+      for (var r = 1; r < rows.length; r++) {
+        if (String(rows[r][uidCol-1])===String(userId) && normalizeDateKey_(rows[r][dateCol-1])===dayKey && String(rows[r][statusCol-1])==='Approved') {
+          targetRow = r;
+          // เลือกแถวล่าสุดถ้ามีซ้ำ
+        }
+      }
+      if (targetRow > 0) {
+        var set = function(name, value){ var c=col(name); if(c>0) sheet.getRange(targetRow+1, c).setValue(value); };
+        set('Steps_Count', stepsCount);
+        if (imageDriveId) set('Image_Drive_ID', imageDriveId);
+        set('AI_Steps', (item.AI_Steps !== undefined && item.AI_Steps !== null && item.AI_Steps !== '') ? item.AI_Steps : '');
+        set('AI_Confidence', (item.AI_Confidence !== undefined && item.AI_Confidence !== null && item.AI_Confidence !== '') ? item.AI_Confidence : '');
+        set('Date_Match', item.Date_Match || '');
+        set('Alert_Flag', item.Alert_Flag || 'FALSE');
+        set('Alert_Reason', item.Alert_Reason || '');
+        set('Auditor_ID', String(data.Logged_By));
+        set('Recorded_At', getTimestamp_());
+        if (item.Notes) set('Notes', item.Notes);
+        saved++;
+        details.push({ User_ID: userId, Day: dayStr, status: 'updated', Steps_Count: stepsCount });
+        // อัปเดต cache ในรอบเดียวกันกันซ้ำอีก
+        if (!existingApproved[userId]) existingApproved[userId]={};
+        existingApproved[userId][dayKey] = { Status:'Approved', Date_Thai: dayStr, User_ID: userId, Steps_Count: stepsCount };
+        continue;
+      }
+    }
+    appendData_('Steps_Log', {
+      Record_ID: generateSequentialId_('Steps_Log', 'ST'),
+      User_ID: userId,
+      Date_Thai: dayStr,
+      Steps_Count: stepsCount,
+      Record_Method: 'เจ้าหน้าที่ นสส. (บันทึกให้)',
+      Image_Drive_ID: imageDriveId,
+      AI_Steps: (item.AI_Steps !== undefined && item.AI_Steps !== null && item.AI_Steps !== '') ? item.AI_Steps : '',
+      AI_Confidence: (item.AI_Confidence !== undefined && item.AI_Confidence !== null && item.AI_Confidence !== '') ? item.AI_Confidence : '',
+      Date_Match: item.Date_Match || '',
+      Alert_Flag: item.Alert_Flag || 'FALSE',
+      Alert_Reason: item.Alert_Reason || '',
+      Status: 'Approved',
+      Week_Number: getWeekNumber_(),
+      Auditor_ID: String(data.Logged_By),
+      Recorded_At: getTimestamp_(),
+      Notes: item.Notes || ''
+    });
+    
+    saved++;
+    details.push({ User_ID: userId, Day: dayStr, status: 'saved', Steps_Count: stepsCount });
+  }
+  
+  // Audit Log
+  ensureHeaders_('Audit_Log', AUDIT_HEADERS);
+  appendData_('Audit_Log', {
+    Audit_ID: generateSequentialId_('Audit_Log', 'AU'),
+    Record_ID: 'BATCH-' + getTimestamp_().replace(/[^0-9]/g, '').substring(0, 14),
+    Action: 'BATCH_STEP_SAVE',
+    User_ID: String(data.Logged_By),
+    Detail: 'Batch save: ' + saved + ' saved, ' + skipped + ' skipped, ' + errors + ' errors',
+    Timestamp: getTimestamp_()
+  });
+  
+  return {
+    success: true,
+    message: 'บันทึกสำเร็จ ' + saved + ' รายการ' + (skipped > 0 ? ', ข้าม ' + skipped + ' รายการ (วันซ้ำ)' : '') + (errors > 0 ? ', ผิดพลาด ' + errors + ' รายการ' : ''),
+    saved: saved,
+    skipped: skipped,
+    errors: errors,
+    details: details
+  };
+}
+
+/** แปลง Date_Thai เป็น key YYYY-MM-DD (local) */
+function normalizeDateKey_(value) {
+  if (!value) return '';
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, 'Asia/Bangkok', 'yyyy-MM-dd');
+  }
+  var s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM-dd');
+  }
+  return s;
+}

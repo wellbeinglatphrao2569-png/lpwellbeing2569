@@ -396,7 +396,7 @@ export default function StepsPage() {
         const res = await fetch('/api/google-fitness/check-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, userId: user.User_ID, action: 'check' }),
+          body: JSON.stringify({ email, userId: String(user.User_ID || '').trim(), action: 'check' }),
         });
         const data = await res.json();
         if (data.linkedUser) {
@@ -413,7 +413,7 @@ export default function StepsPage() {
   async function handleGfConnect(): Promise<void> {
     setGfConnecting(true);
     setGfErrorMessage(null);
-    await GF.connectGoogleFitness(user?.User_ID || '');
+    await GF.connectGoogleFitness(String(user?.User_ID || '').trim());
   }
 
   /** ถอดการเชื่อมต่อ Google Fit */
@@ -432,8 +432,8 @@ export default function StepsPage() {
       setGfErrorMessage('ยังไม่ได้เชื่อมต่อกูเกิลฟิต — กด "เชื่อมต่อกูเกิลฟิต" ก่อน');
       return;
     }
-    // อนุญาตให้ดึงข้อมูลได้ถ้าเป็นเจ้าของการเชื่อมต่อ (gfOwned) หรือเป็น user เดียวกับที่ลิงก์ใน backend
-    const isSameUser = gfOwned || (gfLinkedUser && gfLinkedUser.userId === user?.User_ID);
+    // อนุญาตให้ดึงข้อมูลได้ถ้าเป็นเจ้าของการเชื่อมต่อ (gfOwned) หรือเป็น user เดียวกับที่ลิงก์ใน backend — เทียบแบบข้อความ
+    const isSameUser = gfOwned || (gfLinkedUser && String(gfLinkedUser.userId) === String(user?.User_ID || '').trim());
     if (user && !isSameUser) {
       setGfErrorMessage(`การเชื่อมต่อ Google Fit นี้เชื่อมกับบัญชี "${gfLinkedUser?.userName || 'อื่น'}" — ห้ามใช้ร่วมกัน โปรดถอดการเชื่อมต่อแล้วเชื่อมต่อใหม่`);
       return;
@@ -809,7 +809,7 @@ export default function StepsPage() {
                         <div>
                           <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">เชื่อมต่อกูเกิลฟิตแล้ว</p>
                           <p className="text-[10px] text-emerald-600 dark:text-emerald-500">{GF.getConnectedEmail() || ''}</p>
-                          {gfLinkedUser && gfLinkedUser.userId === user?.User_ID && (
+                          {gfLinkedUser && String(gfLinkedUser.userId) === String(user?.User_ID || '').trim() && (
                             <p className="text-[10px] text-emerald-600 dark:text-emerald-500 mt-0.5">✓ เชื่อมต่อกับบัญชีนี้แล้ว</p>
                           )}
                         </div>
@@ -832,7 +832,7 @@ export default function StepsPage() {
                     <div className="flex items-start gap-2">
                       <span className="material-symbols-outlined text-amber-500 text-xl">lock_person</span>
                       <div className="flex-1">
-                        {gfLinkedUser && gfLinkedUser.userId !== user?.User_ID ? (
+                        {gfLinkedUser && String(gfLinkedUser.userId) !== String(user?.User_ID || '').trim() ? (
                           <>
                             <p className="text-sm font-bold text-amber-700 dark:text-amber-400">อีเมลนี้เชื่อมต่อกับบัญชีอื่นแล้ว</p>
                             <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 leading-relaxed">
@@ -861,7 +861,7 @@ export default function StepsPage() {
                     </div>
                   </div>
                 )}
-                {gfConnected && !gfOwned && gfLinkedUser && gfLinkedUser.userId === user?.User_ID && (
+                {gfConnected && !gfOwned && gfLinkedUser && String(gfLinkedUser.userId) === String(user?.User_ID || '').trim() && (
                   <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -874,7 +874,7 @@ export default function StepsPage() {
                     </div>
                   </div>
                 )}
-                <button onClick={fetchGoogleFitSteps} disabled={fetchingGf || !logDate || (gfInherited && gfLinkedUser?.userId !== user?.User_ID)}
+                <button onClick={fetchGoogleFitSteps} disabled={fetchingGf || !logDate || (gfInherited && String(gfLinkedUser?.userId || '') !== String(user?.User_ID || '').trim())}
                   className="w-full py-2.5 rounded-xl font-bold text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                   {fetchingGf ? (<>
                     <span className="loading loading-spinner loading-xs"></span>

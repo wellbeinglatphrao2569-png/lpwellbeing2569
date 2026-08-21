@@ -73,7 +73,7 @@ function CallbackContent() {
         let userId = '';
         try {
           const state = JSON.parse(atob(stateRaw));
-          userId = state.userId || '';
+          userId = String(state.userId || '').trim();
         } catch {}
 
 // ⚡ ตรวจสอบและ auto-link อีเมล — ครั้งแรกจะบันทึกลิงก์ทันที ถ้าเป็น user เดียวกันให้ผ่าน

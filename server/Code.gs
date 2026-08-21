@@ -2130,7 +2130,7 @@ function checkGoogleFitEmail_(e) {
 
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][emailIdx]).toLowerCase() === email.toLowerCase()) {
-      return { duplicate: true, linkedUser: data[i][0] || '' };
+      return { duplicate: true, linkedUser: String(data[i][0] || '').trim() };
     }
   }
   return { duplicate: false };
@@ -2150,14 +2150,17 @@ function saveGoogleFitLink_(data) {
   if (existingData.length < 1 || existingData[0][0] !== 'User_ID') {
     sheet.clear();
     sheet.appendRow(['User_ID','Gmail','Connected_At']);
-    // เนื่องจากล้างชีทหมดแล้ว จึง append ใหม่เลย
-    sheet.appendRow([
-      data.User_ID || '',
-      data.email || '',
-      data.connected_at || getTimestamp_(),
-    ]);
+    sheet.getRange(1, 1, 1, 1).setNumberFormat('@');
+    // เนื่องจากล้างชีทหมดแล้ว จึง append ใหม่เลย — บังคับ User_ID เป็นข้อความ
+    var initUid = String(data.User_ID || '').trim();
+    sheet.appendRow([initUid, data.email || '', data.connected_at || getTimestamp_()]);
+    sheet.getRange(sheet.getLastRow(), 1).setNumberFormat('@');
+    // กันชีทแปลงเป็นตัวเลข (เช่น 1.1E+12)
+    try { SpreadsheetApp.flush(); } catch(e) {}
     return { success: true };
   }
+  // กันคอลัมน์ User_ID ถูกมองเป็นตัวเลข — ตั้ง format เป็นข้อความทั้งคอลัมน์
+  try { sheet.getRange(1, 1, sheet.getMaxRows(), 1).setNumberFormat('@'); } catch(e) {}
 
   const headers = existingData[0];
   const uidIdx = headers.indexOf('User_ID');
@@ -2186,8 +2189,10 @@ function saveGoogleFitLink_(data) {
     }
   }
 
-  // ไม่พบ Gmail นี้ -> append ใหม่
+  // ไม่พบ Gmail นี้ -> append ใหม่ — บังคับ User_ID เป็นข้อความ
   sheet.appendRow([newUid, newEmail, newDate]);
+  sheet.getRange(sheet.getLastRow(), 1).setNumberFormat('@');
+  try { SpreadsheetApp.flush(); } catch(e) {}
   return { success: true };
 }
 

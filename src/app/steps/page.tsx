@@ -801,78 +801,52 @@ export default function StepsPage() {
                     )}
                   </button>
                 )}
-                {gfConnected && gfOwned && (
-                  <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-700">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-emerald-500 text-xl">check_circle</span>
-                        <div>
-                          <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">เชื่อมต่อกูเกิลฟิตแล้ว</p>
-                          <p className="text-[10px] text-emerald-600 dark:text-emerald-500">{GF.getConnectedEmail() || ''}</p>
-                          {gfLinkedUser && String(gfLinkedUser.userId) === String(user?.User_ID || '').trim() && (
-                            <p className="text-[10px] text-emerald-600 dark:text-emerald-500 mt-0.5">✓ เชื่อมต่อกับบัญชีนี้แล้ว</p>
-                          )}
+                {gfConnected && (
+                  gfLinkedUser && String(gfLinkedUser.userId) !== String(user?.User_ID || '').trim() ? (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2">
+                          <span className="material-symbols-outlined text-red-500 text-xl">block</span>
+                          <div>
+                            <p className="text-sm font-bold text-red-700 dark:text-red-400">Gmail เชื่อมต่อกับผู้ใช้อื่นแล้ว</p>
+                            <p className="text-[10px] text-red-600 dark:text-red-500 mt-0.5 leading-relaxed">โปรดติดต่อเจ้าหน้าที่ นสส.</p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <button onClick={handleGfDisconnect}
-                          className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium">
-                          ถอดเชื่อมต่อ
-                        </button>
-                        <button onClick={() => { GF.disconnect(); setGfVersion(v => v + 1); }}
-                          className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium">
-                          ล้างข้อมูลเก่าบนเครื่อง (Force Clear)
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {gfInherited && (
-                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-300 dark:border-amber-700">
-                    <div className="flex items-start gap-2">
-                      <span className="material-symbols-outlined text-amber-500 text-xl">lock_person</span>
-                      <div className="flex-1">
-                        {gfLinkedUser && String(gfLinkedUser.userId) !== String(user?.User_ID || '').trim() ? (
-                          <>
-                            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">อีเมลนี้เชื่อมต่อกับบัญชีอื่นแล้ว</p>
-                            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 leading-relaxed">
-                              เชื่อมกับ: {gfLinkedUser.userName} — ห้ามใช้ร่วมกัน โปรดถอดการเชื่อมต่อแล้วเชื่อมต่อใหม่
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">บัญชี E-mail นี้มีผู้ใช้งานแล้ว</p>
-                            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 leading-relaxed">
-                              โปรดเชื่อมต่อบัญชีของท่านอีกครั้ง
-                            </p>
-                          </>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1 shrink-0">
-                        <button onClick={handleGfDisconnect}
-                          className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium">
-                          ถอดการเชื่อมต่อ
-                        </button>
-                        <button onClick={() => { GF.disconnect(); setGfVersion(v => v + 1); }}
-                          className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium">
-                          ล้างข้อมูลเก่าบนเครื่อง (Force Clear)
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {gfConnected && !gfOwned && gfLinkedUser && String(gfLinkedUser.userId) === String(user?.User_ID || '').trim() && (
-                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-blue-500 text-xl">info</span>
-                        <div>
-                          <p className="text-sm font-bold text-blue-700 dark:text-blue-400">พบการเชื่อมต่อเดิมกับบัญชีนี้</p>
-                          <p className="text-[10px] text-blue-600 dark:text-blue-500">{GF.getConnectedEmail() || ''} — กด &#34;ดึงข้อมูล&#34; เพื่อใช้งานต่อได้เลย</p>
+                        <div className="flex flex-col gap-1 shrink-0">
+                          <button onClick={handleGfDisconnect}
+                            className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium">
+                            ถอดการเชื่อมต่อ
+                          </button>
+                          <button onClick={() => { GF.disconnect(); setGfVersion(v => v + 1); }}
+                            className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium">
+                            ล้างข้อมูลเก่าบนเครื่อง
+                          </button>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-700">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-emerald-500 text-xl">check_circle</span>
+                          <div>
+                            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">เชื่อมต่อสำเร็จ</p>
+                            <p className="text-[10px] text-emerald-600 dark:text-emerald-500">{GF.getConnectedEmail() || ''}</p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <button onClick={handleGfDisconnect}
+                            className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium">
+                            ถอดการเชื่อมต่อ
+                          </button>
+                          <button onClick={() => { GF.disconnect(); setGfVersion(v => v + 1); }}
+                            className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium">
+                            ล้างข้อมูลเก่าบนเครื่อง
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
                 )}
                 <button onClick={fetchGoogleFitSteps} disabled={fetchingGf || !logDate || (gfInherited && String(gfLinkedUser?.userId || '') !== String(user?.User_ID || '').trim())}
                   className="w-full py-2.5 rounded-xl font-bold text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">

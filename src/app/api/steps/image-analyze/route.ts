@@ -15,10 +15,11 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'stealth/ox-alpha';
+const OPENROUTER_MODEL_2 = process.env.OPENROUTER_MODEL_2 || 'google/gemma-4-26b-a4b-it:free';
 const MIN_CONFIDENCE = 0.8;
 const MAX_REASONABLE_STEPS = 200000;
 
-async function callOpenRouter(prompt: string, data: string, mime: string): Promise<string> {
+async function callOpenRouterWithModel(prompt: string, data: string, mime: string, model: string): Promise<string> {
   if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY not configured');
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -29,7 +30,7 @@ async function callOpenRouter(prompt: string, data: string, mime: string): Promi
       'X-Title': 'LPWellbeing Steps',
     },
     body: JSON.stringify({
-      model: OPENROUTER_MODEL,
+      model,
       messages: [
         {
           role: 'user',
@@ -44,12 +45,29 @@ async function callOpenRouter(prompt: string, data: string, mime: string): Promi
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    console.error('OpenRouter API error:', res.status, errText.slice(0, 500));
-    throw new Error(`OpenRouter API error: ${res.status}`);
+    console.error(`OpenRouter API error (${model}):`, res.status, errText.slice(0, 500));
+    throw new Error(`OpenRouter API error (${model}): ${res.status}`);
   }
   const j = await res.json();
   const text = j?.choices?.[0]?.message?.content || '';
   return text;
+}
+async function callOpenRouter(prompt: string, data: string, mime: string): Promise<string> {
+  // ลอง model หลักก่อน ถ้า 429/5xx ให้ยืม model 2 ช่วย (google/gemma-4-26b-a4b-it:free)
+  try {
+    return await callOpenRouterWithModel(prompt, data, mime, OPENROUTER_MODEL);
+  } catch (e) {
+    const msg = String(e);
+    if ((msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && OPENROUTER_MODEL_2 !== OPENROUTER_MODEL) {
+      console.warn(`OpenRouter ${OPENROUTER_MODEL} failed (${msg}) — fallback to ${OPENROUTER_MODEL_2}`);
+      return await callOpenRouterWithModel(prompt, data, mime, OPENROUTER_MODEL_2);
+    }
+    throw e;
+  }
+}
+function getOpenRouterModelUsed(): string {
+  // ใช้ตรวจสอบว่า fallback ไปตัวไหน — จะเติมใน notes ภายหลัง
+  return OPENROUTER_MODEL;
 }
 
 export const runtime = 'nodejs';

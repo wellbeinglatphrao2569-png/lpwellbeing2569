@@ -271,25 +271,25 @@ export default function BatchStepsPage(){
       return;
     }
     setAiProcessing(true);
-    let globalDone=0;
+    const globalDoneRef = { value: 0 };
     setAiProgress({total: totalPending, done: 0, percent: 0, currentUserName: 'เริ่มต้น...'});
+    const updateGlobalProgress = (userName:string, fileName:string) => {
+      setAiProgress({total: totalPending, done: globalDoneRef.value, percent: Math.round((globalDoneRef.value/totalPending)*100), currentUserName: userName, currentFileName: fileName});
+    };
     try{
-      for(const u of pendingUsers){
+      const CONCURRENCY = 6; // ประมวลผลพร้อมกัน 6 คน ให้เสร็จใกล้เคียงกัน
+      const processOneUser = async (u: User) => {
         const uid=getUserKey(u);
         const pending = (userFiles[uid]||[]).filter(f=> !f.aiResult);
-        if(pending.length===0) continue;
-        setProcessingUserId(uid);
+        if(pending.length===0) return;
         const userName=displayName(u);
         const usedInBatch = new Set<string>();
         for(const f of (userFiles[uid]||[])){ if(f.aiResult) usedInBatch.add(f.targetDate); }
         if(!allowOverwrite){ for(const d of weekDays){ if(existingMap.has(`${uid}|${d}`)) usedInBatch.add(d); } }
         for(let idx=0; idx<pending.length; idx++){
           const fileItem = pending[idx];
-          setUserFiles(prev=>{
-            const arr=[...(prev[uid]||[])];
-            return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, isProcessing:true}: f)};
-          });
-          setAiProgress({total: totalPending, done: globalDone, percent: Math.round((globalDone/totalPending)*100), currentUserName: userName, currentFileName: fileItem.file.name});
+          setUserFiles(prev=>{ const arr=[...(prev[uid]||[])]; return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, isProcessing:true}: f)}; });
+          updateGlobalProgress(userName, fileItem.file.name);
           const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate }) });
           const data = await res.json().catch(()=>({}));
           if(!res.ok) throw new Error(data.error||'AI ประมวลผลล้มเหลว');
@@ -311,13 +311,15 @@ export default function BatchStepsPage(){
           if(r.dateMatch===false) notes=(notes?notes+' | ':'')+'AI พบวันที่ไม่ตรง — บันทึกลง '+targetDate+' พร้อมหมายเหตุรวมสัปดาห์ถูกต้อง';
           else if(r.dateMatch===null) notes=(notes?notes+' | ':'')+'ไม่พบวันที่ — บันทึกลง '+targetDate+' พร้อมหมายเหตุรวมสัปดาห์ถูกต้อง';
           const withNotes={...r, notes} as AiImageAnalysis;
-          setUserFiles(prev=>{
-            const arr=[...(prev[uid]||[])];
-            return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, aiResult:withNotes, manualSteps: r.steps!=null? String(r.steps): f.manualSteps, targetDate, isProcessing:false}: f)};
-          });
-          globalDone++;
-          setAiProgress({total: totalPending, done: globalDone, percent: Math.round((globalDone/totalPending)*100), currentUserName: userName, currentFileName: fileItem.file.name});
+          setUserFiles(prev=>{ const arr=[...(prev[uid]||[])]; return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, aiResult:withNotes, manualSteps: r.steps!=null? String(r.steps): f.manualSteps, targetDate, isProcessing:false}: f)}; });
+          globalDoneRef.value++;
+          updateGlobalProgress(userName, fileItem.file.name);
         }
+      };
+      for(let i=0; i<pendingUsers.length; i+=CONCURRENCY){
+        const batch = pendingUsers.slice(i, i+CONCURRENCY);
+        setProcessingUserId(getUserKey(batch[0]));
+        await Promise.all(batch.map(u => processOneUser(u)));
       }
     }catch(err){
       setResultPopup({type:'error', title:'AI ประมวลผลล้มเหลว', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
@@ -438,7 +440,7 @@ export default function BatchStepsPage(){
           </label>
         </div>
         <div className="mt-3 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-          วิธีใช้: อัปโหลดรูปหลักฐานลง <strong>ช่องโยนไฟล์ของแต่ละคน (1 ช่อง/คน)</strong> — ลากหรือคลิกเลือกได้ครั้งละหลายไฟล์ (สูงสุด 7 ภาพ/คน/สัปดาห์) — แล้วกด <strong>AI ประมวลผล</strong> (ประมวลพร้อมกันทั้งหมด) — AI จะอ่านจำนวนก้าว + วันที่ในภาพ แล้วแสดงค่าทันทีในแถวของคนนั้น (แก้ไขก้าว/วันที่เป้าหมายได้) — หากวันที่ไม่ชัด AI จะใส่หมายเหตุ <em>“จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง”</em> — หากวันนั้นมีข้อมูล Approved แล้ว ระบบจะข้าม (เว้นแต่ติ๊กอนุญาตแทนที่)
+          วิธีใช้: อัปโหลดรูปหลักฐานลง <strong>ช่องโยนไฟล์ของแต่ละคน (1 ช่อง/คน)</strong> — ลากหรือคลิกเลือกได้ครั้งละหลายไฟล์ (สูงสุด 7 ภาพ/คน/สัปดาห์) — แล้วกด <strong>AI ประมวลผล</strong> (ประมวลพร้อมกัน <strong>ทีละ 6 คน</strong> โดยยืม model อื่นช่วย <code>Gemini → stealth/ox-alpha → gemma-4-26b-a4b-it:free</code> เพื่อให้เสร็จใกล้เคียงกัน) — AI จะอ่านจำนวนก้าว + วันที่ในภาพ แล้วแสดงค่าทันทีในแถวของคนนั้น (แก้ไขก้าว/วันที่เป้าหมายได้) + แสดง badge ว่าใช้ AI ตัวไหน — หากวันที่ไม่ชัด AI จะใส่หมายเหตุ <em>“จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง”</em> — หากวันนั้นมีข้อมูล Approved แล้ว ระบบจะข้าม (เว้นแต่ติ๊กอนุญาตแทนที่)
         </div>
       </GlassCard>
 

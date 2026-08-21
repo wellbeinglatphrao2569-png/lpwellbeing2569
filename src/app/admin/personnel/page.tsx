@@ -268,6 +268,7 @@ export default function AdminPersonnelPage() {
   };
 
   // Step record mode toggle
+  const [changingModeId, setChangingModeId] = useState<string | null>(null);
   const requestChangeMode = (u: User) => {
     const cur = String(u.Step_Record_Mode || '1') === '2' ? '2' : '1';
     const next = cur === '1' ? '2' : '1';
@@ -281,13 +282,25 @@ export default function AdminPersonnelPage() {
     });
   };
   const changeMode = async (u: User, mode: string) => {
-    const res = await postDataJson('set-step-record-mode', { Logged_By: user?.User_ID, Personnel_ID: u.Personnel_ID, User_ID: (u as any).User_ID || u.User_ID, Step_Record_Mode: mode });
-    if (res?.success) {
-      setNotice({ type: 'success', text: res.message || 'เปลี่ยนโหมดสำเร็จ' });
-      load();
-    } else {
-      setNotice({ type: 'error', text: (res?.message || 'เปลี่ยนโหมดไม่สำเร็จ') + (res?.error ? ' ('+res.error+')':'' ) });
-      console.error('set-step-record-mode failed', res);
+    const idForLoading = String(u.Personnel_ID || u.User_ID || u.Full_Name);
+    setChangingModeId(idForLoading);
+    try {
+      console.log('[changeMode] request', { Personnel_ID: u.Personnel_ID, User_ID: (u as any).User_ID, mode, Logged_By: user?.User_ID });
+      let res = await postDataJson('set-step-record-mode', { Logged_By: user?.User_ID, Personnel_ID: u.Personnel_ID, User_ID: (u as any).User_ID || u.User_ID, Step_Record_Mode: mode });
+      // fallback: หาก set-step-record-mode ไม่สำเร็จเพราะไม่พบ Personnel_ID ให้ลอง update-personnel
+      if (!res?.success && String(res?.message||'').includes('ไม่พบ')) {
+        console.warn('[changeMode] fallback to update-personnel', res);
+        res = await postDataJson('update-personnel', { Logged_By: user?.User_ID, Personnel_ID: u.Personnel_ID, Step_Record_Mode: mode });
+      }
+      if (res?.success) {
+        setNotice({ type: 'success', text: res.message || 'เปลี่ยนโหมดสำเร็จ' });
+        await load();
+      } else {
+        setNotice({ type: 'error', text: (res?.message || 'เปลี่ยนโหมดไม่สำเร็จ') + (res?.error ? ' ('+res.error+')':'' ) });
+        console.error('set-step-record-mode failed', res, { sent: { Personnel_ID: u.Personnel_ID, User_ID: u.User_ID, mode } });
+      }
+    } finally {
+      setChangingModeId(null);
     }
   };
 
@@ -640,17 +653,26 @@ export default function AdminPersonnelPage() {
                       {(() => {
                         const mode = String(u.Step_Record_Mode || '1') === '2' ? '2' : '1';
                         const isMode2 = mode === '2';
+                        const uidKey = String(u.Personnel_ID || u.User_ID || '');
+                        const isChanging = changingModeId === String(u.Personnel_ID || u.User_ID || u.Full_Name);
                         return (
-                          <div className="flex flex-col gap-1 items-start">
+                          <div className="flex flex-col gap-1.5 items-start">
                             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${isMode2 ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'}`}>
                               <span className="material-symbols-outlined text-sm">{isMode2 ? 'support_agent' : 'edit_note'}</span>
                               {isMode2 ? 'Mode 2: จนท.บันทึกให้' : 'Mode 1: บันทึกเอง'}
                             </span>
-                            {isAdmin && u.Personnel_ID && (
-                              <button onClick={() => requestChangeMode(u)} className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline">
-                                สลับเป็น Mode {isMode2 ? '1' : '2'}
-                              </button>
+                            {isAdmin ? (
+                              <div className="flex items-center gap-1">
+                                <div className="flex rounded-full p-0.5 bg-gray-100 dark:bg-gray-700">
+                                  <button disabled={isChanging} onClick={() => mode !== '1' && requestChangeMode(u)} className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${mode==='1' ? 'bg-emerald-500 text-white shadow' : 'text-gray-400 hover:text-gray-600'}`}>Mode 1</button>
+                                  <button disabled={isChanging} onClick={() => mode !== '2' && requestChangeMode(u)} className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${mode==='2' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-600'}`}>Mode 2</button>
+                                </div>
+                                {isChanging && <span className="loading loading-spinner loading-xs text-purple-600"></span>}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-gray-400">ต้องเป็น Admin จึงสลับได้</span>
                             )}
+                            {!uidKey && <span className="text-[10px] text-red-400">ไม่มี Personnel_ID/User_ID</span>}
                           </div>
                         );
                       })()}

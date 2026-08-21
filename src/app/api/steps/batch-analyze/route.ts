@@ -9,9 +9,45 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'stealth/ox-alpha';
 const MIN_CONFIDENCE = 0.8;
 const MAX_REASONABLE_STEPS = 200000;
 const MAX_IMAGES = 49; // 7 people * 7 days
+
+async function callOpenRouterForBatch(prompt: string, data: string, mime: string): Promise<string> {
+  if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY not configured');
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : 'https://lpwellbeing2569.vercel.app',
+      'X-Title': 'LPWellbeing Steps',
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${data}` } },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.error('OpenRouter API error (batch):', res.status, errText.slice(0, 500));
+    throw new Error(`OpenRouter API error: ${res.status}`);
+  }
+  const j = await res.json();
+  const text = j?.choices?.[0]?.message?.content || '';
+  return text;
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -64,27 +100,58 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string) {
   "notes": "<หมายเหตุสั้นๆ ภาษาไทยว่ามองเห็นอะไรในภาพ>"
 }`;
 
-  const geminiRes = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data } }] }],
-        generationConfig: { responseMimeType: 'application/json' },
-      }),
+  let text = '';
+  let usedFallback = false;
+  if (!GEMINI_API_KEY && OPENROUTER_API_KEY) {
+    console.warn('No GEMINI_API_KEY in batch — direct OpenRouter fallback', OPENROUTER_MODEL, 'for', expectedDate);
+    try {
+      text = await callOpenRouterForBatch(prompt, data, mime);
+      usedFallback = true;
+    } catch (e) {
+      console.error('Direct OpenRouter failed:', e);
+      return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`OpenRouter failed: ${String(e)}`] };
     }
-  );
+  } else {
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data } }] }],
+          generationConfig: { responseMimeType: 'application/json' },
+        }),
+      }
+    );
 
-  if (!geminiRes.ok) {
-    const errText = await geminiRes.text().catch(() => '');
-    console.error('Gemini API error:', geminiRes.status, errText.slice(0, 300));
-    return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`Gemini API error: ${geminiRes.status}`] };
+    if (geminiRes.ok) {
+      const geminiJson = await geminiRes.json();
+      text = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else if (geminiRes.status === 429 && OPENROUTER_API_KEY) {
+      console.warn('Gemini 429 in batch — fallback to OpenRouter', OPENROUTER_MODEL, 'for', expectedDate);
+      try {
+        text = await callOpenRouterForBatch(prompt, data, mime);
+        usedFallback = true;
+      } catch (e) {
+        const errText = await geminiRes.text().catch(() => '');
+        console.error('Gemini 429 + OpenRouter fallback failed:', e, 'gemini status', geminiRes.status, errText.slice(0,200));
+        return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`Gemini 429 and OpenRouter failed: ${geminiRes.status}`] };
+      }
+    } else {
+      const errText = await geminiRes.text().catch(() => '');
+      console.error('Gemini API error:', geminiRes.status, errText.slice(0, 300));
+      if (geminiRes.status === 429) {
+        return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`Gemini API error: 429 (OPENROUTER_API_KEY not configured)`] };
+      }
+      return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`Gemini API error: ${geminiRes.status}`] };
+    }
   }
 
-  const geminiJson = await geminiRes.json();
-  const text = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   const parsed = parseGeminiJson(text);
+  if (usedFallback) {
+    if (parsed.notes) parsed.notes = `[fallback:${OPENROUTER_MODEL}] ` + parsed.notes;
+    else parsed.notes = `ประมวลผลด้วย OpenRouter (${OPENROUTER_MODEL}) หลัง Gemini 429`;
+  }
 
   const alertReasons: string[] = [];
   const steps = parsed.steps;
@@ -120,8 +187,8 @@ export async function POST(request: NextRequest) {
     if (images.length > MAX_IMAGES) {
       return NextResponse.json({ error: `สูงสุด ${MAX_IMAGES} ภาพต่อครั้ง` }, { status: 400 });
     }
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 });
+    if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
+      return NextResponse.json({ error: 'GEMINI_API_KEY and OPENROUTER_API_KEY not configured' }, { status: 500 });
     }
 
     const results = [];

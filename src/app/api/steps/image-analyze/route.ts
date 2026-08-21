@@ -13,8 +13,44 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'stealth/ox-alpha';
 const MIN_CONFIDENCE = 0.8;
 const MAX_REASONABLE_STEPS = 200000;
+
+async function callOpenRouter(prompt: string, data: string, mime: string): Promise<string> {
+  if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY not configured');
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : 'https://lpwellbeing2569.vercel.app',
+      'X-Title': 'LPWellbeing Steps',
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${data}` } },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.error('OpenRouter API error:', res.status, errText.slice(0, 500));
+    throw new Error(`OpenRouter API error: ${res.status}`);
+  }
+  const j = await res.json();
+  const text = j?.choices?.[0]?.message?.content || '';
+  return text;
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,8 +104,8 @@ export async function POST(request: NextRequest) {
     if (!expectedDate) {
       return NextResponse.json({ error: 'expectedDate is required' }, { status: 400 });
     }
-    if (!GEMINI_API_KEY) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 });
+    if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
+      return NextResponse.json({ error: 'GEMINI_API_KEY and OPENROUTER_API_KEY not configured' }, { status: 500 });
     }
 
     const { data, mime } = extractBase64(imageBase64);
@@ -92,37 +128,73 @@ export async function POST(request: NextRequest) {
   "notes": "<หมายเหตุสั้นๆ ภาษาไทยว่ามองเห็นอะไรในภาพ>"
 }`;
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mime, data } },
-              ],
-            },
-          ],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
-      }
-    );
-
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text().catch(() => '');
-      console.error('Gemini API error:', geminiRes.status, errText.slice(0, 500));
-      return NextResponse.json(
-        { error: `Gemini API error: ${geminiRes.status}` },
-        { status: 502 }
+    let text = '';
+    let usedFallback = false;
+    // ถ้าไม่มี Gemini key แต่มี OpenRouter ให้ใช้ OpenRouter เลย
+    if (!GEMINI_API_KEY && OPENROUTER_API_KEY) {
+      console.warn('No GEMINI_API_KEY — direct OpenRouter fallback', OPENROUTER_MODEL);
+      text = await callOpenRouter(prompt, data, mime);
+      usedFallback = true;
+    } else {
+      // ลอง Gemini ก่อน
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  { inline_data: { mime_type: mime, data } },
+                ],
+              },
+            ],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+        }
       );
+
+      if (geminiRes.ok) {
+        const geminiJson = await geminiRes.json();
+        text = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } else if (geminiRes.status === 429 && OPENROUTER_API_KEY) {
+        console.warn('Gemini 429 — fallback to OpenRouter', OPENROUTER_MODEL);
+        try {
+          text = await callOpenRouter(prompt, data, mime);
+          usedFallback = true;
+        } catch (e) {
+          const errText = await geminiRes.text().catch(() => '');
+          console.error('Gemini 429 + OpenRouter failed:', e);
+          return NextResponse.json(
+            { error: `Gemini 429 and OpenRouter failed: ${geminiRes.status}` },
+            { status: 502 }
+          );
+        }
+      } else {
+        const errText = await geminiRes.text().catch(() => '');
+        console.error('Gemini API error:', geminiRes.status, errText.slice(0, 500));
+        if (geminiRes.status === 429) {
+          return NextResponse.json(
+            { error: `Gemini API error: 429 (OPENROUTER_API_KEY not configured for fallback)` },
+            { status: 429 }
+          );
+        }
+        return NextResponse.json(
+          { error: `Gemini API error: ${geminiRes.status}` },
+          { status: 502 }
+        );
+      }
     }
 
-    const geminiJson = await geminiRes.json();
-    const text = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const parsed = parseGeminiJson(text);
+    // ถ้าใช้ fallback ให้เติมโน้ตว่าใช้ OpenRouter
+    if (usedFallback && parsed.notes) {
+      parsed.notes = `[fallback:${OPENROUTER_MODEL}] ` + parsed.notes;
+    } else if (usedFallback) {
+      parsed.notes = `ประมวลผลด้วย OpenRouter (${OPENROUTER_MODEL}) หลัง Gemini 429`;
+    }
 
     // คำนวณ flag ความผิดปกติ
     const alertReasons: string[] = [];

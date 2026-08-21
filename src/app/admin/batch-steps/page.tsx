@@ -48,8 +48,8 @@ interface FileItem {
   preview: string;
   aiResult: AiImageAnalysis | null;
   manualSteps: string;
-  targetDate: string; // YYYY-MM-DD within weekDays
-  notesOverride?: string;
+  targetDate: string;
+  isProcessing?: boolean;
 }
 
 export default function BatchStepsPage(){
@@ -62,7 +62,8 @@ export default function BatchStepsPage(){
   const [search, setSearch] = useState('');
   const [userFiles, setUserFiles] = useState<Record<string, FileItem[]>>({});
   const [aiProcessing, setAiProcessing] = useState(false);
-  const [aiProgress, setAiProgress] = useState<{done:number,total:number,label:string}|null>(null);
+  const [aiProgress, setAiProgress] = useState<{total:number, done:number, percent:number, currentUserName?:string, currentFileName?:string} | null>(null);
+  const [processingUserId, setProcessingUserId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmSave, setConfirmSave] = useState(false);
   const [resultPopup, setResultPopup] = useState<{type:'success'|'error', title:string, message:string}|null>(null);
@@ -124,7 +125,6 @@ export default function BatchStepsPage(){
       setResultPopup({type:'error', title:'เกิน 7 ภาพต่อคนต่อสัปดาห์', message:`บุคลากร 1 คนอัปโหลดได้สูงสุด 7 ภาพ (7 วัน) ต่อสัปดาห์ — ตอนนี้มี ${current.length} ภาพแล้ว จะเพิ่มอีก ${arr.length} ภาพเกินกำหนด`});
       return;
     }
-    // check if user has no User_ID (ยังไม่ลงทะเบียน)
     const targetUser = users.find(u=>String(u.User_ID)===userId);
     if(!userId){
       setResultPopup({type:'error', title:'บุคลากรยังไม่ลงทะเบียน', message:'บุคลากรท่านนี้ยังไม่มี User_ID (ยังไม่ลงทะเบียน) ไม่สามารถบันทึกก้าวได้'});
@@ -132,7 +132,6 @@ export default function BatchStepsPage(){
     }
     if(targetUser && String(targetUser.Step_Record_Mode||'1')!=='2' && !allowOverwrite){
       setResultPopup({type:'error', title:'Mode ไม่ถูกต้อง', message:`${displayName(targetUser)} อยู่ใน Mode 1 (บันทึกเอง) — หากต้องการให้ จนท. บันทึกให้ กรุณาเปลี่ยนเป็น Mode 2 ที่หน้าจัดการบุคลากรก่อน หรือติ๊ก "อนุญาตให้บันทึกแม้เป็น Mode 1"`});
-      // ยังให้อัปโหลดได้แต่จะเตือนตอนบันทึก
     }
     const newItems: FileItem[] = [];
     for(let i=0;i<arr.length;i++){
@@ -140,9 +139,7 @@ export default function BatchStepsPage(){
       if(!f.type.startsWith('image/')) continue;
       try{
         const preview = await compressImage(f);
-        // default targetDate = first free day in week (sequential)
         const usedTargets = new Set([...current, ...newItems].map(x=>x.targetDate));
-        // also consider existing if not allowOverwrite, we skip those days
         let defaultDate = weekDays.find(d=> !usedTargets.has(d) && (allowOverwrite || !existingMap.has(`${userId}|${d}`))) || weekDays.find(d=> !usedTargets.has(d)) || weekDays[0];
         newItems.push({ id: `${Date.now()}_${i}_${Math.random().toString(36).slice(2,6)}`, file:f, preview, aiResult:null, manualSteps:'', targetDate: defaultDate });
       }catch(e){
@@ -171,34 +168,21 @@ export default function BatchStepsPage(){
     });
   }
 
-  // Allocate targetDate for AI results: prefer dateInImage if within week and free, else first free
-  function allocateTargetDatesForUser(userId:string, results: AiImageAnalysis[], fileItems: FileItem[]){
-    const used = new Set<string>();
-    // mark existing dates if not allowOverwrite as already used (so we don't allocate there)
+  // คำนวณ targetDate ที่ว่างสำหรับผล AI ต่อไฟล์แบบทันที
+  function pickTargetDateForResult(userId:string, dateInImage: string | null, usedInBatch: Set<string>){
+    const used = new Set<string>(usedInBatch);
     if(!allowOverwrite){
       for(const d of weekDays){ if(existingMap.has(`${userId}|${d}`)) used.add(d); }
     }
-    // also mark already allocated fileItems that have targetDate (for re-allocation we recompute)
-    const allocations: string[] = [];
-    for(let i=0;i<results.length;i++){
-      const r=results[i];
-      let chosen: string | null = null;
-      if(r.dateInImage && weekDays.includes(r.dateInImage) && !used.has(r.dateInImage)){
-        // check if that day not already used in this batch allocation
-        if(!allocations.includes(r.dateInImage)) chosen=r.dateInImage;
-      }
-      if(!chosen){
-        // pick first free day not used and not in allocations
-        chosen = weekDays.find(d=> !used.has(d) && !allocations.includes(d)) || null;
-      }
-      if(!chosen){
-        // all days used, pick next free ignoring existing (will be overwrite)
-        chosen = weekDays.find(d=> !allocations.includes(d)) || weekDays[0];
-      }
-      allocations.push(chosen);
-      used.add(chosen);
+    // ถ้า dateInImage อยู่ในสัปดาห์และยังว่าง → ใช้เลย
+    if(dateInImage && weekDays.includes(dateInImage) && !used.has(dateInImage)){
+      return dateInImage;
     }
-    return allocations;
+    // หาวันว่างแรก
+    const free = weekDays.find(d=> !used.has(d));
+    if(free) return free;
+    // ถ้าเต็มหมดแล้ว ให้ใช้วันแรกที่ซ้ำน้อยสุด (allowOverwrite)
+    return weekDays.find(d=> !usedInBatch.has(d)) || weekDays[0];
   }
 
   async function handleAiForUser(userId:string){
@@ -209,39 +193,64 @@ export default function BatchStepsPage(){
       return;
     }
     const targetUser = users.find(u=> String(u.User_ID)===userId);
-    const label = targetUser ? displayName(targetUser) : userId;
+    const userName = targetUser ? displayName(targetUser) : userId;
     setAiProcessing(true);
-    setAiProgress({done:0, total:pending.length, label});
+    setProcessingUserId(userId);
+    setAiProgress({total: pending.length, done: 0, percent: 0, currentUserName: userName});
+    const usedInBatch = new Set<string>();
+    // mark already processed files' targetDate as used
+    for(const f of items){ if(f.aiResult) usedInBatch.add(f.targetDate); }
+    if(!allowOverwrite){
+      for(const d of weekDays){ if(existingMap.has(`${userId}|${d}`)) usedInBatch.add(d); }
+    }
     try{
-      const images = pending.map(f=> ({ imageBase64: f.preview, expectedDate: f.targetDate }));
-      const res = await fetch('/api/steps/batch-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ images }) });
-      const data = await res.json().catch(()=>({}));
-      if(!res.ok) throw new Error(data.error||'AI ประมวลผลล้มเหลว');
-      const results: AiImageAnalysis[] = data.results || [];
-      setAiProgress({done: pending.length, total: pending.length, label});
-      const allocations = allocateTargetDatesForUser(userId, results, pending);
-      setUserFiles(prev=>{
-        const arr = [...(prev[userId]||[])];
-        let pIdx=0;
-        const nextArr = arr.map(f=>{
-          if(f.aiResult) return f;
-          const r=results[pIdx];
-          const targetDate=allocations[pIdx];
-          pIdx++;
-          if(!r) return f;
-          let notes=r.notes||'';
-          if(r.dateMatch===false) notes=(notes?notes+' | ':'')+'AI พบวันที่ในภาพไม่ตรงกับวันที่คาดหวัง — บันทึกลง '+targetDate+' โดยมีหมายเหตุว่า จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง';
-          else if(r.dateMatch===null) notes=(notes?notes+' | ':'')+'ไม่พบวันที่ชัดเจนในภาพ — AI บันทึกลง '+targetDate+' พร้อมหมายเหตุว่า จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง';
-          const withNotes={...r, notes} as AiImageAnalysis;
-          return {...f, aiResult:withNotes, manualSteps: r.steps!=null? String(r.steps): f.manualSteps, targetDate };
+      for(let idx=0; idx<pending.length; idx++){
+        const fileItem = pending[idx];
+        // mark processing
+        setUserFiles(prev=>{
+          const arr=[...(prev[userId]||[])];
+          return {...prev, [userId]: arr.map(f=> f.id===fileItem.id? {...f, isProcessing:true}: f)};
         });
-        return {...prev, [userId]: nextArr };
-      });
+        setAiProgress({total: pending.length, done: idx, percent: Math.round((idx/pending.length)*100), currentUserName: userName, currentFileName: fileItem.file.name});
+        // call single image analyze for immediate result
+        const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate }) });
+        const data = await res.json().catch(()=>({}));
+        if(!res.ok){
+          throw new Error(data.error||'AI ประมวลผลล้มเหลว');
+        }
+        const r: AiImageAnalysis = {
+          steps: data.steps ?? null,
+          dateInImage: data.dateInImage ?? null,
+          dateRaw: data.dateRaw ?? null,
+          dateMatch: data.dateMatch ?? null,
+          confidence: data.confidence ?? 0,
+          notes: data.notes ?? '',
+          alert: !!data.alert,
+          alertReasons: data.alertReasons ?? [],
+        };
+        const targetDate = pickTargetDateForResult(userId, r.dateInImage, usedInBatch);
+        usedInBatch.add(targetDate);
+        let notes=r.notes||'';
+        if(r.dateMatch===false) notes=(notes?notes+' | ':'')+'AI พบวันที่ในภาพไม่ตรงกับวันที่คาดหวัง — บันทึกลง '+targetDate+' โดยมีหมายเหตุว่า จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง';
+        else if(r.dateMatch===null) notes=(notes?notes+' | ':'')+'ไม่พบวันที่ชัดเจนในภาพ — AI บันทึกลง '+targetDate+' พร้อมหมายเหตุว่า จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง';
+        const withNotes={...r, notes} as AiImageAnalysis;
+        setUserFiles(prev=>{
+          const arr=[...(prev[userId]||[])];
+          return {...prev, [userId]: arr.map(f=> f.id===fileItem.id? {...f, aiResult:withNotes, manualSteps: r.steps!=null? String(r.steps): f.manualSteps, targetDate, isProcessing:false}: f)};
+        });
+        setAiProgress({total: pending.length, done: idx+1, percent: Math.round(((idx+1)/pending.length)*100), currentUserName: userName, currentFileName: fileItem.file.name});
+      }
     }catch(err){
       setResultPopup({type:'error', title:'AI ประมวลผลล้มเหลว', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
-    }finally{ 
-      setAiProcessing(false); 
-      setTimeout(()=> setAiProgress(null), 1200);
+      // clear processing flag
+      setUserFiles(prev=>{
+        const arr=[...(prev[userId]||[])];
+        return {...prev, [userId]: arr.map(f=> ({...f, isProcessing:false}))};
+      });
+    }finally{
+      setAiProcessing(false);
+      setProcessingUserId(null);
+      setTimeout(()=> setAiProgress(null), 800);
     }
   }
 
@@ -251,56 +260,64 @@ export default function BatchStepsPage(){
       const arr=userFiles[uid]||[];
       return arr.some(f=> !f.aiResult);
     });
-    if(pendingUsers.length===0){
+    const totalPending = pendingUsers.reduce((sum,u)=> sum + (userFiles[String(u.User_ID||'')]||[]).filter(f=>!f.aiResult).length, 0);
+    if(totalPending===0){
       setResultPopup({type:'error', title:'ไม่มีรูปให้ประมวลผล', message:'กรุณาอัปโหลดรูปอย่างน้อย 1 รูปในตาราง (1 ช่อง/คน, สูงสุด 7 ภาพ/คน) ก่อนกดปุ่ม AI ประมวลผล' });
       return;
     }
-    const totalImages = pendingUsers.reduce((sum,u)=> sum + (userFiles[String(u.User_ID||'')]||[]).filter(f=> !f.aiResult).length, 0);
-    let doneImages = 0;
     setAiProcessing(true);
-    setAiProgress({done:0, total: totalImages, label: `ทั้งหมด ${pendingUsers.length} คน`});
+    let globalDone=0;
+    setAiProgress({total: totalPending, done: 0, percent: 0, currentUserName: 'เริ่มต้น...'});
     try{
-      for(let ui=0; ui<pendingUsers.length; ui++){
-        const u = pendingUsers[ui];
+      for(const u of pendingUsers){
         const uid=String(u.User_ID||'');
-        const items=(userFiles[uid]||[]).filter(f=> !f.aiResult);
-        if(items.length===0) continue;
-        if(items.length>7){ setResultPopup({type:'error', title:'เกิน 7 ภาพต่อคน', message:`${displayName(u)} มี ${items.length} ภาพ เกิน 7`}); continue; }
-        setAiProgress({done: doneImages, total: totalImages, label: `${displayName(u)} (${ui+1}/${pendingUsers.length}) — ${items.length} ภาพ`});
-        const images = items.map(f=> ({ imageBase64: f.preview, expectedDate: f.targetDate }));
-        const res = await fetch('/api/steps/batch-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ images }) });
-        const data = await res.json().catch(()=>({}));
-        if(!res.ok) throw new Error(data.error||'AI ประมวลผลล้มเหลว');
-        const results: AiImageAnalysis[] = data.results || [];
-        doneImages += items.length;
-        setAiProgress({done: doneImages, total: totalImages, label: `${displayName(u)} เสร็จ ${doneImages}/${totalImages} ภาพ (${Math.round(doneImages/totalImages*100)}%)`});
-        const allocations = allocateTargetDatesForUser(uid, results, items);
-        setUserFiles(prev=>{
-          const arr=[...(prev[uid]||[])];
-          let p=0;
-          const nextArr=arr.map(f=>{
-            if(f.aiResult) return f;
-            const r=results[p];
-            const targetDate=allocations[p];
-            p++;
-            if(!r) return f;
-            let notes=r.notes||'';
-            if(r.dateMatch===false) notes=(notes?notes+' | ':'')+'AI พบวันที่ไม่ตรง — บันทึกลง '+targetDate+' พร้อมหมายเหตุรวมสัปดาห์ถูกต้อง';
-            else if(r.dateMatch===null) notes=(notes?notes+' | ':'')+'ไม่พบวันที่ — บันทึกลง '+targetDate+' พร้อมหมายเหตุรวมสัปดาห์ถูกต้อง';
-            const withNotes={...r, notes} as AiImageAnalysis;
-            return {...f, aiResult:withNotes, manualSteps: r.steps!=null? String(r.steps): f.manualSteps, targetDate };
+        const pending = (userFiles[uid]||[]).filter(f=> !f.aiResult);
+        if(pending.length===0) continue;
+        setProcessingUserId(uid);
+        const userName=displayName(u);
+        const usedInBatch = new Set<string>();
+        for(const f of (userFiles[uid]||[])){ if(f.aiResult) usedInBatch.add(f.targetDate); }
+        if(!allowOverwrite){ for(const d of weekDays){ if(existingMap.has(`${uid}|${d}`)) usedInBatch.add(d); } }
+        for(let idx=0; idx<pending.length; idx++){
+          const fileItem = pending[idx];
+          setUserFiles(prev=>{
+            const arr=[...(prev[uid]||[])];
+            return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, isProcessing:true}: f)};
           });
-          return {...prev, [uid]: nextArr };
-        });
-        // small delay to avoid rate limit
-        await new Promise(r=> setTimeout(r, 200));
+          setAiProgress({total: totalPending, done: globalDone, percent: Math.round((globalDone/totalPending)*100), currentUserName: userName, currentFileName: fileItem.file.name});
+          const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate }) });
+          const data = await res.json().catch(()=>({}));
+          if(!res.ok) throw new Error(data.error||'AI ประมวลผลล้มเหลว');
+          const r: AiImageAnalysis = {
+            steps: data.steps ?? null,
+            dateInImage: data.dateInImage ?? null,
+            dateRaw: data.dateRaw ?? null,
+            dateMatch: data.dateMatch ?? null,
+            confidence: data.confidence ?? 0,
+            notes: data.notes ?? '',
+            alert: !!data.alert,
+            alertReasons: data.alertReasons ?? [],
+          };
+          const targetDate = pickTargetDateForResult(uid, r.dateInImage, usedInBatch);
+          usedInBatch.add(targetDate);
+          let notes=r.notes||'';
+          if(r.dateMatch===false) notes=(notes?notes+' | ':'')+'AI พบวันที่ไม่ตรง — บันทึกลง '+targetDate+' พร้อมหมายเหตุรวมสัปดาห์ถูกต้อง';
+          else if(r.dateMatch===null) notes=(notes?notes+' | ':'')+'ไม่พบวันที่ — บันทึกลง '+targetDate+' พร้อมหมายเหตุรวมสัปดาห์ถูกต้อง';
+          const withNotes={...r, notes} as AiImageAnalysis;
+          setUserFiles(prev=>{
+            const arr=[...(prev[uid]||[])];
+            return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, aiResult:withNotes, manualSteps: r.steps!=null? String(r.steps): f.manualSteps, targetDate, isProcessing:false}: f)};
+          });
+          globalDone++;
+          setAiProgress({total: totalPending, done: globalDone, percent: Math.round((globalDone/totalPending)*100), currentUserName: userName, currentFileName: fileItem.file.name});
+        }
       }
     }catch(err){
       setResultPopup({type:'error', title:'AI ประมวลผลล้มเหลว', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
-    }finally{ 
+    }finally{
       setAiProcessing(false);
-      // keep 100% for a moment then clear
-      setTimeout(()=> setAiProgress(null), 1500);
+      setProcessingUserId(null);
+      setTimeout(()=> setAiProgress(null), 800);
     }
   }
 
@@ -315,7 +332,6 @@ export default function BatchStepsPage(){
       setResultPopup({type:'error', title:'ไม่มีข้อมูลพร้อมบันทึก', message:'กรุณาอัปโหลดและให้ AI ประมวลผลก่อน (1 ช่อง/คน, AI จะแสดงค่าทันที)'});
       return;
     }
-    // validate each file has steps >0 and targetDate within week
     for(const [uid, arr] of Object.entries(userFiles)){
       for(const f of arr){
         if(!f.aiResult && !f.manualSteps){
@@ -419,25 +435,29 @@ export default function BatchStepsPage(){
         </div>
       </GlassCard>
 
-      {aiProgress && (
-        <div className="p-4 rounded-xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border-2 border-purple-200 dark:border-purple-800">
-          <div className="flex items-center justify-between gap-3 mb-2">
+      {/* Global progress bar */}
+      {aiProcessing && aiProgress && (
+        <GlassCard className="p-4 border-2 border-purple-200 dark:border-purple-800 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <span className="loading loading-spinner loading-sm text-purple-600"></span>
-              <span className="text-sm font-bold text-purple-700 dark:text-purple-300">AI กำลังประมวลผล — {aiProgress.label}</span>
+              <span className="text-sm font-bold text-purple-700 dark:text-purple-300">
+                กำลังประมวลผล {aiProgress.currentUserName ? `${aiProgress.currentUserName} — ${aiProgress.currentFileName || ''}` : `${aiProgress.done}/${aiProgress.total} ภาพ`}
+              </span>
             </div>
-            <span className="text-sm font-black text-purple-700 dark:text-purple-300">{aiProgress.done}/{aiProgress.total} ภาพ • {aiProgress.total>0? Math.round(aiProgress.done/aiProgress.total*100):0}%</span>
+            <span className="text-sm font-black text-purple-700 dark:text-purple-300">{aiProgress.percent}%</span>
           </div>
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
-            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 h-3 rounded-full transition-all duration-500 flex items-center justify-end pr-2" style={{width: `${aiProgress.total>0? (aiProgress.done/aiProgress.total*100):0}%`}}>
-              <span className="text-[10px] font-bold text-white">{aiProgress.total>0? Math.round(aiProgress.done/aiProgress.total*100):0}%</span>
+          <div className="w-full bg-white dark:bg-gray-700 rounded-full h-3 overflow-hidden border border-purple-200 dark:border-purple-700">
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 h-3 rounded-full transition-all duration-300 flex items-center justify-end pr-1" style={{width: `${aiProgress.percent}%`}}>
+              <span className="text-[10px] font-bold text-white">{aiProgress.done}/{aiProgress.total}</span>
             </div>
           </div>
-          <div className="flex justify-between text-[11px] text-purple-600 dark:text-purple-400 mt-1.5">
-            <span>คืบหน้าแต่ละคน: 1 คน 7 ภาพ (7 วัน) ต่อสัปดาห์ — AI ประมวลผลทีละคนเพื่อให้เห็นความคืบหน้าต่อแถว</span>
-            <span>{aiProgress.done===aiProgress.total? '✓ เสร็จแล้ว':'⏳ กำลังทำ...'}</span>
+          <div className="flex justify-between text-[11px] text-purple-600 dark:text-purple-400 mt-1">
+            <span>เสร็จ {aiProgress.done} ภาพ</span>
+            <span>เหลือ {aiProgress.total - aiProgress.done} ภาพ</span>
+            <span>ทั้งหมด {aiProgress.total} ภาพ</span>
           </div>
-        </div>
+        </GlassCard>
       )}
 
       <GlassCard className="overflow-hidden p-0">
@@ -447,7 +467,7 @@ export default function BatchStepsPage(){
               <tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase">
                 <th className="px-3 py-3 font-semibold sticky left-0 bg-gray-50 dark:bg-gray-800/80 backdrop-blur z-10 min-w-[220px] text-left">บุคลากร (1 แถว = 1 คน)</th>
                 <th className="px-3 py-3 font-semibold text-left min-w-[380px]">โยนไฟล์หลักฐาน (1 ช่อง/คน — สูงสุด 7 ภาพ/สัปดาห์)</th>
-                <th className="px-3 py-3 font-semibold text-left min-w-[420px]">ผล AI ประมวลผล (แสดงทันทีหลังกดปุ่ม)</th>
+                <th className="px-3 py-3 font-semibold text-left min-w-[420px]">ผล AI ประมวลผล (แสดงทันทีเมื่อเสร็จแต่ละภาพ)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -459,8 +479,11 @@ export default function BatchStepsPage(){
                 const name=displayName(u);
                 const files=userFiles[uid]||[];
                 const existingWeek=getExistingForUserWeek(uid);
+                const pendingInRow = files.filter(f=> !f.aiResult).length;
+                const doneInRow = files.filter(f=> f.aiResult).length;
+                const isThisRowProcessing = processingUserId===uid && aiProcessing;
                 return (
-                  <tr key={uid||u.Personnel_ID} className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/30 ${!uid?'opacity-60':''} ${!isMode2?'bg-amber-50/20 dark:bg-amber-900/5':''} ${aiProgress?.label.includes(name)? 'ring-2 ring-purple-400 bg-purple-50/30':''}`}>
+                  <tr key={uid||u.Personnel_ID} className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/30 ${!uid?'opacity-60':''} ${!isMode2?'bg-amber-50/20 dark:bg-amber-900/5':''} ${isThisRowProcessing? 'bg-purple-50/30 dark:bg-purple-900/10':''}`}>
                     <td className="px-3 py-3 sticky left-0 bg-white dark:bg-gray-800 z-10 border-r border-gray-100 dark:border-gray-700 align-top">
                       <div className="flex items-center gap-2.5">
                         {u.Profile_Image ? <img src={profileImageUrl(u.Profile_Image)||''} alt="" className="w-10 h-10 rounded-full object-cover ring-1 ring-emerald-200 shrink-0" /> : <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0">{(u.Full_Name||u.First_Name||'ส').charAt(0)}</div>}
@@ -471,12 +494,19 @@ export default function BatchStepsPage(){
                           {!uid && <div className="text-[10px] text-red-400">ยังไม่ลงทะเบียน</div>}
                           {existingWeek.length>0 && <div className="mt-1 flex flex-wrap gap-1">{existingWeek.map(e=> <span key={e.date} className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-medium">{e.date.slice(5)}:{Number(e.log.Steps_Count).toLocaleString()}</span>)}</div>}
                           <div className="text-[10px] text-gray-400 mt-0.5">สัปดาห์นี้: {existingWeek.length}/7 วัน</div>
+                          {files.length>0 && (
+                            <div className="mt-1 flex items-center gap-1.5">
+                              <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div className="h-1.5 bg-gradient-to-r from-emerald-500 to-purple-600 rounded-full transition-all" style={{width: `${files.length? Math.round((doneInRow/files.length)*100):0}%`}}></div>
+                              </div>
+                              <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400">{doneInRow}/{files.length}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
                     <td className="px-3 py-3 align-top">
-                      {/* Drop zone - 1 per person */}
-                      <label className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed cursor-pointer transition-all min-h-[110px] ${!uid?'opacity-40 pointer-events-none':''} ${files.length>0?'border-emerald-300 bg-emerald-50/30 dark:bg-emerald-900/10':'border-gray-300 dark:border-gray-600 hover:border-emerald-400 hover:bg-emerald-50/20'}`}>
+                      <label className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed cursor-pointer transition-all min-h-[110px] ${!uid?'opacity-40 pointer-events-none':''} ${files.length>0?'border-emerald-300 bg-emerald-50/30 dark:bg-emerald-900/10':'border-gray-300 dark:border-gray-600 hover:border-emerald-400 hover:bg-emerald-50/20'} ${isThisRowProcessing? 'ring-2 ring-purple-400':''}`}>
                         <span className="material-symbols-outlined text-2xl text-gray-400">cloud_upload</span>
                         <span className="text-xs font-bold text-gray-700 dark:text-gray-300">โยนไฟล์ที่นี่ หรือคลิกเลือก (สูงสุด 7 ภาพ)</span>
                         <span className="text-[11px] text-gray-400">{files.length}/7 ภาพ • {weekDaysLabel.join(' • ').slice(0,80)}...</span>
@@ -485,62 +515,80 @@ export default function BatchStepsPage(){
                       {files.length>0 && (
                         <div className="mt-2 grid grid-cols-4 gap-2">
                           {files.map(f=> (
-                            <div key={f.id} className="relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                            <div key={f.id} className={`relative rounded-lg overflow-hidden border-2 bg-white dark:bg-gray-800 ${f.isProcessing? 'border-purple-400 ring-2 ring-purple-200': f.aiResult? 'border-emerald-300':'border-gray-200 dark:border-gray-700'}`}>
                               <img src={f.preview} alt="preview" className="w-full h-20 object-cover" />
+                              {f.isProcessing && (
+                                <div className="absolute inset-0 bg-purple-600/60 flex flex-col items-center justify-center">
+                                  <span className="loading loading-spinner loading-sm text-white"></span>
+                                  <span className="text-[9px] font-bold text-white mt-1">AI...</span>
+                                </div>
+                              )}
                               <button onClick={()=> removeFile(uid, f.id)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600"><span className="material-symbols-outlined text-sm">close</span></button>
                               <div className="px-1.5 py-1 text-[10px] font-medium text-gray-700 dark:text-gray-300 truncate bg-gray-50 dark:bg-gray-700/50 text-center">{f.file.name.slice(0,18)}</div>
-                              {f.aiResult && <div className="absolute bottom-6 left-1 px-1 py-0.5 rounded bg-purple-600 text-white text-[9px] font-bold">{f.aiResult.steps!=null? f.aiResult.steps.toLocaleString():'—'} ก้าว</div>}
+                              {f.aiResult && !f.isProcessing && <div className="absolute bottom-6 left-1 px-1 py-0.5 rounded bg-purple-600 text-white text-[9px] font-bold">{f.aiResult.steps!=null? f.aiResult.steps.toLocaleString():'—'} ก้าว</div>}
+                              {f.aiResult && !f.isProcessing && <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center"><span className="material-symbols-outlined text-xs">check</span></div>}
                             </div>
                           ))}
                         </div>
                       )}
-                      {files.length>0 && (
-                        <div className="mt-2">
-                          <div className="flex justify-between text-[11px] font-bold text-gray-600 dark:text-gray-400">
-                            <span>คืบหน้าแถวนี้: {files.filter(f=>f.aiResult).length}/{files.length} ภาพ</span>
-                            <span>{Math.round(files.filter(f=>f.aiResult).length/files.length*100)}% • {files.filter(f=>!f.aiResult).length} รอ</span>
-                          </div>
-                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-1 overflow-hidden">
-                            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 h-1.5 rounded-full transition-all duration-500" style={{width: `${files.length>0? files.filter(f=>f.aiResult).length/files.length*100:0}%`}}></div>
-                          </div>
-                        </div>
-                      )}
                       <div className="mt-2 flex gap-2">
                         <button onClick={()=> handleAiForUser(uid)} disabled={aiProcessing || files.filter(f=>!f.aiResult).length===0 || !uid} className="flex-1 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-400 font-bold text-xs hover:bg-purple-100 disabled:opacity-40 flex items-center justify-center gap-1">
-                          {aiProcessing && aiProgress?.label.includes(name) ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวลแถวนี้...</> : <><span className="material-symbols-outlined text-sm">auto_awesome</span> AI ประมวลแถวนี้ ({files.filter(f=>!f.aiResult).length})</>}
+                          {isThisRowProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวล...</> : <><span className="material-symbols-outlined text-sm">auto_awesome</span> AI ประมวลแถวนี้ ({files.filter(f=>!f.aiResult).length})</>}
                         </button>
                         {files.length>0 && <button onClick={()=> { setUserFiles(prev=>{ const n={...prev}; delete n[uid]; return n; }); const r=fileInputRefs.current[uid]; if(r) r.value=''; }} className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium hover:bg-gray-50">ล้าง</button>}
                       </div>
+                      {isThisRowProcessing && files.length>0 && (
+                        <div className="mt-2">
+                          <div className="flex justify-between text-[11px] font-medium text-purple-600 dark:text-purple-400 mb-1">
+                            <span>{doneInRow}/{files.length} ภาพ</span>
+                            <span>{Math.round((doneInRow/files.length)*100)}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 h-2 rounded-full transition-all duration-300" style={{width: `${Math.round((doneInRow/files.length)*100)}%`}}></div>
+                          </div>
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 align-top">
                       {files.length===0 ? (
                         <div className="text-xs text-gray-400 text-center py-6 border border-dashed rounded-xl">ยังไม่มีภาพ — โยนไฟล์ที่ช่องกลาง แล้วกด AI ประมวลผล</div>
-                      ) : files.every(f=> !f.aiResult) ? (
+                      ) : files.every(f=> !f.aiResult && !f.isProcessing) ? (
                         <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 text-center">
                           <span className="material-symbols-outlined text-lg">hourglass_empty</span><br/>รอ AI ประมวลผล — กดปุ่ม <strong>AI ประมวลแถวนี้</strong> หรือปุ่มบน <strong>AI ประมวลผลทั้งหมด</strong>
                         </div>
                       ) : (
-                        <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                        <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                           {files.map(f=> (
-                            <div key={f.id} className={`p-2.5 rounded-xl border-2 bg-white dark:bg-gray-800 space-y-1.5 ${f.aiResult?.alert? 'border-red-200 dark:border-red-800':'border-emerald-200 dark:border-emerald-800'}`}>
+                            <div key={f.id} className={`p-2.5 rounded-xl border-2 bg-white dark:bg-gray-800 space-y-1.5 ${f.isProcessing? 'border-purple-300 bg-purple-50 dark:bg-purple-900/10': f.aiResult?.alert? 'border-red-200 dark:border-red-800':'border-emerald-200 dark:border-emerald-800'} ${f.isProcessing? 'animate-pulse':''}`}>
                               <div className="flex items-center gap-2">
                                 <img src={f.preview} alt="" className="w-10 h-10 rounded-lg object-cover border" />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="text-xs font-black text-purple-600 dark:text-purple-400">{f.aiResult?.steps!=null? f.aiResult.steps.toLocaleString():'—'} ก้าว</span>
-                                    <span className="text-[10px] text-gray-400">มั่นใจ {f.aiResult? Math.round((f.aiResult.confidence||0)*100):'—'}%</span>
+                                    {f.isProcessing ? (
+                                      <span className="flex items-center gap-1 text-xs font-bold text-purple-600"><span className="loading loading-spinner loading-xs"></span> กำลังอ่าน...</span>
+                                    ) : (
+                                      <>
+                                        <span className="text-xs font-black text-purple-600 dark:text-purple-400">{f.aiResult?.steps!=null? f.aiResult.steps.toLocaleString():'—'} ก้าว</span>
+                                        <span className="text-[10px] text-gray-400">มั่นใจ {f.aiResult? Math.round((f.aiResult.confidence||0)*100):'—'}%</span>
+                                        {f.aiResult && <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center ml-1"><span className="material-symbols-outlined text-xs">check</span></span>}
+                                      </>
+                                    )}
                                   </div>
-                                  <select value={f.targetDate} onChange={e=> updateFile(uid, f.id, {targetDate: e.target.value})} className="mt-1 w-full text-xs px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+                                  <select value={f.targetDate} onChange={e=> updateFile(uid, f.id, {targetDate: e.target.value})} disabled={!!f.isProcessing} className="mt-1 w-full text-xs px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 disabled:opacity-50">
                                     {weekDays.map((d,i)=> <option key={d} value={d}>{weekDaysLabel[i]} ({d}) {existingMap.has(`${uid}|${d}`)? '• บันทึกแล้ว':''}</option>)}
                                   </select>
                                 </div>
                               </div>
-                              <input value={f.manualSteps} onChange={e=> updateFile(uid, f.id, {manualSteps: e.target.value})} type="number" placeholder="แก้ไขก้าวได้" className="w-full px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-bold text-center" />
-                              <div className="text-[10px] leading-tight">
-                                {f.aiResult?.dateMatch===true ? <span className="text-emerald-600">✓ วันที่ตรง {f.aiResult.dateInImage}</span> : f.aiResult?.dateMatch===false ? <span className="text-red-600">⚠ ไม่ตรง ({f.aiResult.dateInImage||'—'}) → จะบันทึก {f.targetDate}</span> : <span className="text-amber-600">? ไม่พบวันที่ → จะบันทึก {f.targetDate}</span>}
-                              </div>
-                              {f.aiResult?.notes && <div className="text-[10px] text-gray-500 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded leading-tight">{f.aiResult.notes.slice(0,220)}</div>}
-                              {f.aiResult?.alert && <div className="text-[10px] text-red-600 bg-red-50 dark:bg-red-900/20 p-1 rounded">{f.aiResult.alertReasons.join('; ').slice(0,160)}</div>}
+                              {!f.isProcessing && (
+                                <>
+                                  <input value={f.manualSteps} onChange={e=> updateFile(uid, f.id, {manualSteps: e.target.value})} type="number" placeholder="แก้ไขก้าวได้" className="w-full px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-bold text-center" />
+                                  <div className="text-[10px] leading-tight">
+                                    {f.aiResult?.dateMatch===true ? <span className="text-emerald-600">✓ วันที่ตรง {f.aiResult.dateInImage}</span> : f.aiResult?.dateMatch===false ? <span className="text-red-600">⚠ ไม่ตรง ({f.aiResult.dateInImage||'—'}) → จะบันทึก {f.targetDate}</span> : f.aiResult ? <span className="text-amber-600">? ไม่พบวันที่ → จะบันทึก {f.targetDate}</span> : <span className="text-gray-400">รอผล AI...</span>}
+                                  </div>
+                                  {f.aiResult?.notes && <div className="text-[10px] text-gray-500 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded leading-tight">{f.aiResult.notes.slice(0,220)}</div>}
+                                  {f.aiResult?.alert && <div className="text-[10px] text-red-600 bg-red-50 dark:bg-red-900/20 p-1 rounded">{f.aiResult.alertReasons.join('; ').slice(0,160)}</div>}
+                                </>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -560,7 +608,7 @@ export default function BatchStepsPage(){
             <div className="flex items-center gap-2">
               <button onClick={()=>{ if(confirm('ล้างภาพทั้งหมด?')) setUserFiles({}); }} className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium hover:bg-white">ล้างทั้งหมด</button>
               <button onClick={handleAiAll} disabled={aiProcessing || totalPending===0} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-sm shadow-lg hover:shadow-xl disabled:opacity-40 flex items-center gap-2">
-                {aiProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวลผล...</> : <><span className="material-symbols-outlined text-lg">auto_awesome</span> AI ประมวลผลทั้งหมด ({totalPending} ภาพ)</>}
+                {aiProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวลผล... {aiProgress? `${aiProgress.done}/${aiProgress.total} (${aiProgress.percent}%)`: ''}</> : <><span className="material-symbols-outlined text-lg">auto_awesome</span> AI ประมวลผลทั้งหมด ({totalPending} ภาพ)</>}
               </button>
               <button onClick={()=> setConfirmSave(true)} disabled={saving || totalReady===0} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-bold text-sm shadow-lg hover:shadow-xl disabled:opacity-40 flex items-center gap-2">
                 {saving ? <><span className="loading loading-spinner loading-xs"></span> กำลังบันทึก...</> : <><span className="material-symbols-outlined">save</span> บันทึกทั้งหมด ({totalReady})</>}

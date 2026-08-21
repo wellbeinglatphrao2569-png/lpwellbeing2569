@@ -62,6 +62,7 @@ export default function BatchStepsPage(){
   const [search, setSearch] = useState('');
   const [userFiles, setUserFiles] = useState<Record<string, FileItem[]>>({});
   const [aiProcessing, setAiProcessing] = useState(false);
+  const [aiProgress, setAiProgress] = useState<{done:number,total:number,label:string}|null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmSave, setConfirmSave] = useState(false);
   const [resultPopup, setResultPopup] = useState<{type:'success'|'error', title:string, message:string}|null>(null);
@@ -207,13 +208,17 @@ export default function BatchStepsPage(){
       setResultPopup({type:'error', title:'ไม่มีรูปที่รอประมวลผล', message:'กรุณาอัปโหลดรูปก่อน'});
       return;
     }
+    const targetUser = users.find(u=> String(u.User_ID)===userId);
+    const label = targetUser ? displayName(targetUser) : userId;
     setAiProcessing(true);
+    setAiProgress({done:0, total:pending.length, label});
     try{
       const images = pending.map(f=> ({ imageBase64: f.preview, expectedDate: f.targetDate }));
       const res = await fetch('/api/steps/batch-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ images }) });
       const data = await res.json().catch(()=>({}));
       if(!res.ok) throw new Error(data.error||'AI ประมวลผลล้มเหลว');
       const results: AiImageAnalysis[] = data.results || [];
+      setAiProgress({done: pending.length, total: pending.length, label});
       const allocations = allocateTargetDatesForUser(userId, results, pending);
       setUserFiles(prev=>{
         const arr = [...(prev[userId]||[])];
@@ -234,7 +239,10 @@ export default function BatchStepsPage(){
       });
     }catch(err){
       setResultPopup({type:'error', title:'AI ประมวลผลล้มเหลว', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
-    }finally{ setAiProcessing(false); }
+    }finally{ 
+      setAiProcessing(false); 
+      setTimeout(()=> setAiProgress(null), 1200);
+    }
   }
 
   async function handleAiAll(){
@@ -247,18 +255,25 @@ export default function BatchStepsPage(){
       setResultPopup({type:'error', title:'ไม่มีรูปให้ประมวลผล', message:'กรุณาอัปโหลดรูปอย่างน้อย 1 รูปในตาราง (1 ช่อง/คน, สูงสุด 7 ภาพ/คน) ก่อนกดปุ่ม AI ประมวลผล' });
       return;
     }
+    const totalImages = pendingUsers.reduce((sum,u)=> sum + (userFiles[String(u.User_ID||'')]||[]).filter(f=> !f.aiResult).length, 0);
+    let doneImages = 0;
     setAiProcessing(true);
+    setAiProgress({done:0, total: totalImages, label: `ทั้งหมด ${pendingUsers.length} คน`});
     try{
-      for(const u of pendingUsers){
+      for(let ui=0; ui<pendingUsers.length; ui++){
+        const u = pendingUsers[ui];
         const uid=String(u.User_ID||'');
         const items=(userFiles[uid]||[]).filter(f=> !f.aiResult);
         if(items.length===0) continue;
         if(items.length>7){ setResultPopup({type:'error', title:'เกิน 7 ภาพต่อคน', message:`${displayName(u)} มี ${items.length} ภาพ เกิน 7`}); continue; }
+        setAiProgress({done: doneImages, total: totalImages, label: `${displayName(u)} (${ui+1}/${pendingUsers.length}) — ${items.length} ภาพ`});
         const images = items.map(f=> ({ imageBase64: f.preview, expectedDate: f.targetDate }));
         const res = await fetch('/api/steps/batch-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ images }) });
         const data = await res.json().catch(()=>({}));
         if(!res.ok) throw new Error(data.error||'AI ประมวลผลล้มเหลว');
         const results: AiImageAnalysis[] = data.results || [];
+        doneImages += items.length;
+        setAiProgress({done: doneImages, total: totalImages, label: `${displayName(u)} เสร็จ ${doneImages}/${totalImages} ภาพ (${Math.round(doneImages/totalImages*100)}%)`});
         const allocations = allocateTargetDatesForUser(uid, results, items);
         setUserFiles(prev=>{
           const arr=[...(prev[uid]||[])];
@@ -282,7 +297,11 @@ export default function BatchStepsPage(){
       }
     }catch(err){
       setResultPopup({type:'error', title:'AI ประมวลผลล้มเหลว', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
-    }finally{ setAiProcessing(false); }
+    }finally{ 
+      setAiProcessing(false);
+      // keep 100% for a moment then clear
+      setTimeout(()=> setAiProgress(null), 1500);
+    }
   }
 
   const totalFiles = useMemo(()=> Object.values(userFiles).reduce((s,a)=>s+a.length,0),[userFiles]);
@@ -400,6 +419,27 @@ export default function BatchStepsPage(){
         </div>
       </GlassCard>
 
+      {aiProgress && (
+        <div className="p-4 rounded-xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border-2 border-purple-200 dark:border-purple-800">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div className="flex items-center gap-2">
+              <span className="loading loading-spinner loading-sm text-purple-600"></span>
+              <span className="text-sm font-bold text-purple-700 dark:text-purple-300">AI กำลังประมวลผล — {aiProgress.label}</span>
+            </div>
+            <span className="text-sm font-black text-purple-700 dark:text-purple-300">{aiProgress.done}/{aiProgress.total} ภาพ • {aiProgress.total>0? Math.round(aiProgress.done/aiProgress.total*100):0}%</span>
+          </div>
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 h-3 rounded-full transition-all duration-500 flex items-center justify-end pr-2" style={{width: `${aiProgress.total>0? (aiProgress.done/aiProgress.total*100):0}%`}}>
+              <span className="text-[10px] font-bold text-white">{aiProgress.total>0? Math.round(aiProgress.done/aiProgress.total*100):0}%</span>
+            </div>
+          </div>
+          <div className="flex justify-between text-[11px] text-purple-600 dark:text-purple-400 mt-1.5">
+            <span>คืบหน้าแต่ละคน: 1 คน 7 ภาพ (7 วัน) ต่อสัปดาห์ — AI ประมวลผลทีละคนเพื่อให้เห็นความคืบหน้าต่อแถว</span>
+            <span>{aiProgress.done===aiProgress.total? '✓ เสร็จแล้ว':'⏳ กำลังทำ...'}</span>
+          </div>
+        </div>
+      )}
+
       <GlassCard className="overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[1000px]">
@@ -420,7 +460,7 @@ export default function BatchStepsPage(){
                 const files=userFiles[uid]||[];
                 const existingWeek=getExistingForUserWeek(uid);
                 return (
-                  <tr key={uid||u.Personnel_ID} className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/30 ${!uid?'opacity-60':''} ${!isMode2?'bg-amber-50/20 dark:bg-amber-900/5':''}`}>
+                  <tr key={uid||u.Personnel_ID} className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/30 ${!uid?'opacity-60':''} ${!isMode2?'bg-amber-50/20 dark:bg-amber-900/5':''} ${aiProgress?.label.includes(name)? 'ring-2 ring-purple-400 bg-purple-50/30':''}`}>
                     <td className="px-3 py-3 sticky left-0 bg-white dark:bg-gray-800 z-10 border-r border-gray-100 dark:border-gray-700 align-top">
                       <div className="flex items-center gap-2.5">
                         {u.Profile_Image ? <img src={profileImageUrl(u.Profile_Image)||''} alt="" className="w-10 h-10 rounded-full object-cover ring-1 ring-emerald-200 shrink-0" /> : <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0">{(u.Full_Name||u.First_Name||'ส').charAt(0)}</div>}
@@ -454,9 +494,20 @@ export default function BatchStepsPage(){
                           ))}
                         </div>
                       )}
+                      {files.length>0 && (
+                        <div className="mt-2">
+                          <div className="flex justify-between text-[11px] font-bold text-gray-600 dark:text-gray-400">
+                            <span>คืบหน้าแถวนี้: {files.filter(f=>f.aiResult).length}/{files.length} ภาพ</span>
+                            <span>{Math.round(files.filter(f=>f.aiResult).length/files.length*100)}% • {files.filter(f=>!f.aiResult).length} รอ</span>
+                          </div>
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-1 overflow-hidden">
+                            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 h-1.5 rounded-full transition-all duration-500" style={{width: `${files.length>0? files.filter(f=>f.aiResult).length/files.length*100:0}%`}}></div>
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-2 flex gap-2">
                         <button onClick={()=> handleAiForUser(uid)} disabled={aiProcessing || files.filter(f=>!f.aiResult).length===0 || !uid} className="flex-1 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-400 font-bold text-xs hover:bg-purple-100 disabled:opacity-40 flex items-center justify-center gap-1">
-                          <span className="material-symbols-outlined text-sm">auto_awesome</span> AI ประมวลแถวนี้ ({files.filter(f=>!f.aiResult).length})
+                          {aiProcessing && aiProgress?.label.includes(name) ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวลแถวนี้...</> : <><span className="material-symbols-outlined text-sm">auto_awesome</span> AI ประมวลแถวนี้ ({files.filter(f=>!f.aiResult).length})</>}
                         </button>
                         {files.length>0 && <button onClick={()=> { setUserFiles(prev=>{ const n={...prev}; delete n[uid]; return n; }); const r=fileInputRefs.current[uid]; if(r) r.value=''; }} className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium hover:bg-gray-50">ล้าง</button>}
                       </div>

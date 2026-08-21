@@ -8,17 +8,15 @@
  * 4. กดปุ่ม "ดึงข้อมูล" → ใช้ tokens เรียก /api/google-fitness/steps
  */
 
-// Client 1: ใช้สำหรับ User แรก 100 คน
+// Client 1: ใช้สำหรับ User แรก 100 คน — client-side ต้องใช้ NEXT_PUBLIC_ เท่านั้น (secret ใช้ฝั่ง server เท่านั้น)
 const CLIENT_1_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID_1 || '';
-const CLIENT_1_SECRET = process.env.GOOGLE_CLIENT_SECRET_1 || '';
 
 // Client 2: ใช้เมื่อ Client 1 เต็ม 100 คน
 const CLIENT_2_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID_2 || '';
-const CLIENT_2_SECRET = process.env.GOOGLE_CLIENT_SECRET_2 || '';
 
 const CLIENTS = [
-  { id: CLIENT_1_ID, secret: CLIENT_1_SECRET, name: 'Client 1' },
-  { id: CLIENT_2_ID, secret: CLIENT_2_SECRET, name: 'Client 2' },
+  { id: CLIENT_1_ID, name: 'Client 1' },
+  { id: CLIENT_2_ID, name: 'Client 2' },
 ] as const;
 
 /** ดึงจำนวน User ที่เชื่อมต่อ Google Fit แล้วจาก backend */
@@ -34,7 +32,7 @@ async function getConnectedUserCount(): Promise<number> {
 }
 
 /** เลือก Client ID ตามจำนวน User ที่เชื่อมต่อแล้ว (Client 1: 1-100, Client 2: 101+) */
-export async function getActiveClient(): Promise<{ id: string; secret: string; name: string }> {
+export async function getActiveClient(): Promise<{ id: string; name: string }> {
   const count = await getConnectedUserCount();
   return count >= 100 ? CLIENTS[1] : CLIENTS[0];
 }
@@ -50,9 +48,6 @@ export async function buildAuthUrl(userId?: string): Promise<string> {
 
   if (!client.id) {
     throw new Error('Google OAuth Client ID ไม่ได้ตั้งค่า — กรุณาตั้งค่า NEXT_PUBLIC_GOOGLE_CLIENT_ID_1 ใน Environment Variables บน Vercel');
-  }
-  if (!client.secret) {
-    throw new Error('Google OAuth Client Secret ไม่ได้ตั้งค่า — กรุณาตั้งค่า GOOGLE_CLIENT_SECRET_1 ใน Environment Variables บน Vercel');
   }
 
   const params = new URLSearchParams({

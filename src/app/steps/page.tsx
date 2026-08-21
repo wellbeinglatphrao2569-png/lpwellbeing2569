@@ -868,7 +868,7 @@ export default function StepsPage() {
                         <span className="material-symbols-outlined text-blue-500 text-xl">info</span>
                         <div>
                           <p className="text-sm font-bold text-blue-700 dark:text-blue-400">พบการเชื่อมต่อเดิมกับบัญชีนี้</p>
-                          <p className="text-[10px] text-blue-600 dark:text-blue-500">{GF.getConnectedEmail() || ''} — กด "ดึงข้อมูล" เพื่อใช้งานต่อได้เลย</p>
+                          <p className="text-[10px] text-blue-600 dark:text-blue-500">{GF.getConnectedEmail() || ''} — กด &#34;ดึงข้อมูล&#34; เพื่อใช้งานต่อได้เลย</p>
                         </div>
                       </div>
                     </div>

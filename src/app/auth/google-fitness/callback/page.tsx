@@ -84,8 +84,8 @@ function CallbackContent() {
                headers: { 'Content-Type': 'application/json' },
                body: JSON.stringify({ email: tokenData.email, userId, action: 'auto-link' }),
              });
-             const checkData = await checkRes.json();
-             if (checkData.duplicate && checkData.linkedUser !== userId) {
+              const checkData = await checkRes.json();
+              if (checkData.duplicate && String(checkData.linkedUser) !== String(userId)) {
                throw new Error(`Gmail นี้ (${tokenData.email}) ถูกผูกกับบัญชีอื่นแล้ว (${checkData.linkedUserName || checkData.linkedUser}) — โปรดใช้ Gmail อื่น`);
              }
              // Show message if auto-linked or already linked

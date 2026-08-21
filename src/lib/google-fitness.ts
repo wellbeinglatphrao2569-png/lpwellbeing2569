@@ -48,6 +48,13 @@ export async function buildAuthUrl(userId?: string): Promise<string> {
 
   const client = await getActiveClient();
 
+  if (!client.id) {
+    throw new Error('Google OAuth Client ID ไม่ได้ตั้งค่า — กรุณาตั้งค่า NEXT_PUBLIC_GOOGLE_CLIENT_ID_1 ใน Environment Variables บน Vercel');
+  }
+  if (!client.secret) {
+    throw new Error('Google OAuth Client Secret ไม่ได้ตั้งค่า — กรุณาตั้งค่า GOOGLE_CLIENT_SECRET_1 ใน Environment Variables บน Vercel');
+  }
+
   const params = new URLSearchParams({
     client_id: client.id,
     redirect_uri: redirectUri,

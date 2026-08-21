@@ -7,6 +7,13 @@ import ResultPopup from '@/components/ui/ResultPopup';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postData, postDataJson } from '@/services/api';
 import type { User } from '@/types';
+
+interface GoogleFitLink {
+  User_ID: string;
+  Gmail: string;
+  Connected_At: string;
+  Full_Name?: string;
+}
 import { DEPARTMENTS, GENDERS, PREFIXES, CUSTOM_PREFIX, ACTIVITIES, parseActivities, calcAge, calcBmi, bmiCategory, displayName, profileImageUrl, birthDateToInputValue, birthDateThaiText, THAI_MONTH_NAMES, BIRTH_YEAR_BE_MIN, BIRTH_YEAR_BE_MAX, thaiPartsToIso, isValidThaiDate, fileToBase64 } from '@/utils/personnel';
 
 interface AddRow { prefix: string; customPrefix: string; firstName: string; lastName: string; nickname: string; position: string; department: string; role: string; activities: string[]; }
@@ -63,6 +70,11 @@ export default function AdminPersonnelPage() {
   const [showSaved, setShowSaved] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
 
+  // Google Fit Links management
+  const [gfLinks, setGfLinks] = useState<GoogleFitLink[]>([]);
+  const [showGfLinks, setShowGfLinks] = useState(false);
+  const [loadingGfLinks, setLoadingGfLinks] = useState(false);
+
   // edit modal state
   const [editTarget, setEditTarget] = useState<User | null>(null);
   const [editing, setEditing] = useState(false);
@@ -85,6 +97,25 @@ export default function AdminPersonnelPage() {
   async function load() {
     const data = await fetchData<User[]>('users');
     if (data) setUsers(data);
+  }
+
+  async function loadGfLinks() {
+    setLoadingGfLinks(true);
+    try {
+      const data = await fetchData<GoogleFitLink[]>('google-fit-links');
+      if (data) {
+        // enrich with user names
+        const enriched = data.map(link => {
+          const u = users.find(user => String(user.User_ID) === String(link.User_ID));
+          return { ...link, Full_Name: u?.Full_Name || u?.First_Name + ' ' + u?.Last_Name || '—' };
+        });
+        setGfLinks(enriched);
+      }
+    } catch (e) {
+      console.error('Load Google Fit links failed:', e);
+    } finally {
+      setLoadingGfLinks(false);
+    }
   }
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/set-state-in-effect
@@ -194,6 +225,45 @@ export default function AdminPersonnelPage() {
       load();
     } else {
       setNotice({ type: 'error', text: res?.message || 'คืนค่ารหัสผ่านไม่สำเร็จ' });
+    }
+  };
+
+  // Google Fit Links reset
+  const requestResetAllGfLinks = () => {
+    setConfirm({
+      title: '⚠️ ยืนยันการรีเซ็ต Google Fit ทั้งหมด',
+      message: 'จะล้างข้อมูลการเชื่อมต่อ Google Fit ของทุกคน ผู้ใช้ทุกคนต้องเชื่อมต่อใหม่ แน่ใจหรือไม่?',
+      variant: 'danger',
+      onConfirm: resetAllGfLinks,
+    });
+  };
+
+  const resetAllGfLinks = async () => {
+    const res = await postDataJson('reset-google-fit-links', { Logged_By: user?.User_ID });
+    if (res?.success) {
+      setNotice({ type: 'success', text: 'ล้างข้อมูล Google Fit ทั้งหมดแล้ว' });
+      loadGfLinks();
+    } else {
+      setNotice({ type: 'error', text: res?.message || 'รีเซ็ตไม่สำเร็จ' });
+    }
+  };
+
+  const requestResetUserGfLink = (link: GoogleFitLink) => {
+    setConfirm({
+      title: 'ยืนยันการรีเซ็ต Google Fit',
+      message: `จะลบการเชื่อมต่อ Google Fit ของ "${link.Full_Name}" (${link.Gmail}) ผู้ใช้ต้องเชื่อมต่อใหม่ แน่ใจหรือไม่?`,
+      variant: 'warning',
+      onConfirm: () => resetUserGfLink(link),
+    });
+  };
+
+  const resetUserGfLink = async (link: GoogleFitLink) => {
+    const res = await postDataJson('reset-user-google-fit-link', { Logged_By: user?.User_ID, User_ID: link.User_ID });
+    if (res?.success) {
+      setNotice({ type: 'success', text: `ลบการเชื่อมต่อ Google Fit ของ ${link.Full_Name} แล้ว` });
+      loadGfLinks();
+    } else {
+      setNotice({ type: 'error', text: res?.message || 'รีเซ็ตไม่สำเร็จ' });
     }
   };
 
@@ -583,6 +653,72 @@ export default function AdminPersonnelPage() {
                 ถัดไป <span className="material-symbols-outlined text-sm align-middle">chevron_right</span>
               </button>
             </div>
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Google Fit Links Management */}
+      <GlassCard className="p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 className="font-bold text-gray-900 dark:text-white">จัดการการเชื่อมต่อ Google Fit</h3>
+          <div className="flex gap-2">
+            <button onClick={() => { setShowGfLinks(!showGfLinks); if (showGfLinks) loadGfLinks(); }}
+              className="btn-outline btn-outline-emerald justify-center">
+              <span className="material-symbols-outlined">link</span>
+              {showGfLinks ? 'ซ่อน' : 'แสดง'} รายการเชื่อมต่อ
+            </button>
+            {showGfLinks && gfLinks.length > 0 && (
+              <button onClick={requestResetAllGfLinks} className="btn-outline btn-outline-red justify-center">
+                <span className="material-symbols-outlined">delete_forever</span>
+                รีเซ็ตทั้งหมด
+              </button>
+            )}
+          </div>
+        </div>
+
+        {showGfLinks && (
+          <div className="space-y-3">
+            {loadingGfLinks ? (
+              <div className="flex items-center justify-center py-8">
+                <span className="loading loading-spinner loading-lg text-emerald-600"></span>
+                <span className="ml-3 text-gray-500">กำลังโหลด...</span>
+              </div>
+            ) : gfLinks.length === 0 ? (
+              <div className="text-center py-8 text-gray-400">
+                <span className="material-symbols-outlined text-4xl mb-2 block">link_off</span>
+                <p>ไม่มีข้อมูลการเชื่อมต่อ Google Fit</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 text-xs uppercase tracking-wider">
+                      <th className="px-4 py-3 font-medium">ชื่อ-สกุล</th>
+                      <th className="px-4 py-3 font-medium">User ID</th>
+                      <th className="px-4 py-3 font-medium">Gmail</th>
+                      <th className="px-4 py-3 font-medium">เชื่อมต่อเมื่อ</th>
+                      <th className="px-4 py-3 font-medium">จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {gfLinks.map((link, i) => (
+                      <tr key={i} className="hover:bg-gray-50/30 dark:hover:bg-gray-800/30 transition-colors">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{link.Full_Name || '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 font-mono">{link.User_ID || '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{link.Gmail || '—'}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{link.Connected_At || '—'}</td>
+                        <td className="px-4 py-3">
+                          <button onClick={() => requestResetUserGfLink(link)}
+                            className="btn-outline btn-outline-red btn-xs">
+                            <span className="material-symbols-outlined text-sm">unlink</span> ยกเลิกเชื่อมต่อ
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </GlassCard>

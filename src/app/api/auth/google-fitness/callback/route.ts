@@ -11,6 +11,32 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
+const CLIENTS = [
+  {
+    id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID_1 || '',
+    secret: process.env.GOOGLE_CLIENT_SECRET_1 || '',
+  },
+  {
+    id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID_2 || '',
+    secret: process.env.GOOGLE_CLIENT_SECRET_2 || '',
+  },
+];
+
+async function exchangeCodeWithClient(code: string, redirectUri: string, client: { id: string; secret: string }) {
+  const res = await fetch(GOOGLE_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      code,
+      client_id: client.id,
+      client_secret: client.secret,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+    }),
+  });
+  return res;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -20,38 +46,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Code is required' }, { status: 400 });
     }
 
-    // redirect_uri ต้องตรงกับที่ client ใช้ตอน authorize (window.location.origin)
-    // ใช้ request origin แทน NEXTAUTH_URL เพื่อกัน mismatch ตอน deploy/เปลี่ยน port
     const redirectUri = `${request.nextUrl.origin}/auth/google-fitness/callback`;
     console.log('Token exchange redirect_uri:', redirectUri);
 
-    const res = await fetch(GOOGLE_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code,
-        client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code',
-      }),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => 'no body');
-      console.error('Token exchange failed:', res.status, errBody);
-      return NextResponse.json(
-        { error: `Failed to exchange code: ${res.status} ${errBody}` },
-        { status: res.status }
-      );
-    }
-
-    const tokens: {
+    // ลองแลกเปลี่ยน code กับ Client 1 ก่อน ถ้าไม่ได้ลอง Client 2
+    let tokens: {
       access_token: string;
       refresh_token: string;
       id_token?: string;
       expires_in: number;
-    } = await res.json();
+    } | null = null;
+    let usedClient = '';
+
+    for (const client of CLIENTS) {
+      const res = await exchangeCodeWithClient(code, redirectUri, client);
+      if (res.ok) {
+        tokens = await res.json();
+        usedClient = client.id;
+        console.log('Token exchange succeeded with:', client.id);
+        break;
+      } else {
+        const errBody = await res.text().catch(() => 'no body');
+        console.warn('Token exchange failed with', client.id, ':', res.status, errBody);
+      }
+    }
+
+    if (!tokens) {
+      return NextResponse.json(
+        { error: 'Failed to exchange code with both clients' },
+        { status: 400 }
+      );
+    }
 
     // Extract email from id_token (JWT payload)
     let email = '';

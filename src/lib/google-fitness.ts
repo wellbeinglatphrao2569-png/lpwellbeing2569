@@ -8,19 +8,48 @@
  * 4. กดปุ่ม "ดึงข้อมูล" → ใช้ tokens เรียก /api/google-fitness/steps
  */
 
-const CLIENT_ID =
-  process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
-  '516906113045-61vsi0n55sdklb5apvbuu5l9n9kakpdt.apps.googleusercontent.com';
+// Client 1: ใช้สำหรับ User แรก 100 คน
+const CLIENT_1_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID_1 || '';
+const CLIENT_1_SECRET = process.env.GOOGLE_CLIENT_SECRET_1 || '';
+
+// Client 2: ใช้เมื่อ Client 1 เต็ม 100 คน
+const CLIENT_2_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID_2 || '';
+const CLIENT_2_SECRET = process.env.GOOGLE_CLIENT_SECRET_2 || '';
+
+const CLIENTS = [
+  { id: CLIENT_1_ID, secret: CLIENT_1_SECRET, name: 'Client 1' },
+  { id: CLIENT_2_ID, secret: CLIENT_2_SECRET, name: 'Client 2' },
+] as const;
+
+/** ดึงจำนวน User ที่เชื่อมต่อ Google Fit แล้วจาก backend */
+async function getConnectedUserCount(): Promise<number> {
+  try {
+    const res = await fetch('/api/google-fitness/connected-count');
+    if (!res.ok) return 0;
+    const data = await res.json();
+    return data.count || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** เลือก Client ID ตามจำนวน User ที่เชื่อมต่อแล้ว (Client 1: 1-100, Client 2: 101+) */
+export async function getActiveClient(): Promise<{ id: string; secret: string; name: string }> {
+  const count = await getConnectedUserCount();
+  return count >= 100 ? CLIENTS[1] : CLIENTS[0];
+}
 
 /** สร้าง OAuth URL สำหรับ authorize */
-export function buildAuthUrl(userId?: string): string {
+export async function buildAuthUrl(userId?: string): Promise<string> {
   const redirectUri =
     typeof window !== 'undefined'
       ? `${window.location.origin}/auth/google-fitness/callback`
       : '';
 
+  const client = await getActiveClient();
+
   const params = new URLSearchParams({
-    client_id: CLIENT_ID,
+    client_id: client.id,
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: [
@@ -42,8 +71,9 @@ export function buildAuthUrl(userId?: string): string {
 }
 
 /** เชื่อมต่อกูเกิลฟิต — เปิด OAuth consent */
-export function connectGoogleFitness(userId?: string): void {
-  window.location.href = buildAuthUrl(userId);
+export async function connectGoogleFitness(userId?: string): Promise<void> {
+  const url = await buildAuthUrl(userId);
+  window.location.href = url;
 }
 
 /** เชื่อมต่อแล้วหรือยัง */
@@ -112,6 +142,31 @@ export function disconnect(): void {
 export function cleanUrlHash(): void {
   if (typeof window !== 'undefined' && window.location.hash) {
     window.history.replaceState(null, '', window.location.pathname);
+  }
+}
+
+/** ตรวจสอบอีเมลกับ backend — คืนค่า { duplicate, linkedUser, linkedUserName, autoClear, autoLink, message } */
+export async function checkEmail(email: string, userId?: string, action?: 'check' | 'auto-link'): Promise<{
+  duplicate: boolean;
+  linkedUser?: string;
+  linkedUserName?: string;
+  autoClear?: boolean;
+  autoLink?: boolean;
+  message?: string;
+}> {
+  try {
+    const res = await fetch('/api/google-fitness/check-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, userId, action }),
+    });
+    if (!res.ok) return { duplicate: false };
+    const data = await res.json();
+    console.log('[GoogleFit] checkEmail response:', data);
+    return data;
+  } catch (e) {
+    console.error('[GoogleFit] checkEmail error:', e);
+    return { duplicate: false };
   }
 }
 

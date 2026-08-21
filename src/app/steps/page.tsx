@@ -181,6 +181,7 @@ export default function StepsPage() {
   const [gfConnecting, setGfConnecting] = useState(false);
   const [gfErrorMessage, setGfErrorMessage] = useState<string | null>(null);
   const [gfVersion, setGfVersion] = useState(0);
+  const [gfLinkedUser, setGfLinkedUser] = useState<{ userId: string; userName: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ช่วงเวลาที่ดูย้อนหลังได้ (วัน / สัปดาห์ / เดือน)
@@ -206,6 +207,23 @@ export default function StepsPage() {
       }
     }
   }, []);
+
+  // Auto-clear Google Fit localStorage if backend has no record
+  useEffect(() => {
+    if (!user) return;
+    const email = GF.getConnectedEmail();
+    console.log('[StepsPage] Auto-clear check:', { userId: user.User_ID, email });
+    if (email) {
+      GF.checkEmail(email, user.User_ID).then((result) => {
+        console.log('[StepsPage] checkEmail result:', result);
+        if (result.autoClear) {
+          console.log('[StepsPage] Auto-clearing localStorage');
+          GF.disconnect();
+          setGfVersion((v) => v + 1);
+        }
+      });
+    }
+  }, [user?.User_ID]);
 
   useEffect(() => {
     loadData();
@@ -368,11 +386,34 @@ export default function StepsPage() {
   const gfOwned = user ? GF.isOwnedBy(user.User_ID) : false;
   const gfInherited = gfConnected && !gfOwned;
 
+  // ดึงข้อมูลบัญชีที่เชื่อมต่ออีเมลนี้อยู่ (จาก backend)
+  useEffect(() => {
+    if (!gfConnected || !user) return;
+    const email = GF.getConnectedEmail();
+    if (!email) return;
+    const checkLinkedUser = async () => {
+      try {
+        const res = await fetch('/api/google-fitness/check-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, userId: user.User_ID, action: 'check' }),
+        });
+        const data = await res.json();
+        if (data.linkedUser) {
+          setGfLinkedUser({ userId: String(data.linkedUser), userName: data.linkedUserName || String(data.linkedUser) });
+        } else {
+          setGfLinkedUser(null);
+        }
+      } catch {}
+    };
+    checkLinkedUser();
+  }, [gfConnected, gfVersion, user?.User_ID]);
+
   /** Connect Google Fit → redirect to OAuth → come back with code */
-  function handleGfConnect(): void {
+  async function handleGfConnect(): Promise<void> {
     setGfConnecting(true);
     setGfErrorMessage(null);
-    GF.connectGoogleFitness(user?.User_ID || '');
+    await GF.connectGoogleFitness(user?.User_ID || '');
   }
 
   /** ถอดการเชื่อมต่อ Google Fit */
@@ -380,6 +421,7 @@ export default function StepsPage() {
     GF.disconnect();
     setGoogleFitSteps(null);
     setGfErrorMessage(null);
+    setGfLinkedUser(null);
     setGfVersion((v) => v + 1); // trigger re-render
   }
 
@@ -390,8 +432,10 @@ export default function StepsPage() {
       setGfErrorMessage('ยังไม่ได้เชื่อมต่อกูเกิลฟิต — กด "เชื่อมต่อกูเกิลฟิต" ก่อน');
       return;
     }
-    if (user && !GF.isOwnedBy(user.User_ID)) {
-      setGfErrorMessage('การเชื่อมต่อ Google Fit บนเครื่องนี้ถูกผูกกับบัญชีอื่น — ห้ามใช้ร่วมกัน (เพื่อป้องกันการโกงนับก้าว) โปรดถอดการเชื่อมต่อแล้วเชื่อมต่อบัญชีของท่านเอง');
+    // อนุญาตให้ดึงข้อมูลได้ถ้าเป็นเจ้าของการเชื่อมต่อ (gfOwned) หรือเป็น user เดียวกับที่ลิงก์ใน backend
+    const isSameUser = gfOwned || (gfLinkedUser && gfLinkedUser.userId === user?.User_ID);
+    if (user && !isSameUser) {
+      setGfErrorMessage(`การเชื่อมต่อ Google Fit นี้เชื่อมกับบัญชี "${gfLinkedUser?.userName || 'อื่น'}" — ห้ามใช้ร่วมกัน โปรดถอดการเชื่อมต่อแล้วเชื่อมต่อใหม่`);
       return;
     }
     setFetchingGf(true);
@@ -765,12 +809,21 @@ export default function StepsPage() {
                         <div>
                           <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">เชื่อมต่อกูเกิลฟิตแล้ว</p>
                           <p className="text-[10px] text-emerald-600 dark:text-emerald-500">{GF.getConnectedEmail() || ''}</p>
+                          {gfLinkedUser && gfLinkedUser.userId === user?.User_ID && (
+                            <p className="text-[10px] text-emerald-600 dark:text-emerald-500 mt-0.5">✓ เชื่อมต่อกับบัญชีนี้แล้ว</p>
+                          )}
                         </div>
                       </div>
-                      <button onClick={handleGfDisconnect}
-                        className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium">
-                        ถอดเชื่อมต่อ
-                      </button>
+                      <div className="flex flex-col gap-1">
+                        <button onClick={handleGfDisconnect}
+                          className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium">
+                          ถอดเชื่อมต่อ
+                        </button>
+                        <button onClick={() => { GF.disconnect(); setGfVersion(v => v + 1); }}
+                          className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium">
+                          ล้างข้อมูลเก่าบนเครื่อง (Force Clear)
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -779,19 +832,49 @@ export default function StepsPage() {
                     <div className="flex items-start gap-2">
                       <span className="material-symbols-outlined text-amber-500 text-xl">lock_person</span>
                       <div className="flex-1">
-                        <p className="text-sm font-bold text-amber-700 dark:text-amber-400">บัญชี E-mail นี้มีผู้ใช้งานแล้ว</p>
-                        <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 leading-relaxed">
-                          โปรดเชื่อมต่อบัญชีของท่านอีกครั้ง
-                        </p>
+                        {gfLinkedUser && gfLinkedUser.userId !== user?.User_ID ? (
+                          <>
+                            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">อีเมลนี้เชื่อมต่อกับบัญชีอื่นแล้ว</p>
+                            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 leading-relaxed">
+                              เชื่อมกับ: {gfLinkedUser.userName} — ห้ามใช้ร่วมกัน โปรดถอดการเชื่อมต่อแล้วเชื่อมต่อใหม่
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-bold text-amber-700 dark:text-amber-400">บัญชี E-mail นี้มีผู้ใช้งานแล้ว</p>
+                            <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 leading-relaxed">
+                              โปรดเชื่อมต่อบัญชีของท่านอีกครั้ง
+                            </p>
+                          </>
+                        )}
                       </div>
-                      <button onClick={handleGfDisconnect}
-                        className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium shrink-0">
-                        ถอดการเชื่อมต่อ
-                      </button>
+                      <div className="flex flex-col gap-1 shrink-0">
+                        <button onClick={handleGfDisconnect}
+                          className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium">
+                          ถอดการเชื่อมต่อ
+                        </button>
+                        <button onClick={() => { GF.disconnect(); setGfVersion(v => v + 1); }}
+                          className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium">
+                          ล้างข้อมูลเก่าบนเครื่อง (Force Clear)
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
-                <button onClick={fetchGoogleFitSteps} disabled={fetchingGf || !logDate || !gfOwned}
+                {gfConnected && !gfOwned && gfLinkedUser && gfLinkedUser.userId === user?.User_ID && (
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-blue-500 text-xl">info</span>
+                        <div>
+                          <p className="text-sm font-bold text-blue-700 dark:text-blue-400">พบการเชื่อมต่อเดิมกับบัญชีนี้</p>
+                          <p className="text-[10px] text-blue-600 dark:text-blue-500">{GF.getConnectedEmail() || ''} — กด "ดึงข้อมูล" เพื่อใช้งานต่อได้เลย</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <button onClick={fetchGoogleFitSteps} disabled={fetchingGf || !logDate || (gfInherited && gfLinkedUser?.userId !== user?.User_ID)}
                   className="w-full py-2.5 rounded-xl font-bold text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                   {fetchingGf ? (<>
                     <span className="loading loading-spinner loading-xs"></span>

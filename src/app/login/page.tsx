@@ -14,7 +14,6 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showDemo, setShowDemo] = useState(false);
   const { login } = useAuth();
   const router = useRouter();
 
@@ -150,44 +149,6 @@ export default function LoginPage() {
                   )}
                 </button>
               </form>
-
-              {/* บัญชีทดสอบ (ข้อมูลตัวอย่าง 10 รายการ) */}
-              <div className="mt-8 pt-6 border-t border-white/10">
-                <button type="button" onClick={() => setShowDemo(v => !v)}
-                  className="w-full flex items-center justify-center gap-2 text-sm text-[#bfe6f2]/70 hover:text-white transition-colors font-medium">
-                  <span className="material-symbols-outlined text-base">experiment</span>
-                  บัญชีทดสอบ (ข้อมูลตัวอย่าง)
-                  <span className={`material-symbols-outlined text-base transition-transform ${showDemo ? 'rotate-180' : ''}`}>expand_more</span>
-                </button>
-                {showDemo && (
-                  <div className="mt-3 rounded-xl bg-white/5 border border-white/10 divide-y divide-white/10 text-sm animate-fade-in">
-                    <div className="px-4 py-2.5 flex items-center justify-between gap-2">
-                      <div>
-                        <span className="text-[#63bcca] font-medium">เจ้าหน้าที่ นสส.</span>
-                        <span className="text-[#bfe6f2]/80 block text-xs">แก้ไขได้ทุกอย่าง</span>
-                      </div>
-                      <span className="text-[#bfe6f2]/70 font-mono text-xs bg-white/10 rounded-lg px-2 py-1">1099900000011</span>
-                    </div>
-                    <div className="px-4 py-2.5 flex items-center justify-between gap-2">
-                      <div>
-                        <span className="text-[#77c1aa] font-medium">กรรมการ</span>
-                        <span className="text-[#bfe6f2]/80 block text-xs">บันทึกงดหวาน + สิทธิทั่วไป</span>
-                      </div>
-                      <span className="text-[#bfe6f2]/70 font-mono text-xs bg-white/10 rounded-lg px-2 py-1">1099900000038</span>
-                    </div>
-                    <div className="px-4 py-2.5 flex items-center justify-between gap-2">
-                      <div>
-                        <span className="text-[#bfe6f2] font-medium">บุคคลทั่วไป</span>
-                        <span className="text-[#bfe6f2]/80 block text-xs">แดชบอร์ด + บันทึกก้าว</span>
-                      </div>
-                      <span className="text-[#bfe6f2]/70 font-mono text-xs bg-white/10 rounded-lg px-2 py-1">1099900000054</span>
-                    </div>
-                    <div className="px-4 py-2.5 text-center text-xs text-[#bfe6f2]/70">
-                      รหัสผ่านทุกบัญชี: <span className="font-mono text-[#bfe6f2] font-semibold">pass1234</span>
-                    </div>
-                  </div>
-                )}
-              </div>
             </>
           ) : (
             <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/15 p-5 sm:p-6">

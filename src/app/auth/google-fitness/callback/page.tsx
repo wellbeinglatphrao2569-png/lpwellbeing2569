@@ -76,42 +76,39 @@ function CallbackContent() {
           userId = state.userId || '';
         } catch {}
 
-        // ⚡ ตรวจสอบซ้ำ — ถ้า Gmail นี้ถูกผูกกับ user อื่นแล้ว ให้ reject
-        if (tokenData.email) {
-          try {
-            const checkRes = await fetch('/api/google-fitness/check-email', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: tokenData.email }),
-            });
-            const checkData = await checkRes.json();
-            if (checkData.duplicate && checkData.linkedUser !== userId) {
-              throw new Error(`Gmail นี้ (${tokenData.email}) ถูกผูกกับผู้ใช้อื่นแล้ว — โปรดใช้ Gmail อื่น`);
-            }
-          } catch (e) {
-            if (e instanceof Error && e.message.includes('Gmail นี้')) {
-              throw e;
-            }
-            // API error — ignore (หมายถึง GAS ยังไม่ deploy ใหม่)
-          }
-        }
+// ⚡ ตรวจสอบและ auto-link อีเมล — ครั้งแรกจะบันทึกลิงก์ทันที ถ้าเป็น user เดียวกันให้ผ่าน
+         if (tokenData.email) {
+           try {
+             const checkRes = await fetch('/api/google-fitness/check-email', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ email: tokenData.email, userId, action: 'auto-link' }),
+             });
+             const checkData = await checkRes.json();
+             if (checkData.duplicate && checkData.linkedUser !== userId) {
+               throw new Error(`Gmail นี้ (${tokenData.email}) ถูกผูกกับบัญชีอื่นแล้ว (${checkData.linkedUserName || checkData.linkedUser}) — โปรดใช้ Gmail อื่น`);
+             }
+             // Show message if auto-linked or already linked
+             if (checkData.autoLink) {
+               setStatus('เชื่อมต่ออีเมลสำเร็จ (ครั้งแรก)...');
+             } else if (checkData.message) {
+               setStatus(checkData.message);
+             }
+           } catch (e) {
+             if (e instanceof Error && e.message.includes('Gmail นี้')) {
+               throw e;
+             }
+             // API error — ignore
+           }
+         }
 
-        // เก็บ token + email + เจ้าของบัญชี (User_ID ที่เชื่อมต่อ) ใน localStorage
-        saveTokens({
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token || '',
-          expires_in: tokenData.expires_in,
-          email: tokenData.email,
-        }, userId);
-
-        // บันทึก Gmail → User mapping ไป GAS backend
-        try {
-          await fetch('/api/google-fitness/check-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: tokenData.email, userId, action: 'save' }),
-          });
-        } catch {} // ignore
+         // เก็บ token + email + เจ้าของบัญชี (User_ID ที่เชื่อมต่อ) ใน localStorage
+         saveTokens({
+           access_token: tokenData.access_token,
+           refresh_token: tokenData.refresh_token || '',
+           expires_in: tokenData.expires_in,
+           email: tokenData.email,
+         }, userId);
 
         cleanUrlHash(); // ลบ code ออกจาก URL
 

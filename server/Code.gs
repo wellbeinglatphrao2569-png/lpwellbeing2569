@@ -299,6 +299,8 @@ function doGet(e) {
           case 'happy-connect-match': result = createHappyConnectMatch_(e.parameter); break;
           case 'check-google-fit-email': result = checkGoogleFitEmail_(e.parameter); break;
           case 'save-google-fit-link': result = saveGoogleFitLink_(e.parameter); break;
+          case 'reset-google-fit-links': result = resetGoogleFitLinks_(e.parameter); break;
+          case 'reset-user-google-fit-link': result = resetUserGoogleFitLink_(e.parameter); break;
           case 'update-step-status': result = updateStepStatus_(e.parameter); break;
           case 'search-personnel': result = searchPersonnel_(e); break;
           case 'update-personnel-status': result = updatePersonnelStatus_(e.parameter); break;
@@ -354,6 +356,9 @@ function doGet(e) {
         break;
       case 'weight-comparison':
         result = getWeightComparison_(e);
+        break;
+      case 'google-fit-links':
+        result = getData_('Google_Fit_Links');
         break;
       default:
         result = { status: 'ok', project: 'ลาดพร้าวสร้างสุข', version: '1.0.0' };
@@ -419,6 +424,12 @@ function doPost(e) {
         break;
       case 'save-google-fit-link':
         result = saveGoogleFitLink_(data);
+        break;
+      case 'reset-google-fit-links':
+        result = resetGoogleFitLinks_(data);
+        break;
+      case 'reset-user-google-fit-link':
+        result = resetUserGoogleFitLink_(data);
         break;
       case 'update-step-status':
         result = updateStepStatus_(data);
@@ -2127,6 +2138,9 @@ function checkGoogleFitEmail_(e) {
 
 /**
  * บันทึกการเชื่อมต่อ Google Fit (User_ID + Gmail)
+ * - หาก Gmail นี้มีอยู่แล้วสำหรับ User_ID เดียวกัน -> อัปเดต Connected_At
+ * - หาก Gmail นี้มีอยู่แล้วแต่ User_ID คนละคน -> reject (กันซ้ำ)
+ * - หากใหม่ทั้งคู่ -> append ใหม่
  */
 function saveGoogleFitLink_(data) {
   const sheet = getSheet_('Google_Fit_Links');
@@ -2136,15 +2150,104 @@ function saveGoogleFitLink_(data) {
   if (existingData.length < 1 || existingData[0][0] !== 'User_ID') {
     sheet.clear();
     sheet.appendRow(['User_ID','Gmail','Connected_At']);
+    // เนื่องจากล้างชีทหมดแล้ว จึง append ใหม่เลย
+    sheet.appendRow([
+      data.User_ID || '',
+      data.email || '',
+      data.connected_at || getTimestamp_(),
+    ]);
+    return { success: true };
   }
 
-  sheet.appendRow([
-    data.User_ID || '',
-    data.email || '',
-    data.connected_at || getTimestamp_(),
-  ]);
+  const headers = existingData[0];
+  const uidIdx = headers.indexOf('User_ID');
+  const emailIdx = headers.indexOf('Gmail');
+  const dateIdx = headers.indexOf('Connected_At');
 
+  const newUid = String(data.User_ID || '').trim();
+  const newEmail = String(data.email || '').trim().toLowerCase();
+  const newDate = data.connected_at || getTimestamp_();
+
+  // ค้นหา row ที่มี Gmail นี้อยู่แล้ว
+  for (let i = 1; i < existingData.length; i++) {
+    const rowEmail = String(existingData[i][emailIdx] || '').trim().toLowerCase();
+    const rowUid = String(existingData[i][uidIdx] || '').trim();
+
+    if (rowEmail === newEmail) {
+      // พบ Gmail ซ้ำ
+      if (rowUid === newUid) {
+        // เดียวกับ User_ID เดิม -> อัปเดต Connected_At
+        sheet.getRange(i + 1, dateIdx + 1).setValue(newDate);
+        return { success: true, updated: true };
+      } else {
+        // Gmail นี้ผูกกับคนอื่นอยู่แล้ว -> reject
+        return { success: false, error: 'Gmail นี้ถูกผูกกับผู้ใช้อื่นแล้ว' };
+      }
+    }
+  }
+
+  // ไม่พบ Gmail นี้ -> append ใหม่
+  sheet.appendRow([newUid, newEmail, newDate]);
   return { success: true };
+}
+
+/**
+ * รีเซ็ตข้อมูลการเชื่อมต่อ Google Fit ทั้งหมด (ล้างชีท Google_Fit_Links)
+ * ใช้สำหรับเริ่มต้นใหม่ หรือแก้ไขปัญหาข้อมูลซ้ำ
+ * เฉพาะ Admin (นสส.) เท่านั้นที่เรียกได้
+ */
+function resetGoogleFitLinks_(data) {
+  const actor = getData_('Users').find(function (u) {
+    return String(u.User_ID) === String(data.Logged_By);
+  });
+  if (!actor) return { success: false, message: 'ไม่พบผู้ดำเนินการ' };
+  if (String(actor.Role) !== 'Admin') {
+    return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. เท่านั้นที่รีเซ็ตการเชื่อมต่อ Google Fit ได้' };
+  }
+
+  const sheet = getSheet_('Google_Fit_Links');
+  sheet.clear();
+  sheet.appendRow(['User_ID', 'Gmail', 'Connected_At']);
+
+  return { success: true, message: 'ล้างข้อมูลการเชื่อมต่อ Google Fit เรียบร้อยแล้ว' };
+}
+
+/**
+ * รีเซ็ตการเชื่อมต่อ Google Fit ของผู้ใช้รายเดียว (ลบเฉพาะ Gmail ของ User_ID นั้น)
+ * เฉพาะ Admin (นสส.) เท่านั้นที่เรียกได้
+ */
+function resetUserGoogleFitLink_(data) {
+  const actor = getData_('Users').find(function (u) {
+    return String(u.User_ID) === String(data.Logged_By);
+  });
+  if (!actor) return { success: false, message: 'ไม่พบผู้ดำเนินการ' };
+  if (String(actor.Role) !== 'Admin') {
+    return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. เท่านั้นที่รีเซ็ตการเชื่อมต่อ Google Fit ได้' };
+  }
+
+  const targetUserId = String(data.User_ID || '').trim();
+  if (!targetUserId) return { success: false, message: 'กรุณาระบุ User_ID' };
+
+  const sheet = getSheet_('Google_Fit_Links');
+  const dataRange = sheet.getDataRange().getValues();
+  if (dataRange.length < 2) return { success: true, message: 'ไม่มีข้อมูลให้ลบ' };
+
+  const headers = dataRange[0];
+  const uidIdx = headers.indexOf('User_ID');
+  if (uidIdx < 0) return { success: false, message: 'โครงสร้างชีทไม่ถูกต้อง' };
+
+  const rowsToDelete = [];
+  for (let i = 1; i < dataRange.length; i++) {
+    if (String(dataRange[i][uidIdx] || '').trim() === targetUserId) {
+      rowsToDelete.push(i + 1);
+    }
+  }
+
+  for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+    sheet.deleteRow(rowsToDelete[i]);
+  }
+
+  return { success: true, message: 'ลบการเชื่อมต่อ Google Fit ของผู้ใช้ ' + targetUserId + ' เรียบร้อยแล้ว (' + rowsToDelete.length + ' รายการ)' };
 }
 
 // ===== PROFILE IMAGE (Google Drive) =====

@@ -714,6 +714,22 @@ function registerUser_(data) {
 
   // บันทึกค่าแรก (baseline) — ใช้เทียบหลังจบโครงการ และกันค่าที่จะถูกทับตอนแก้โปรไฟล์
   const baseline = captureBaseline_(uid, data.Weight_kg, data.Height_cm, data.BMI_Value, 'register');
+
+  // ย้ายประวัติก้าวที่เคยบันทึกด้วย Personnel_ID (ตอนยังไม่ลงทะเบียน) มาเป็น User_ID ใหม่ เพื่อให้ประวัติไม่หาย
+  try {
+    var stepsSheet = getSheet_('Steps_Log');
+    var stepsRows = stepsSheet.getDataRange().getValues();
+    var stepsHeaders = stepsRows[0] || [];
+    var sUidCol = stepsHeaders.indexOf('User_ID')+1;
+    if(sUidCol>0){
+      for(var si=1; si<stepsRows.length; si++){
+        if(String(stepsRows[si][sUidCol-1])===String(pid)){
+          stepsSheet.getRange(si+1, sUidCol).setValue(uid);
+        }
+      }
+    }
+  } catch(e){ console.error('migrate Steps_Log Personnel_ID->User_ID failed', e); }
+
   return { success: true, message: 'ลงทะเบียนสำเร็จ', baselineCaptured: !!baseline.captured };
 }
 
@@ -2669,17 +2685,18 @@ function addBatchSteps_(data) {
     var dayStr = String(item.Day || '').trim();
     var stepsCount = Number(item.Steps_Count) || 0;
     
-    // ตรวจ user
-    var targetUser = users.find(function (u) { return String(u.User_ID) === userId; });
+    // ตรวจ user — รองรับทั้ง User_ID (ลงทะเบียนแล้ว) และ Personnel_ID (รอลงทะเบียน)
+    var targetUser = users.find(function (u) { return String(u.User_ID) === userId || String(u.Personnel_ID) === userId; });
     if (!targetUser) {
       details.push({ User_ID: userId, Day: dayStr, status: 'error', message: 'ไม่พบผู้ใช้' });
       errors++;
       continue;
     }
     
-    // ตรวจ Mode — บันทึกได้เฉพาะ Mode 2
+    // ตรวจ Mode — บันทึกได้เฉพาะ Mode 2 (ยกเว้น Pending ที่ยังไม่มี User_ID ให้บันทึกได้เลย)
+    var isPending = !String(targetUser.User_ID || '').trim();
     var recordMode = String(targetUser.Step_Record_Mode || '1').trim();
-    if (recordMode !== '2') {
+    if (!isPending && recordMode !== '2') {
       details.push({ User_ID: userId, Day: dayStr, status: 'error', message: 'บุคลากรอยู่ใน Mode บันทึกเอง (Mode 1)' });
       errors++;
       continue;

@@ -173,6 +173,8 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string) {
     notes: parsed.notes || '',
     alert: alertReasons.length > 0,
     alertReasons,
+    provider: usedFallback ? 'openrouter' : 'gemini',
+    model: usedFallback ? OPENROUTER_MODEL : GEMINI_MODEL,
   };
 }
 

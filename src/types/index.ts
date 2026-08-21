@@ -26,6 +26,8 @@ export interface AiImageAnalysis {
   notes: string;
   alert: boolean;
   alertReasons: string[];
+  provider?: 'gemini' | 'openrouter';
+  model?: string;
 }
 export interface SweetFree {
   Entry_ID: string; User_ID: string; Wednesday_Date: string; Status: boolean; Logged_By: string;

@@ -41,6 +41,8 @@ function compressImage(file: File, maxDim=1600, quality=0.85): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+function getUserKey(u: User): string { return String((u as any).User_ID || u.Personnel_ID || '').trim(); }
+function isPendingUser(u: User): boolean { return !String((u as any).User_ID || '').trim(); }
 
 interface FileItem {
   id: string;
@@ -125,12 +127,13 @@ export default function BatchStepsPage(){
       setResultPopup({type:'error', title:'เกิน 7 ภาพต่อคนต่อสัปดาห์', message:`บุคลากร 1 คนอัปโหลดได้สูงสุด 7 ภาพ (7 วัน) ต่อสัปดาห์ — ตอนนี้มี ${current.length} ภาพแล้ว จะเพิ่มอีก ${arr.length} ภาพเกินกำหนด`});
       return;
     }
-    const targetUser = users.find(u=>String(u.User_ID)===userId);
+    const targetUser = users.find(u=> getUserKey(u)===userId);
     if(!userId){
-      setResultPopup({type:'error', title:'บุคลากรยังไม่ลงทะเบียน', message:'บุคลากรท่านนี้ยังไม่มี User_ID (ยังไม่ลงทะเบียน) ไม่สามารถบันทึกก้าวได้'});
+      setResultPopup({type:'error', title:'ไม่พบบุคลากร', message:'ไม่พบรหัสบุคลากร (Personnel_ID/User_ID) ไม่สามารถบันทึกได้'});
       return;
     }
-    if(targetUser && String(targetUser.Step_Record_Mode||'1')!=='2' && !allowOverwrite){
+    // ยอมให้ Pending (ยังไม่ลงทะเบียน) ประมวลผลได้เช่นเดียวกัน — จะบันทึกด้วย Personnel_ID แล้ว migrate เมื่อลงทะเบียน
+    if(targetUser && !isPendingUser(targetUser) && String(targetUser.Step_Record_Mode||'1')!=='2' && !allowOverwrite){
       setResultPopup({type:'error', title:'Mode ไม่ถูกต้อง', message:`${displayName(targetUser)} อยู่ใน Mode 1 (บันทึกเอง) — หากต้องการให้ จนท. บันทึกให้ กรุณาเปลี่ยนเป็น Mode 2 ที่หน้าจัดการบุคลากรก่อน หรือติ๊ก "อนุญาตให้บันทึกแม้เป็น Mode 1"`});
     }
     const newItems: FileItem[] = [];
@@ -227,6 +230,8 @@ export default function BatchStepsPage(){
           notes: data.notes ?? '',
           alert: !!data.alert,
           alertReasons: data.alertReasons ?? [],
+          provider: (data.provider as any) ?? 'gemini',
+          model: data.model ?? (data.provider==='openrouter' ? 'stealth/ox-alpha' : 'gemini-3.6-flash'),
         };
         const targetDate = pickTargetDateForResult(userId, r.dateInImage, usedInBatch);
         usedInBatch.add(targetDate);
@@ -256,11 +261,11 @@ export default function BatchStepsPage(){
 
   async function handleAiAll(){
     const pendingUsers = filteredUsers.filter(u=>{
-      const uid=String(u.User_ID||'');
+      const uid=getUserKey(u);
       const arr=userFiles[uid]||[];
       return arr.some(f=> !f.aiResult);
     });
-    const totalPending = pendingUsers.reduce((sum,u)=> sum + (userFiles[String(u.User_ID||'')]||[]).filter(f=>!f.aiResult).length, 0);
+    const totalPending = pendingUsers.reduce((sum,u)=> sum + (userFiles[getUserKey(u)]||[]).filter(f=>!f.aiResult).length, 0);
     if(totalPending===0){
       setResultPopup({type:'error', title:'ไม่มีรูปให้ประมวลผล', message:'กรุณาอัปโหลดรูปอย่างน้อย 1 รูปในตาราง (1 ช่อง/คน, สูงสุด 7 ภาพ/คน) ก่อนกดปุ่ม AI ประมวลผล' });
       return;
@@ -270,7 +275,7 @@ export default function BatchStepsPage(){
     setAiProgress({total: totalPending, done: 0, percent: 0, currentUserName: 'เริ่มต้น...'});
     try{
       for(const u of pendingUsers){
-        const uid=String(u.User_ID||'');
+        const uid=getUserKey(u);
         const pending = (userFiles[uid]||[]).filter(f=> !f.aiResult);
         if(pending.length===0) continue;
         setProcessingUserId(uid);
@@ -297,6 +302,8 @@ export default function BatchStepsPage(){
             notes: data.notes ?? '',
             alert: !!data.alert,
             alertReasons: data.alertReasons ?? [],
+            provider: (data.provider as any) ?? 'gemini',
+            model: data.model ?? (data.provider==='openrouter' ? 'stealth/ox-alpha' : 'gemini-3.6-flash'),
           };
           const targetDate = pickTargetDateForResult(uid, r.dateInImage, usedInBatch);
           usedInBatch.add(targetDate);
@@ -474,7 +481,8 @@ export default function BatchStepsPage(){
               {filteredUsers.length===0 ? (
                 <tr><td colSpan={3} className="px-6 py-10 text-center text-gray-400">ไม่พบข้อมูลบุคลากร — ลองเปลี่ยนตัวกรองฝ่าย หรือตรวจสอบว่าบุคลากรถูกตั้งเป็น Mode 2</td></tr>
               ) : filteredUsers.map(u=>{
-                const uid=String(u.User_ID||'');
+                const uid=getUserKey(u);
+                const pendingUser=isPendingUser(u);
                 const isMode2=String(u.Step_Record_Mode||'1')==='2';
                 const name=displayName(u);
                 const files=userFiles[uid]||[];
@@ -483,7 +491,7 @@ export default function BatchStepsPage(){
                 const doneInRow = files.filter(f=> f.aiResult).length;
                 const isThisRowProcessing = processingUserId===uid && aiProcessing;
                 return (
-                  <tr key={uid||u.Personnel_ID} className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/30 ${!uid?'opacity-60':''} ${!isMode2?'bg-amber-50/20 dark:bg-amber-900/5':''} ${isThisRowProcessing? 'bg-purple-50/30 dark:bg-purple-900/10':''}`}>
+                  <tr key={uid} className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/30 ${!uid?'opacity-60':''} ${!isMode2 && !pendingUser?'bg-amber-50/20 dark:bg-amber-900/5':''} ${isThisRowProcessing? 'bg-purple-50/30 dark:bg-purple-900/10':''}`}>
                     <td className="px-3 py-3 sticky left-0 bg-white dark:bg-gray-800 z-10 border-r border-gray-100 dark:border-gray-700 align-top">
                       <div className="flex items-center gap-2.5">
                         {u.Profile_Image ? <img src={profileImageUrl(u.Profile_Image)||''} alt="" className="w-10 h-10 rounded-full object-cover ring-1 ring-emerald-200 shrink-0" /> : <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0">{(u.Full_Name||u.First_Name||'ส').charAt(0)}</div>}
@@ -491,7 +499,8 @@ export default function BatchStepsPage(){
                           <div className="font-bold text-gray-900 dark:text-white truncate max-w-[150px]" title={name}>{name}</div>
                           <div className="text-[11px] text-gray-400 truncate">{u.Department} • {u.Position||'—'}</div>
                           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border mt-1 ${isMode2? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border-purple-200':'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200'}`}>{isMode2?'Mode 2: จนท.บันทึกให้':'Mode 1: บันทึกเอง'}</span>
-                          {!uid && <div className="text-[10px] text-red-400">ยังไม่ลงทะเบียน</div>}
+                          {pendingUser && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border mt-1 ml-1 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200">รอลงทะเบียน</span>}
+                          {!uid && <div className="text-[10px] text-red-400">ไม่พบรหัสบุคลากร</div>}
                           {existingWeek.length>0 && <div className="mt-1 flex flex-wrap gap-1">{existingWeek.map(e=> <span key={e.date} className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-medium">{e.date.slice(5)}:{Number(e.log.Steps_Count).toLocaleString()}</span>)}</div>}
                           <div className="text-[10px] text-gray-400 mt-0.5">สัปดาห์นี้: {existingWeek.length}/7 วัน</div>
                           {files.length>0 && (
@@ -563,13 +572,14 @@ export default function BatchStepsPage(){
                               <div className="flex items-center gap-2">
                                 <img src={f.preview} alt="" className="w-10 h-10 rounded-lg object-cover border" />
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     {f.isProcessing ? (
                                       <span className="flex items-center gap-1 text-xs font-bold text-purple-600"><span className="loading loading-spinner loading-xs"></span> กำลังอ่าน...</span>
                                     ) : (
                                       <>
                                         <span className="text-xs font-black text-purple-600 dark:text-purple-400">{f.aiResult?.steps!=null? f.aiResult.steps.toLocaleString():'—'} ก้าว</span>
                                         <span className="text-[10px] text-gray-400">มั่นใจ {f.aiResult? Math.round((f.aiResult.confidence||0)*100):'—'}%</span>
+                                        {f.aiResult?.provider && <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${f.aiResult.provider==='openrouter'?'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200':'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200'}`} title={f.aiResult.model||''}>{f.aiResult.provider==='openrouter'? `OpenRouter:${(f.aiResult.model||'').split('/').pop()}` : `Gemini:${(f.aiResult.model||'').split('/').pop()||'gemini'}`}</span>}
                                         {f.aiResult && <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center ml-1"><span className="material-symbols-outlined text-xs">check</span></span>}
                                       </>
                                     )}

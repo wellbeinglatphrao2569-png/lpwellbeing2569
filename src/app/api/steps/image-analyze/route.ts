@@ -228,6 +228,8 @@ export async function POST(request: NextRequest) {
       notes: parsed.notes || '',
       alert: alertReasons.length > 0,
       alertReasons,
+      provider: usedFallback ? 'openrouter' : 'gemini',
+      model: usedFallback ? OPENROUTER_MODEL : GEMINI_MODEL,
     });
   } catch (error) {
     console.error('image-analyze error:', error);

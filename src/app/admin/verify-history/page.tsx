@@ -13,6 +13,9 @@ type HistoryItem = StepsLog & { userName: string; userDept: string; userNickname
 function driveViewUrl(id: string): string {
   return `https://drive.google.com/file/d/${id}/view`;
 }
+function safeThaiDate(v: unknown): string {
+  try { return toThaiDateShort(String(v ?? '')); } catch { return String(v ?? ''); }
+}
 
 function StatusBadge({ status }: { status?: string }) {
   if (status === 'Approved') {
@@ -42,7 +45,14 @@ export default function VerifyHistoryPage() {
   const [reviewer, setReviewer] = useState('');
   const [selected, setSelected] = useState<HistoryItem | null>(null);
 
-  const userMap = useMemo(() => new Map(users.map(u => [u.User_ID, u])), [users]);
+  const userMap = useMemo(() => {
+    const m = new Map<string, User>();
+    for (const u of users) {
+      if (u.User_ID) m.set(String(u.User_ID), u);
+      if (u.Personnel_ID) m.set(String(u.Personnel_ID), u);
+    }
+    return m;
+  }, [users]);
 
   async function load() {
     setLoading(true);
@@ -124,7 +134,7 @@ export default function VerifyHistoryPage() {
   const selDateMatch = sel ? (sel.Date_Match === 'TRUE' || sel.Date_Match === true ? true : sel.Date_Match === 'FALSE' || sel.Date_Match === false ? false : null) : null;
   const selConfidence = sel && sel.AI_Confidence != null && sel.AI_Confidence !== '' ? Number(sel.AI_Confidence) : null;
   const selAiSteps = sel && sel.AI_Steps != null && sel.AI_Steps !== '' ? Number(sel.AI_Steps) : null;
-  const selAuditor = sel?.Auditor_ID ? userMap.get(sel.Auditor_ID) : null;
+  const selAuditor = sel?.Auditor_ID ? (userMap.get(String(sel.Auditor_ID)) || users.find(u=> String(u.User_ID)===String(sel.Auditor_ID) || String(u.Personnel_ID)===String(sel.Auditor_ID)) || null) : null;
 
   return (
     <div className="space-y-6">
@@ -208,12 +218,12 @@ export default function VerifyHistoryPage() {
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={item.userProfileImage} alt="" className="w-9 h-9 rounded-full object-cover ring-2 ring-emerald-200 dark:ring-emerald-800 shrink-0" />
                       ) : (
-                        <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold shrink-0">{item.userName.charAt(0)}</div>
+                        <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold shrink-0">{(item.userName || '?').charAt(0)}</div>
                       )}
                       <div className="min-w-0">
                         <p className="font-bold text-gray-900 dark:text-white truncate">{item.userName}</p>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {item.userNickname ? `ชื่อเล่น: ${item.userNickname} · ` : ''}{item.userDept || 'ไม่ระบุฝ่าย'} · วันที่บันทึก {toThaiDateShort(item.Date_Thai)}
+                          {item.userNickname ? `ชื่อเล่น: ${item.userNickname} · ` : ''}{item.userDept || 'ไม่ระบุฝ่าย'} · วันที่บันทึก {safeThaiDate(item.Date_Thai)}
                         </p>
                       </div>
                     </div>
@@ -251,7 +261,7 @@ export default function VerifyHistoryPage() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={sel.userProfileImage} alt="" className="w-11 h-11 rounded-full object-cover ring-2 ring-emerald-200 dark:ring-emerald-800 shrink-0" />
                 ) : (
-                  <div className="w-11 h-11 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold text-lg shrink-0">{sel.userName.charAt(0)}</div>
+                  <div className="w-11 h-11 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold text-lg shrink-0">{(sel.userName || '?').charAt(0)}</div>
                 )}
                 <div className="min-w-0">
                   <p className="font-bold text-gray-900 dark:text-white truncate">{sel.userName}</p>
@@ -293,7 +303,7 @@ export default function VerifyHistoryPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
                   <p className="text-xs text-gray-400 mb-0.5">วันที่บันทึก</p>
-                  <p className="text-lg font-bold text-gray-900 dark:text-white">{toThaiDateShort(sel.Date_Thai)}</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{safeThaiDate(sel.Date_Thai)}</p>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
                   <p className="text-xs text-gray-400 mb-0.5">จำนวนก้าวที่ส่ง</p>

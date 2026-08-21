@@ -116,7 +116,14 @@ export default function VerifyStepsPage() {
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; message: string; variant?: 'primary' | 'danger' | 'warning'; onConfirm: () => void } | null>(null);
 
-  const userMap = useMemo(() => new Map(users.map(u => [u.User_ID, u])), [users]);
+  const userMap = useMemo(() => {
+    const m = new Map<string, User>();
+    for (const u of users) {
+      if ((u as any).User_ID) m.set(String((u as any).User_ID), u);
+      if (u.Personnel_ID) m.set(String(u.Personnel_ID), u);
+    }
+    return m;
+  }, [users]);
 
   async function load() {
     setLoading(true);

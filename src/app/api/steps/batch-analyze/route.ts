@@ -1,9 +1,9 @@
 /**
- * Gemini AI — อ่านจำนวนก้าวจากภาพแบบกลุ่ม (Batch)
+ * AI — อ่านจำนวนก้าวจากภาพแบบกลุ่ม (Batch) รองรับกระจายโหลดหลายโมเดล
  *
  * POST /api/steps/batch-analyze
- * Body: { images: [{ imageBase64, expectedDate }] }
- * Response: { results: [{ steps, dateInImage, dateRaw, dateMatch, confidence, notes, alert, alertReasons }] }
+ * Body: { images: [{ imageBase64, expectedDate, preferredProvider?: "gemini"|"openrouter"|"openrouter2"|"auto", preferredModel?: string }] }
+ * Response: { results: [{ steps, dateInImage, dateRaw, dateMatch, confidence, notes, alert, alertReasons, provider, model }] }
  */
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -62,6 +62,30 @@ async function callOpenRouterForBatch(prompt: string, data: string, mime: string
   }
 }
 
+async function callGeminiBatch(prompt: string, data: string, mime: string): Promise<string> {
+  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data } }] }],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    }
+  );
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.error('Gemini batch API error:', res.status, errText.slice(0, 500));
+    const e: any = new Error(`Gemini API error: ${res.status}`);
+    e.status = res.status;
+    throw e;
+  }
+  const j = await res.json();
+  return j?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -92,8 +116,9 @@ function parseGeminiJson(text: string) {
   }
 }
 
-async function analyzeOneImage(imageBase64: string, expectedDate: string) {
+async function analyzeOneImage(imageBase64: string, expectedDate: string, hintInput: string = 'auto', explicitModel: string = '') {
   const { data, mime } = extractBase64(imageBase64);
+  const hint = String(hintInput || 'auto').toLowerCase();
   const prompt = `คุณคือผู้ช่วยอ่านภาพสำหรับโครงการส่งเสริมสุขภาพ "นับก้าวเดิน" วิเคราะห์ภาพแคปหน้าจอแอปนับก้าว (step counter) แล้วตอบเป็น JSON เท่านั้น
 
 โจทย์:
@@ -114,56 +139,78 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string) {
 }`;
 
   let text = '';
+  let finalProvider: 'gemini' | 'openrouter' = 'gemini';
+  let finalModel = GEMINI_MODEL;
   let usedFallback = false;
-  if (!GEMINI_API_KEY && OPENROUTER_API_KEY) {
-    console.warn('No GEMINI_API_KEY in batch — direct OpenRouter fallback', OPENROUTER_MODEL, 'for', expectedDate);
-    try {
-      text = await callOpenRouterForBatch(prompt, data, mime);
-      usedFallback = true;
-    } catch (e) {
-      console.error('Direct OpenRouter failed:', e);
-      return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`OpenRouter failed: ${String(e)}`] };
-    }
-  } else {
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data } }] }],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
-      }
-    );
-
-    if (geminiRes.ok) {
-      const geminiJson = await geminiRes.json();
-      text = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    } else if (geminiRes.status === 429 && OPENROUTER_API_KEY) {
-      console.warn('Gemini 429 in batch — fallback to OpenRouter', OPENROUTER_MODEL, 'for', expectedDate);
+  try {
+    if (hint === 'openrouter') {
+      const m = explicitModel || OPENROUTER_MODEL;
       try {
-        text = await callOpenRouterForBatch(prompt, data, mime);
-        usedFallback = true;
-      } catch (e) {
-        const errText = await geminiRes.text().catch(() => '');
-        console.error('Gemini 429 + OpenRouter fallback failed:', e, 'gemini status', geminiRes.status, errText.slice(0,200));
-        return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`Gemini 429 and OpenRouter failed: ${geminiRes.status}`] };
+        text = await callOpenRouterWithModelBatch(prompt, data, mime, m);
+        finalProvider = 'openrouter'; finalModel = m;
+      } catch (e: any) {
+        const msg = String(e);
+        if ((msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && m !== OPENROUTER_MODEL_2) {
+          text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_2);
+          finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_2; usedFallback = true;
+        } else if (GEMINI_API_KEY) {
+          text = await callGeminiBatch(prompt, data, mime);
+          finalProvider = 'gemini'; finalModel = GEMINI_MODEL; usedFallback = true;
+        } else throw e;
+      }
+    } else if (hint === 'openrouter2' || hint === 'gemma') {
+      const m = explicitModel || OPENROUTER_MODEL_2;
+      try {
+        text = await callOpenRouterWithModelBatch(prompt, data, mime, m);
+        finalProvider = 'openrouter'; finalModel = m;
+      } catch (e: any) {
+        const msg = String(e);
+        if ((msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && m !== OPENROUTER_MODEL) {
+          text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL);
+          finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+        } else if (GEMINI_API_KEY) {
+          text = await callGeminiBatch(prompt, data, mime);
+          finalProvider = 'gemini'; finalModel = GEMINI_MODEL; usedFallback = true;
+        } else throw e;
+      }
+    } else if (hint === 'gemini') {
+      try {
+        text = await callGeminiBatch(prompt, data, mime);
+        finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
+      } catch (e: any) {
+        const status = e?.status || 0;
+        if ((status === 429 || status === 503 || status === 500) && OPENROUTER_API_KEY) {
+          text = await callOpenRouterForBatch(prompt, data, mime);
+          finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+        } else throw e;
       }
     } else {
-      const errText = await geminiRes.text().catch(() => '');
-      console.error('Gemini API error:', geminiRes.status, errText.slice(0, 300));
-      if (geminiRes.status === 429) {
-        return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`Gemini API error: 429 (OPENROUTER_API_KEY not configured)`] };
+      // auto
+      if (!GEMINI_API_KEY && OPENROUTER_API_KEY) {
+        text = await callOpenRouterForBatch(prompt, data, mime);
+        finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+      } else {
+        try {
+          text = await callGeminiBatch(prompt, data, mime);
+          finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
+        } catch (e: any) {
+          const status = e?.status || 0;
+          if (status === 429 && OPENROUTER_API_KEY) {
+            text = await callOpenRouterForBatch(prompt, data, mime);
+            finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+          } else throw e;
+        }
       }
-      return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [`Gemini API error: ${geminiRes.status}`] };
     }
+  } catch (e: any) {
+    console.error('analyzeOneImage failed:', e, 'hint', hint);
+    return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [String(e?.message || e)], provider: finalProvider, model: finalModel };
   }
 
   const parsed = parseGeminiJson(text);
   if (usedFallback) {
-    if (parsed.notes) parsed.notes = `[fallback:${OPENROUTER_MODEL}] ` + parsed.notes;
-    else parsed.notes = `ประมวลผลด้วย OpenRouter (${OPENROUTER_MODEL}) หลัง Gemini 429`;
+    if (parsed.notes) parsed.notes = `[fallback:${finalModel}] ` + parsed.notes;
+    else parsed.notes = `ประมวลผลด้วย ${finalProvider} (${finalModel}) หลังโมเดลหลักล้มเหลว`;
   }
 
   const alertReasons: string[] = [];
@@ -186,8 +233,8 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string) {
     notes: parsed.notes || '',
     alert: alertReasons.length > 0,
     alertReasons,
-    provider: usedFallback ? 'openrouter' : 'gemini',
-    model: usedFallback ? OPENROUTER_MODEL : GEMINI_MODEL,
+    provider: finalProvider,
+    model: finalModel,
   };
 }
 
@@ -212,7 +259,9 @@ export async function POST(request: NextRequest) {
         results.push({ steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: ['ไม่มีรูปภาพหรือวันที่'] });
         continue;
       }
-      const result = await analyzeOneImage(img.imageBase64, img.expectedDate);
+      const hint = String(img.preferredProvider || img.providerHint || 'auto');
+      const m = img.preferredModel ? String(img.preferredModel) : '';
+      const result = await analyzeOneImage(img.imageBase64, img.expectedDate, hint, m);
       results.push(result);
     }
 

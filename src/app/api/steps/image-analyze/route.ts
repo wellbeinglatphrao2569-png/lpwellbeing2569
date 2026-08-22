@@ -1,12 +1,13 @@
 /**
- * Gemini AI — อ่านจำนวนก้าวจากภาพ + ตรวจสอบวันที่ในภาพ
+ * AI — อ่านจำนวนก้าวจากภาพ + ตรวจสอบวันที่ในภาพ (รองรับกระจายโหลดหลายโมเดล)
  *
  * POST /api/steps/image-analyze
- * Body: { imageBase64: "data:image/jpeg;base64,...", expectedDate: "2026-07-31" }
+ * Body: { imageBase64: "data:image/jpeg;base64,...", expectedDate: "2026-07-31", preferredProvider?: "gemini"|"openrouter"|"openrouter2"|"auto", preferredModel?: string }
+ *  - preferredProvider: ระบุโมเดลที่อยากใช้ก่อน (round-robin ต่อคน) — ถ้าไม่ระบุจะใช้ auto (Gemini ก่อนแล้ว fallback OpenRouter)
  * Response: {
  *   steps: number|null, dateInImage: string|null, dateRaw: string|null,
  *   dateMatch: boolean|null, confidence: number, notes: string,
- *   alert: boolean, alertReasons: string[]
+ *   alert: boolean, alertReasons: string[], provider, model
  * }
  */
 import { NextRequest, NextResponse } from 'next/server';
@@ -70,6 +71,37 @@ function getOpenRouterModelUsed(): string {
   return OPENROUTER_MODEL;
 }
 
+async function callGemini(prompt: string, data: string, mime: string): Promise<string> {
+  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mime, data } },
+            ],
+          },
+        ],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    }
+  );
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.error(`Gemini API error:`, res.status, errText.slice(0, 500));
+    const e: any = new Error(`Gemini API error: ${res.status}`);
+    e.status = res.status;
+    throw e;
+  }
+  const j = await res.json();
+  return j?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -114,7 +146,8 @@ function parseGeminiJson(text: string): {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageBase64, expectedDate } = body;
+    const { imageBase64, expectedDate, preferredProvider, preferredModel, providerHint } = body;
+    const hint: string = String(preferredProvider || providerHint || 'auto').toLowerCase();
 
     if (!imageBase64) {
       return NextResponse.json({ error: 'Image is required' }, { status: 400 });
@@ -147,71 +180,129 @@ export async function POST(request: NextRequest) {
 }`;
 
     let text = '';
+    let finalProvider: 'gemini' | 'openrouter' = 'gemini';
+    let finalModel = GEMINI_MODEL;
     let usedFallback = false;
-    // ถ้าไม่มี Gemini key แต่มี OpenRouter ให้ใช้ OpenRouter เลย
-    if (!GEMINI_API_KEY && OPENROUTER_API_KEY) {
-      console.warn('No GEMINI_API_KEY — direct OpenRouter fallback', OPENROUTER_MODEL);
-      text = await callOpenRouter(prompt, data, mime);
-      usedFallback = true;
-    } else {
-      // ลอง Gemini ก่อน
-      const geminiRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: prompt },
-                  { inline_data: { mime_type: mime, data } },
-                ],
-              },
-            ],
-            generationConfig: { responseMimeType: 'application/json' },
-          }),
-        }
-      );
+    // รองรับ preferredModel แบบเจาะจง (ถ้ามี)
+    const explicitModel = preferredModel ? String(preferredModel) : '';
 
-      if (geminiRes.ok) {
-        const geminiJson = await geminiRes.json();
-        text = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } else if (geminiRes.status === 429 && OPENROUTER_API_KEY) {
-        console.warn('Gemini 429 — fallback to OpenRouter', OPENROUTER_MODEL);
-        try {
+    async function routeWithHint(): Promise<void> {
+      // auto: พฤติกรรมเดิม — Gemini ก่อน แล้ว fallback OpenRouter
+      if (hint === 'auto' || hint === '') {
+        if (!GEMINI_API_KEY && OPENROUTER_API_KEY) {
+          console.warn('No GEMINI_API_KEY — direct OpenRouter fallback', OPENROUTER_MODEL);
           text = await callOpenRouter(prompt, data, mime);
-          usedFallback = true;
-        } catch (e) {
-          const errText = await geminiRes.text().catch(() => '');
-          console.error('Gemini 429 + OpenRouter failed:', e);
-          return NextResponse.json(
-            { error: `Gemini 429 and OpenRouter failed: ${geminiRes.status}` },
-            { status: 502 }
-          );
+          finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+          return;
         }
-      } else {
-        const errText = await geminiRes.text().catch(() => '');
-        console.error('Gemini API error:', geminiRes.status, errText.slice(0, 500));
-        if (geminiRes.status === 429) {
-          return NextResponse.json(
-            { error: `Gemini API error: 429 (OPENROUTER_API_KEY not configured for fallback)` },
-            { status: 429 }
-          );
+        try {
+          text = await callGemini(prompt, data, mime);
+          finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
+        } catch (e: any) {
+          const status = e?.status || 0;
+          if (status === 429 && OPENROUTER_API_KEY) {
+            console.warn('Gemini 429 — fallback to OpenRouter', OPENROUTER_MODEL);
+            text = await callOpenRouter(prompt, data, mime);
+            finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+          } else {
+            throw e;
+          }
         }
-        return NextResponse.json(
-          { error: `Gemini API error: ${geminiRes.status}` },
-          { status: 502 }
-        );
+        return;
+      }
+      if (hint === 'gemini') {
+        // ขอ Gemini ก่อน — ถ้า 429 ให้ยืม OpenRouter
+        try {
+          text = await callGemini(prompt, data, mime);
+          finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
+        } catch (e: any) {
+          const status = e?.status || 0;
+          if ((status === 429 || status === 503 || status === 500) && OPENROUTER_API_KEY) {
+            console.warn(`Gemini ${status} — fallback to OpenRouter for hint=gemini`);
+            try {
+              text = await callOpenRouter(prompt, data, mime);
+              finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+            } catch (e2) {
+              throw e2;
+            }
+          } else throw e;
+        }
+        return;
+      }
+      if (hint === 'openrouter') {
+        const modelToUse = explicitModel || OPENROUTER_MODEL;
+        try {
+          text = await callOpenRouterWithModel(prompt, data, mime, modelToUse);
+          finalProvider = 'openrouter'; finalModel = modelToUse;
+        } catch (e: any) {
+          const msg = String(e);
+          // ลอง model 2 ก่อน
+          if ((msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && modelToUse !== OPENROUTER_MODEL_2) {
+            console.warn(`OpenRouter ${modelToUse} failed — fallback to ${OPENROUTER_MODEL_2}`);
+            try {
+              text = await callOpenRouterWithModel(prompt, data, mime, OPENROUTER_MODEL_2);
+              finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_2; usedFallback = true;
+              return;
+            } catch {}
+          }
+          // สุดท้ายยืม Gemini ถ้ามี
+          if (GEMINI_API_KEY) {
+            console.warn(`OpenRouter ${modelToUse} failed — fallback to Gemini`);
+            text = await callGemini(prompt, data, mime);
+            finalProvider = 'gemini'; finalModel = GEMINI_MODEL; usedFallback = true;
+          } else throw e;
+        }
+        return;
+      }
+      if (hint === 'openrouter2' || hint === 'gemma') {
+        const modelToUse = explicitModel || OPENROUTER_MODEL_2;
+        try {
+          text = await callOpenRouterWithModel(prompt, data, mime, modelToUse);
+          finalProvider = 'openrouter'; finalModel = modelToUse;
+        } catch (e: any) {
+          const msg = String(e);
+          if ((msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL && modelToUse !== OPENROUTER_MODEL) {
+            console.warn(`OpenRouter ${modelToUse} failed — fallback to ${OPENROUTER_MODEL}`);
+            try {
+              text = await callOpenRouterWithModel(prompt, data, mime, OPENROUTER_MODEL);
+              finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+              return;
+            } catch {}
+          }
+          if (GEMINI_API_KEY) {
+            console.warn(`OpenRouter ${modelToUse} failed — fallback to Gemini`);
+            text = await callGemini(prompt, data, mime);
+            finalProvider = 'gemini'; finalModel = GEMINI_MODEL; usedFallback = true;
+          } else throw e;
+        }
+        return;
+      }
+      // hint ไม่รู้จัก — ใช้ auto
+      try {
+        text = await callGemini(prompt, data, mime);
+        finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
+      } catch (e: any) {
+        if (OPENROUTER_API_KEY) {
+          text = await callOpenRouter(prompt, data, mime);
+          finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
+        } else throw e;
       }
     }
 
+    try {
+      await routeWithHint();
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (msg.includes('429')) return NextResponse.json({ error: msg }, { status: 429 });
+      return NextResponse.json({ error: msg || 'AI processing failed' }, { status: 502 });
+    }
+
     const parsed = parseGeminiJson(text);
-    // ถ้าใช้ fallback ให้เติมโน้ตว่าใช้ OpenRouter
+    // เติมโน้ตเมื่อมีการ fallback
     if (usedFallback && parsed.notes) {
-      parsed.notes = `[fallback:${OPENROUTER_MODEL}] ` + parsed.notes;
+      parsed.notes = `[fallback:${finalModel}] ` + parsed.notes;
     } else if (usedFallback) {
-      parsed.notes = `ประมวลผลด้วย OpenRouter (${OPENROUTER_MODEL}) หลัง Gemini 429`;
+      parsed.notes = `ประมวลผลด้วย ${finalProvider} (${finalModel}) หลังโมเดลหลักล้มเหลว`;
     }
 
     // คำนวณ flag ความผิดปกติ
@@ -246,8 +337,8 @@ export async function POST(request: NextRequest) {
       notes: parsed.notes || '',
       alert: alertReasons.length > 0,
       alertReasons,
-      provider: usedFallback ? 'openrouter' : 'gemini',
-      model: usedFallback ? OPENROUTER_MODEL : GEMINI_MODEL,
+      provider: finalProvider,
+      model: finalModel,
     });
   } catch (error) {
     console.error('image-analyze error:', error);

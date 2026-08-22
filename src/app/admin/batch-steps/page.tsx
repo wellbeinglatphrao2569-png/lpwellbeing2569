@@ -44,6 +44,18 @@ function compressImage(file: File, maxDim=1600, quality=0.85): Promise<string> {
 function getUserKey(u: User): string { return String((u as any).User_ID || u.Personnel_ID || '').trim(); }
 function isPendingUser(u: User): boolean { return !String((u as any).User_ID || '').trim(); }
 
+// กระจาย AI คนละโมเดลต่อคนแบบ round-robin เพื่อลด 429 และให้แต่ละคนวิ่งบนโมเดลของตัวเองจนครบ
+type ProviderKey = 'gemini' | 'openrouter' | 'openrouter2';
+const PROVIDERS: ProviderKey[] = ['gemini','openrouter','openrouter2'];
+function hashUid(s: string): number { let h=0; for(let i=0;i<s.length;i++) h=(h*31 + s.charCodeAt(i))|0; return Math.abs(h); }
+function getProviderForUid(uid: string): ProviderKey { return PROVIDERS[hashUid(uid) % PROVIDERS.length]; }
+function providerLabel(p: ProviderKey): string { return p==='gemini' ? 'Gemini' : p==='openrouter' ? 'ox-alpha' : 'Gemma-4-26b'; }
+function providerBadgeClass(p: ProviderKey | string): string {
+  if(p==='openrouter') return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200';
+  if(p==='openrouter2') return 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 border-teal-200';
+  return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200';
+}
+
 interface FileItem {
   id: string;
   file: File;
@@ -195,11 +207,13 @@ export default function BatchStepsPage(){
       setResultPopup({type:'error', title:'ไม่มีรูปที่รอประมวลผล', message:'กรุณาอัปโหลดรูปก่อน'});
       return;
     }
-    const targetUser = users.find(u=> String(u.User_ID)===userId);
+    const targetUser = users.find(u=> String(u.User_ID)===userId || String((u as any).Personnel_ID)===userId);
     const userName = targetUser ? displayName(targetUser) : userId;
+    // AI คนละตัวต่อคน — ล็อคคนนี้กับโมเดลเดียวแล้ววนจนครบทุกภาพของคนนี้
+    const providerForThisUser: ProviderKey = getProviderForUid(userId);
     setAiProcessing(true);
     setProcessingUserId(userId);
-    setAiProgress({total: pending.length, done: 0, percent: 0, currentUserName: userName});
+    setAiProgress({total: pending.length, done: 0, percent: 0, currentUserName: `${userName} [${providerLabel(providerForThisUser)}]`});
     const usedInBatch = new Set<string>();
     // mark already processed files' targetDate as used
     for(const f of items){ if(f.aiResult) usedInBatch.add(f.targetDate); }
@@ -214,9 +228,9 @@ export default function BatchStepsPage(){
           const arr=[...(prev[userId]||[])];
           return {...prev, [userId]: arr.map(f=> f.id===fileItem.id? {...f, isProcessing:true}: f)};
         });
-        setAiProgress({total: pending.length, done: idx, percent: Math.round((idx/pending.length)*100), currentUserName: userName, currentFileName: fileItem.file.name});
-        // call single image analyze for immediate result
-        const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate }) });
+        setAiProgress({total: pending.length, done: idx, percent: Math.round((idx/pending.length)*100), currentUserName: `${userName} [${providerLabel(providerForThisUser)}]`, currentFileName: fileItem.file.name});
+        // call single image analyze — ส่ง preferredProvider เพื่อให้คนนี้วิ่งบน AI ตัวเดียวตลอด
+        const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate, preferredProvider: providerForThisUser }) });
         const data = await res.json().catch(()=>({}));
         if(!res.ok){
           throw new Error(data.error||'AI ประมวลผลล้มเหลว');
@@ -277,20 +291,23 @@ export default function BatchStepsPage(){
       setAiProgress({total: totalPending, done: globalDoneRef.value, percent: Math.round((globalDoneRef.value/totalPending)*100), currentUserName: userName, currentFileName: fileName});
     };
     try{
-      const CONCURRENCY = 6; // ประมวลผลพร้อมกัน 6 คน ให้เสร็จใกล้เคียงกัน
-      const processOneUser = async (u: User) => {
+      const CONCURRENCY = 6; // ประมวลผลพร้อมกัน 6 คน แต่ละคนล็อค AI ของตัวเอง → กระจายโหลด 3 โมเดล (เฉลี่ยโมเดลละ 2 คนขนาน)
+      // จัดสรร AI แบบ round-robin ตามลำดับคิว — คนที่ 0:Gemini, 1:ox-alpha, 2:Gemma, วนลูป
+      const providerForIndex = (idx: number): ProviderKey => PROVIDERS[idx % PROVIDERS.length];
+      const processOneUser = async (u: User, globalIndex: number) => {
         const uid=getUserKey(u);
         const pending = (userFiles[uid]||[]).filter(f=> !f.aiResult);
         if(pending.length===0) return;
         const userName=displayName(u);
+        const assignedProvider = providerForIndex(globalIndex);
         const usedInBatch = new Set<string>();
         for(const f of (userFiles[uid]||[])){ if(f.aiResult) usedInBatch.add(f.targetDate); }
         if(!allowOverwrite){ for(const d of weekDays){ if(existingMap.has(`${uid}|${d}`)) usedInBatch.add(d); } }
         for(let idx=0; idx<pending.length; idx++){
           const fileItem = pending[idx];
           setUserFiles(prev=>{ const arr=[...(prev[uid]||[])]; return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, isProcessing:true}: f)}; });
-          updateGlobalProgress(userName, fileItem.file.name);
-          const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate }) });
+          updateGlobalProgress(`${userName} [${providerLabel(assignedProvider)}]`, fileItem.file.name);
+          const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate, preferredProvider: assignedProvider }) });
           const data = await res.json().catch(()=>({}));
           if(!res.ok) throw new Error(data.error||'AI ประมวลผลล้มเหลว');
           const r: AiImageAnalysis = {
@@ -319,7 +336,7 @@ export default function BatchStepsPage(){
       for(let i=0; i<pendingUsers.length; i+=CONCURRENCY){
         const batch = pendingUsers.slice(i, i+CONCURRENCY);
         setProcessingUserId(getUserKey(batch[0]));
-        await Promise.all(batch.map(u => processOneUser(u)));
+        await Promise.all(batch.map((u, bi) => processOneUser(u, i + bi)));
       }
     }catch(err){
       setResultPopup({type:'error', title:'AI ประมวลผลล้มเหลว', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
@@ -440,7 +457,7 @@ export default function BatchStepsPage(){
           </label>
         </div>
         <div className="mt-3 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-          วิธีใช้: อัปโหลดรูปหลักฐานลง <strong>ช่องโยนไฟล์ของแต่ละคน (1 ช่อง/คน)</strong> — ลากหรือคลิกเลือกได้ครั้งละหลายไฟล์ (สูงสุด 7 ภาพ/คน/สัปดาห์) — แล้วกด <strong>AI ประมวลผล</strong> (ประมวลพร้อมกัน <strong>ทีละ 6 คน</strong> โดยยืม model อื่นช่วย <code>Gemini → stealth/ox-alpha → gemma-4-26b-a4b-it:free</code> เพื่อให้เสร็จใกล้เคียงกัน) — AI จะอ่านจำนวนก้าว + วันที่ในภาพ แล้วแสดงค่าทันทีในแถวของคนนั้น (แก้ไขก้าว/วันที่เป้าหมายได้) + แสดง badge ว่าใช้ AI ตัวไหน — หากวันที่ไม่ชัด AI จะใส่หมายเหตุ <em>“จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง”</em> — หากวันนั้นมีข้อมูล Approved แล้ว ระบบจะข้าม (เว้นแต่ติ๊กอนุญาตแทนที่)
+           วิธีใช้: อัปโหลดรูปหลักฐานลง <strong>ช่องโยนไฟล์ของแต่ละคน (1 ช่อง/คน)</strong> — ลากหรือคลิกเลือกได้ครั้งละหลายไฟล์ (สูงสุด 7 ภาพ/คน/สัปดาห์) — แล้วกด <strong>AI ประมวลผล</strong> (ประมวลพร้อมกัน <strong>ทีละ 6 คน</strong> โดย <strong>กระจาย AI คนละตัวต่อคนแบบ round-robin</strong> — <code>คน 1:Gemini → คน 2:stealth/ox-alpha → คน 3:Gemma → วนลูป</code> — แต่ละคน <strong>ล็อค AI ตัวเดียวแล้ววนจนครบทุกภาพของคนนั้น</strong> เพื่อไม่เสียเวลารอคิวโมเดลเดียว หากโมเดลล่มจะ fallback อัตโนมัติ) — AI จะอ่านจำนวนก้าว + วันที่ในภาพ แล้วแสดงค่าทันทีในแถวของคนนั้น (แก้ไขก้าว/วันที่เป้าหมายได้) + แสดง badge ว่าใช้ AI ตัวไหน — หากวันที่ไม่ชัด AI จะใส่หมายเหตุ <em>“จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง”</em> — หากวันนั้นมีข้อมูล Approved แล้ว ระบบจะข้าม (เว้นแต่ติ๊กอนุญาตแทนที่)
         </div>
       </GlassCard>
 
@@ -543,8 +560,8 @@ export default function BatchStepsPage(){
                         </div>
                       )}
                       <div className="mt-2 flex gap-2">
-                        <button onClick={()=> handleAiForUser(uid)} disabled={aiProcessing || files.filter(f=>!f.aiResult).length===0 || !uid} className="flex-1 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-400 font-bold text-xs hover:bg-purple-100 disabled:opacity-40 flex items-center justify-center gap-1">
-                          {isThisRowProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวล...</> : <><span className="material-symbols-outlined text-sm">auto_awesome</span> AI ประมวลแถวนี้ ({files.filter(f=>!f.aiResult).length})</>}
+                        <button onClick={()=> handleAiForUser(uid)} disabled={aiProcessing || files.filter(f=>!f.aiResult).length===0 || !uid} title={`จะใช้ ${providerLabel(getProviderForUid(uid))} สำหรับคนนี้ (ล็อค 1 คน = 1 AI)`} className="flex-1 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-400 font-bold text-xs hover:bg-purple-100 disabled:opacity-40 flex items-center justify-center gap-1">
+                          {isThisRowProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวล...</> : <><span className="material-symbols-outlined text-sm">auto_awesome</span> AI ประมวลแถวนี้ ({files.filter(f=>!f.aiResult).length}) • {providerLabel(getProviderForUid(uid))}</>}
                         </button>
                         {files.length>0 && <button onClick={()=> { setUserFiles(prev=>{ const n={...prev}; delete n[uid]; return n; }); const r=fileInputRefs.current[uid]; if(r) r.value=''; }} className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium hover:bg-gray-50">ล้าง</button>}
                       </div>
@@ -581,7 +598,7 @@ export default function BatchStepsPage(){
                                       <>
                                         <span className="text-xs font-black text-purple-600 dark:text-purple-400">{f.aiResult?.steps!=null? f.aiResult.steps.toLocaleString():'—'} ก้าว</span>
                                         <span className="text-[10px] text-gray-400">มั่นใจ {f.aiResult? Math.round((f.aiResult.confidence||0)*100):'—'}%</span>
-                                        {f.aiResult?.provider && <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${f.aiResult.provider==='openrouter'?'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200':'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200'}`} title={f.aiResult.model||''}>{f.aiResult.provider==='openrouter'? `OpenRouter:${(f.aiResult.model||'').split('/').pop()}` : `Gemini:${(f.aiResult.model||'').split('/').pop()||'gemini'}`}</span>}
+                                        {f.aiResult?.provider && (()=>{ const m=String(f.aiResult.model||''); const isGemma=m.includes('gemma'); const badge=isGemma? 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 border-teal-200' : f.aiResult.provider==='openrouter'? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200':'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200'; const label=f.aiResult.provider==='openrouter'? (isGemma? `Gemma:${m.split('/').pop()}` : `ox-alpha:${m.split('/').pop()||'ox-alpha'}`) : `Gemini:${m.split('/').pop()||'gemini'}`; return <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${badge}`} title={m}>{label}</span>; })()}
                                         {f.aiResult && <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center ml-1"><span className="material-symbols-outlined text-xs">check</span></span>}
                                       </>
                                     )}

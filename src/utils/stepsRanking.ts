@@ -66,8 +66,10 @@ export function totalsInRange(stepsData: StepsLog[], startKey: string, endKey: s
     if (s.Status !== 'Approved') continue;
     const day = toDateKey(s.Date_Thai);
     if (!day || day < startKey || day > endKey) continue;
-    let byDay = byUser.get(s.User_ID);
-    if (!byDay) { byDay = new Map(); byUser.set(s.User_ID, byDay); }
+    const uid = String(s.User_ID ?? '').trim();
+    if (!uid) continue;
+    let byDay = byUser.get(uid);
+    if (!byDay) { byDay = new Map(); byUser.set(uid, byDay); }
     const cur = byDay.get(day);
     if (!cur || compareLog(s, cur) > 0) byDay.set(day, s);
   }
@@ -197,7 +199,10 @@ export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: stri
 /** จัดอันดับรายบุคคล ตามจำนวนก้าวรวม (มาก→น้อย) เฉพาะคนที่บันทึกก้าวจริงในรอบ */
 export function individualRankingOf(users: User[], totals: Map<string, number>, currentUserId?: string | number | null): IndRow[] {
   return users
-    .map(u => ({ user: u, steps: totals.get(u.User_ID) || 0, isCurrent: String(u.User_ID) === String(currentUserId ?? '') }))
+    .map(u => {
+      const uid = String(u.User_ID ?? '').trim();
+      return { user: u, steps: totals.get(uid) || 0, isCurrent: uid === String(currentUserId ?? '').trim() };
+    })
     .filter(r => r.steps > 0)
     .sort((a, b) => b.steps - a.steps);
 }
@@ -206,7 +211,8 @@ export function individualRankingOf(users: User[], totals: Map<string, number>, 
 export function deptRankingOf(users: User[], totals: Map<string, number>, currentDept?: string | null): DeptRow[] {
   const byDept = new Map<string, { total: number; participants: number }>();
   for (const u of users) {
-    const steps = totals.get(u.User_ID) || 0;
+    const uid = String(u.User_ID ?? '').trim();
+    const steps = totals.get(uid) || 0;
     if (steps <= 0 || !u.Department) continue;
     const cur = byDept.get(u.Department) || { total: 0, participants: 0 };
     cur.total += steps;

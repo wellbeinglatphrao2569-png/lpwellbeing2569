@@ -104,7 +104,7 @@ function AiReasonCell({ item }: { item: VerifyItem }) {
 }
 
 export default function VerifyStepsPage() {
-  const { user } = useAuth();
+  const { user, isLoggedIn, isAdmin } = useAuth();
   const [steps, setSteps] = useState<StepsLog[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -245,6 +245,31 @@ export default function VerifyStepsPage() {
   const selCanVerify = sel ? canVerifyItem(sel) : false;
   const selBusy = !!sel && busyId === sel.Record_ID;
   const selRejecting = !!sel && rejectFor === sel.Record_ID;
+
+  if (!isLoggedIn) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <div className="p-8 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-center">
+          <span className="material-symbols-outlined text-4xl text-amber-500">lock</span>
+          <p className="font-bold text-gray-900 dark:text-white mt-2">ต้องเข้าสู่ระบบก่อน</p>
+          <p className="text-sm text-gray-500 mt-1">หน้านี้สำหรับเจ้าหน้าที่ นสส. เท่านั้น — กรุณาเข้าสู่ระบบก่อน</p>
+          <a href="/login" className="inline-flex mt-4 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold">ไปหน้าเข้าสู่ระบบ</a>
+        </div>
+      </div>
+    );
+  }
+  if (!isAdmin) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <div className="p-8 rounded-2xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-center">
+          <span className="material-symbols-outlined text-4xl text-red-500">block</span>
+          <p className="font-bold text-gray-900 dark:text-white mt-2">ไม่มีสิทธิ์เข้าถึง</p>
+          <p className="text-sm text-gray-500 mt-1">หน้านี้สำหรับเจ้าหน้าที่ นสส. (Admin) เท่านั้น</p>
+          <a href="/dashboard" className="inline-flex mt-4 px-5 py-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-semibold">กลับไปแดชบอร์ด</a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

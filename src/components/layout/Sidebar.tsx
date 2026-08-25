@@ -13,11 +13,15 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const { theme, toggleTheme } = useTheme();
   const [pendingCount, setPendingCount] = useState<number>(0);
 
-  // นับ Pending ต่างฝ่ายสำหรับ badge แดงมุมเมนูตรวจสอบ
+  // นับ Pending ต่างฝ่ายสำหรับ badge แดงมุมเมนูตรวจสอบ (หลีกเลี่ยง setState sync ใน effect)
   useEffect(() => {
-    if (!isLoggedIn || !isAdmin) { setPendingCount(0); return; }
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
     const load = async () => {
+      if (!isLoggedIn || !isAdmin) {
+        if (!cancelled) setPendingCount(0);
+        return;
+      }
       try {
         const [stepsData, usersData] = await Promise.all([
           fetchData<StepsLog[]>('steps'),
@@ -34,12 +38,14 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
           const d = deptByUser.get(String(s.User_ID)) || '';
           return String(d) !== String(viewerDept);
         });
-        setPendingCount(pendingCross.length);
-      } catch {}
+        if (!cancelled) setPendingCount(pendingCross.length);
+      } catch {
+        if (!cancelled) setPendingCount(0);
+      }
     };
     load();
-    const id = setInterval(load, 30000);
-    return () => { cancelled = true; clearInterval(id); };
+    timer = setInterval(load, 30000);
+    return () => { cancelled = true; if (timer) clearInterval(timer); };
   }, [isLoggedIn, isAdmin, user?.Department]);
 
   const mainItems = [

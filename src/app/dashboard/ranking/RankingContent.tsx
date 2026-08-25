@@ -10,7 +10,7 @@ import type { StepsLog, User } from '@/types';
 import { DEPARTMENTS } from '@/utils/personnel';
 import {
   periodRangeFor,
-  totalsInRangeAll,
+  totalsInRange,
   individualRankingOf,
   deptRankingOf,
   rankBadge,
@@ -62,9 +62,9 @@ export default function RankingContent() {
   const period = periodRangeFor(tab, weekOffset, monthFrom, monthTo);
   const activeRange = { startKey: period.startKey, endKey: period.endKey, periodLabel: period.periodLabel };
 
-  // ── อันดับ ── รวมทุกสถานะเพื่อให้เห็นทันทีหลังบันทึก (แม้ยังรอตรวจสอบ)
+  // ── อันดับ ── นับเฉพาะที่อนุมัติแล้วเท่านั้น (ข้อมูลล่าสุดของวัน)
   const perUserSteps = useMemo(
-    () => totalsInRangeAll(stepsData, activeRange.startKey, activeRange.endKey),
+    () => totalsInRange(stepsData, activeRange.startKey, activeRange.endKey),
     [stepsData, activeRange.startKey, activeRange.endKey]
   );
   const allRows = useMemo<IndRow[]>(
@@ -157,9 +157,9 @@ export default function RankingContent() {
                   </>
                 ) : (
                   <>
-                    <p className="text-xl md:text-2xl font-black">คุณยังไม่มีก้าวในรอบนี้</p>
+                    <p className="text-xl md:text-2xl font-black">คุณยังไม่มีก้าวที่อนุมัติในรอบนี้</p>
                     <p className={`text-xs mt-1 ${myRow ? 'text-emerald-100/90' : 'text-gray-500 dark:text-gray-400'}`}>
-                      ในช่วง {activeRange.periodLabel} — บันทึกก้าวแล้วจะเข้าสู่อันดับทันที (แม้ยังรอตรวจสอบ)
+                      ในช่วง {activeRange.periodLabel} — บันทึกก้าวและรอการอนุมัติเพื่อเข้าสู่อันดับ
                     </p>
                   </>
                 )}
@@ -294,7 +294,7 @@ export default function RankingContent() {
             {visibleRows.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
                 <span className="material-symbols-outlined text-4xl">{q ? 'search_off' : 'footprint'}</span>
-                <p className="text-sm">{q ? `ไม่พบผู้ที่ตรงกับ “${search.trim()}” ในรอบนี้` : 'ยังไม่มีข้อมูลก้าวในรอบนี้ — บันทึกแล้วจะปรากฏทันที'}</p>
+                <p className="text-sm">{q ? `ไม่พบผู้ที่ตรงกับ “${search.trim()}” ในรอบนี้` : 'ยังไม่มีข้อมูลก้าวที่อนุมัติในรอบนี้'}</p>
                 {q && (
                   <button onClick={() => setSearch('')}
                     className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">

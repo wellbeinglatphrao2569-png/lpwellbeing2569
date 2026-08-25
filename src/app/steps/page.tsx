@@ -189,21 +189,42 @@ export default function StepsPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthOffset, setMonthOffset] = useState(0);
   const [zoomImage, setZoomImage] = useState<{ fileId: string; alt: string } | null>(null);
-  // วันที่เริ่มต้นของสัปดาห์ (วันจันทร์) ที่เลือกจากปฏิทิน — start = จันทร์ เสมอ
-  const [historyWeekDate, setHistoryWeekDate] = useState(() => toIsoLocal(getMonday(new Date())));
+  // วันที่เริ่มต้นของสัปดาห์ (วันจันทร์) ที่เลือกจากปฏิทิน — start = จันทร์ เสมอ (จำสัปดาห์ล่าสุดที่บันทึกไว้)
+  const [historyWeekDate, setHistoryWeekDate] = useState(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const hw = params.get('historyWeek');
+        if (hw && /^\d{4}-\d{2}-\d{2}$/.test(hw)) return hw;
+        const saved = localStorage.getItem('steps_historyWeek');
+        if (saved && /^\d{4}-\d{2}-\d{2}$/.test(saved)) return saved;
+      }
+    } catch {}
+    return toIsoLocal(getMonday(new Date()));
+  });
 
   // Department leaderboard state
   const [deptPeriod, setDeptPeriod] = useState<'weekly' | 'monthly'>('weekly');
   const [deptUsers, setDeptUsers] = useState<User[]>([]);
   const [showAllRanking, setShowAllRanking] = useState(false);
 
-  // Check if redirected from OAuth callback
+  // จำสัปดาห์ประวัติที่เลือกไว้ (ให้หลังรีเฟรชยังอยู่สัปดาห์เดิม)
+  useEffect(() => {
+    try { localStorage.setItem('steps_historyWeek', historyWeekDate); } catch {}
+  }, [historyWeekDate]);
+
+  // หลังต่อ Google Fit สำเร็จ → รีเฟรชหน้า /steps อีกครั้งและโหลดข้อมูลใหม่
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('connected') === 'true') {
-        // Clean URL
+        // ล้าง query แล้วรีโหลดข้อมูล + บังคับ re-render ของสถานะเชื่อมต่อ
         window.history.replaceState(null, '', window.location.pathname);
+        loadData();
+        loadDeptUsers();
+        setGfVersion(v => v + 1);
+        // รันกลับมาหน้าอีกครั้ง (hard refresh หนึ่งรอบเพื่อให้ hook อ่าน localStorage ใหม่แน่ๆ)
+        setTimeout(() => window.location.reload(), 600);
       }
     }
   }, []);
@@ -579,12 +600,20 @@ export default function StepsPage() {
     }
 
     if (res?.success) {
+      const savedWeek = toIsoLocal(getMonday(new Date(logDate)));
       resetSteps();
       setImageFile(null);
       setImagePreview(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       setLogDate(new Date().toISOString().split('T')[0]);
-      loadData();
+      // ให้ประวัติกระโดดไปสัปดาห์ของวันที่เพิ่งบันทึก แล้วดึงข้อมูลใหม่+รีเฟรชหนึ่งครั้ง
+      setHistoryWeekDate(savedWeek);
+      try { localStorage.setItem('steps_historyWeek', savedWeek); } catch {}
+      await loadData();
+      await loadDeptUsers();
+      setSaving(false);
+      setTimeout(() => window.location.reload(), 700);
+      return;
     }
     setSaving(false);
   }

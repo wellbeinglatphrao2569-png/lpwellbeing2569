@@ -36,14 +36,14 @@ function CallbackContent() {
         // Check for error
         if (searchParams.get('error')) {
           setError(searchParams.get('error_description') || 'การ authorize ล้มเหลว');
-          setTimeout(() => router.push('/steps'), 3000);
+          setTimeout(() => { window.location.href = '/steps'; }, 3000);
           return;
         }
 
         // No code → error
         if (!code) {
           setError('ไม่พบ code จาก Google');
-          setTimeout(() => router.push('/steps'), 3000);
+          setTimeout(() => { window.location.href = '/steps'; }, 3000);
           return;
         }
 
@@ -115,12 +115,13 @@ function CallbackContent() {
         setStatus('เชื่อมต่อสำเร็จ! กำลังกลับไปที่หน้าบันทึกก้าวเดิน...');
 
         setTimeout(() => {
-          router.push('/steps?connected=true');
-        }, 1000);
+          // ใช้ href แบบ hard navigation เพื่อให้ /steps รีเฟรชใหม่และโหลดสถานะเชื่อมต่อจาก localStorage ทันที
+          window.location.href = '/steps?connected=true';
+        }, 800);
       } catch (err) {
         console.error('Callback error:', err);
         setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
-        setTimeout(() => router.push('/steps'), 5000);
+        setTimeout(() => { window.location.href = '/steps'; }, 3000);
       }
     };
 

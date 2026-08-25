@@ -85,15 +85,14 @@ export async function POST(request: NextRequest) {
         actorDepartment: actorDept,
       }, { status: 403 });
     }
-    // ── ตรวจ Mode 1: ล็อกตายตัว — ต้องบันทึกด้วยตนเอง เจ้าหน้าที่บันทึกให้ไม่ได้ ──
+    // ── ตรวจ Mode 1: ล็อกตายตัวทุกกรณี (รวม pending) — ต้องบันทึกด้วยตนเอง เจ้าหน้าที่บันทึกให้ไม่ได้ ──
     const mode1Violations: { User_ID: string; name: string }[] = [];
     for (const s of Steps as any[]) {
       const tid = String(s.User_ID || '').trim();
       const tu = userById.get(tid);
       if (!tu) continue; // ไม่พบแล้วถูกจับเป็น dept violation ไปแล้ว
-      const isPending = !String((tu as any).User_ID || '').trim();
       const mode = String((tu as any).Step_Record_Mode || '1').trim();
-      if (!isPending && mode !== '2') {
+      if (mode !== '2') {
         const tName = String(tu.Full_Name || tu.First_Name || tid);
         mode1Violations.push({ User_ID: tid, name: tName });
       }

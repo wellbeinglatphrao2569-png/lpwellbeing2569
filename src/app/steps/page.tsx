@@ -282,15 +282,15 @@ export default function StepsPage() {
   }
 
   const todayReal = new Date();
-  const todayStr = todayReal.toISOString().split('T')[0];
+  const todayStr = toIsoLocal(todayReal);
 
-  // วันที่ / สัปดาห์ / เดือน ที่กำลังดูอยู่ (ย้อนหลังได้)
+  // วันที่ / สัปดาห์ / เดือน ที่กำลังดูอยู่ (ย้อนหลังได้) — ใช้ toIsoLocal เพื่อให้ตรง Date_Thai (วันท้องถิ่น) ไม่ใช่ UTC
   const viewDate = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - dayOffset);
     return d;
   }, [dayOffset]);
-  const viewDateStr = viewDate.toISOString().split('T')[0];
+  const viewDateStr = toIsoLocal(viewDate);
   const monday = useMemo(() => {
     const m = getMonday(new Date());
     m.setDate(m.getDate() + weekOffset * 7);
@@ -317,26 +317,31 @@ export default function StepsPage() {
     () => latestStepsByDate(userSteps.filter(s => s.Status === 'Approved')),
     [userSteps]
   );
+  // ข้อมูลล่าสุดของแต่ละวันแบบไม่กรองสถานะ — ใช้สำหรับแสดงยอดของวันนั้นๆ ทันที (แม้ยังรอตรวจสอบ)
+  const latestAnyAll = useMemo(() => latestStepsByDate(userSteps), [userSteps]);
 
-  const todaySteps = stepsOfDay(latestApproved, viewDateStr);
+  // แสดงยอดที่เป็นจำนวนก้าวของวันนั้นๆ (ตาม Date_Thai) ไม่ใช่วันที่บันทึก
+  const todaySteps = stepsOfDay(latestAnyAll, viewDateStr);
 
   const weeklySteps = useMemo(() => {
+    const mondayStr = toIsoLocal(monday);
+    const sundayStr = toIsoLocal(sunday);
     let total = 0;
-    for (const [ds, log] of latestApproved) {
-      const d = new Date(ds);
-      if (d >= monday && d <= sunday) total += Number(log.Steps_Count) || 0;
+    for (const [ds, log] of latestAnyAll) {
+      if (ds >= mondayStr && ds <= sundayStr) total += Number(log.Steps_Count) || 0;
     }
     return total;
-  }, [latestApproved, monday, sunday]);
+  }, [latestAnyAll, monday, sunday]);
 
   const monthlySteps = useMemo(() => {
+    const firstStr = toIsoLocal(viewMonthFirst);
+    const lastStr = toIsoLocal(viewMonthLast);
     let total = 0;
-    for (const [ds, log] of latestApproved) {
-      const d = new Date(ds);
-      if (d >= viewMonthFirst && d <= viewMonthLast) total += Number(log.Steps_Count) || 0;
+    for (const [ds, log] of latestAnyAll) {
+      if (ds >= firstStr && ds <= lastStr) total += Number(log.Steps_Count) || 0;
     }
     return total;
-  }, [latestApproved, viewMonthFirst, viewMonthLast]);
+  }, [latestAnyAll, viewMonthFirst, viewMonthLast]);
 
   const monthlyGoal = DAILY_GOAL * daysInMonth;
 
@@ -386,25 +391,31 @@ export default function StepsPage() {
   const weeklyEnc = getEncouragement(weeklySteps, WEEKLY_GOAL);
   const monthlyEnc = getEncouragement(monthlySteps, monthlyGoal);
 
-  // Department leaderboard
+  // Department leaderboard — แสดงรายชื่อทุกคนในฝ่าย (แม้ยัง 0 ก้าว) เรียงตามยอดก้าวของช่วงนั้น (นับตาม Date_Thai)
   const userDept = user?.Department ?? '';
   const deptMembers: DepartmentMember[] = useMemo(() => {
-    const deptApproved = stepsData.filter(s => s.Status === 'Approved');
+    // ใช้ User_ID แบบ trim เปรียบเทียบ + นับตาม Date_Thai (วันของก้าว) ไม่ใช่วันที่บันทึก
     return deptUsers.map((u) => {
-      if (u.Department !== userDept) return null;
+      if (String(u.Department ?? '').trim() !== String(userDept ?? '').trim()) return null;
+      const uid = String(u.User_ID ?? '').trim();
       let total = 0;
-      for (const log of latestStepsByDate(deptApproved.filter(s => s.User_ID === u.User_ID)).values()) {
-        const d = new Date(log.Date_Thai);
-        const inPeriod = deptPeriod === 'weekly' ? (d >= monday && d <= sunday) : (d >= viewMonthFirst && d <= viewMonthLast);
+      const userLogs = stepsData.filter(s => String(s.User_ID ?? '').trim() === uid);
+      const latestByDate = latestStepsByDate(userLogs.filter(s => s.Status === 'Approved'));
+      // ถ้าไม่มี Approved ให้ fallback เป็นข้อมูลล่าสุดทุกสถานะเพื่อให้เห็นรายชื่อแม้ยังรอตรวจสอบ
+      const mapToUse = latestByDate.size > 0 ? latestByDate : latestStepsByDate(userLogs);
+      for (const [ds, log] of mapToUse) {
+        const inPeriod = deptPeriod === 'weekly'
+          ? (ds >= toIsoLocal(monday) && ds <= toIsoLocal(sunday))
+          : (ds >= toIsoLocal(viewMonthFirst) && ds <= toIsoLocal(viewMonthLast));
         if (inPeriod) total += Number(log.Steps_Count) || 0;
       }
       return {
-        name: u.Full_Name,
+        name: String(u.Full_Name || `${u.First_Name || ''} ${u.Last_Name || ''}`.trim() || '—').trim(),
         steps: total,
-        userId: u.User_ID,
-        isCurrentUser: u.User_ID === user?.User_ID,
+        userId: uid,
+        isCurrentUser: uid === String(user?.User_ID ?? '').trim(),
       };
-    }).filter((m): m is DepartmentMember => m !== null && m.steps > 0)
+    }).filter((m): m is DepartmentMember => m !== null)
       .sort((a, b) => b.steps - a.steps);
   }, [stepsData, deptUsers, deptPeriod, user, monday, sunday, viewMonthFirst, viewMonthLast, userDept]);
 

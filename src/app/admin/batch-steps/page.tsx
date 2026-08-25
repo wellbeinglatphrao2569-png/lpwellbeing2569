@@ -6,7 +6,7 @@ import ResultPopup from "@/components/ui/ResultPopup";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchData } from "@/services/api";
 import type { User, StepsLog, AiImageAnalysis } from "@/types";
-import { displayName } from "@/utils/personnel";
+import { displayName, profileImageUrl } from "@/utils/personnel";
 
 const thaiShortMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function toThaiYear(date: Date): string { return String(date.getFullYear()+543); }
@@ -696,7 +696,11 @@ export default function BatchStepsPage(){
                   <tr key={uid} className={`${locked? 'bg-gray-50 dark:bg-gray-800/30 opacity-60' : 'hover:bg-gray-50/30'} ${!uid? 'opacity-40':''}`}>
                     <td className="px-3 py-2 sticky left-0 bg-white dark:bg-gray-800 z-10 border-r border-gray-100 dark:border-gray-700 align-top">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">{(u.Full_Name||'ส').charAt(0)}</div>
+                        {u.Profile_Image && profileImageUrl(u.Profile_Image) ? (
+                          <img src={profileImageUrl(u.Profile_Image)!} alt="" className="w-8 h-8 rounded-full object-cover ring-1 ring-emerald-200 shrink-0" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">{(u.Full_Name||u.First_Name||'ส').charAt(0)}</div>
+                        )}
                         <div className="min-w-0">
                           <p className="font-bold text-xs truncate max-w-[120px]" title={name}>{name}</p>
                           <p className="text-[10px] text-gray-400 truncate">{u.Department}</p>

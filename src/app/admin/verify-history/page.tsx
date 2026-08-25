@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { fetchData } from '@/services/api';
 import type { StepsLog, User } from '@/types';
 import { toThaiDateShort } from '@/utils/thaiDate';
-import { profileImageUrl } from '@/utils/personnel';
+import { profileImageUrl, displayName } from '@/utils/personnel';
 
 type HistoryItem = StepsLog & { userName: string; userDept: string; userNickname: string; userProfileImage?: string };
 
@@ -16,6 +16,17 @@ function driveViewUrl(id: string): string {
 }
 function safeThaiDate(v: unknown): string {
   try { return toThaiDateShort(String(v ?? '')); } catch { return String(v ?? ''); }
+}
+function formatThaiTime(v: unknown): string {
+  try {
+    const s = String(v ?? '').trim();
+    if (!s) return '';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return '';
+    // แปลงเป็นเวลาไทย (+7) แบบ HH:mm น.
+    const thai = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+    return `${String(thai.getUTCHours()).padStart(2, '0')}:${String(thai.getUTCMinutes()).padStart(2, '0')} น.`;
+  } catch { return ''; }
 }
 
 function StatusBadge({ status }: { status?: string }) {
@@ -116,14 +127,29 @@ export default function VerifyHistoryPage() {
   }, [historyItems, userMap]);
 
   const filtered = useMemo(() => {
-    return historyItems.filter(i =>
-      (!submitter || String(i.User_ID) === submitter) &&
-      (status === 'all' || i.Status === status) &&
-      (!reviewer || (i.Auditor_ID && String(i.Auditor_ID) === reviewer))
-    );
-  }, [historyItems, submitter, status, reviewer]);
+    const sq = submitter.trim().toLowerCase();
+    const rq = reviewer.trim().toLowerCase();
+    return historyItems.filter(i => {
+      const submitMatch = !sq ||
+        String(i.userName || '').toLowerCase().includes(sq) ||
+        String(i.userDept || '').toLowerCase().includes(sq) ||
+        String(i.User_ID || '').toLowerCase().includes(sq);
+      if (!submitMatch) return false;
+      if (status !== 'all' && i.Status !== status) return false;
+      if (rq) {
+        const auditor = i.Auditor_ID ? (userMap.get(String(i.Auditor_ID)) || null) : null;
+        const auditorName = auditor ? displayName(auditor) : String(i.Auditor_ID || '');
+        const auditorDept = auditor?.Department || '';
+        const reviewMatch = auditorName.toLowerCase().includes(rq) ||
+          auditorDept.toLowerCase().includes(rq) ||
+          String(i.Auditor_ID || '').toLowerCase().includes(rq);
+        if (!reviewMatch) return false;
+      }
+      return true;
+    });
+  }, [historyItems, submitter, status, reviewer, userMap]);
 
-  const hasActiveFilter = !!submitter || status !== 'all' || !!reviewer;
+  const hasActiveFilter = !!submitter.trim() || status !== 'all' || !!reviewer.trim();
 
   function clearFilters() {
     setSubmitter('');
@@ -177,15 +203,15 @@ export default function VerifyHistoryPage() {
         </Link>
       </div>
 
-      {/* ตัวกรอง */}
+      {/* ตัวกรอง — ค้นหาชื่อแทนการเลือก */}
       <div className="flex flex-wrap gap-3 items-end">
         <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
-          ผู้บันทึก
-          <select value={submitter} onChange={e => setSubmitter(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
-            <option value="">ทุกคน</option>
-            {submitterOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-          </select>
+          ค้นหาชื่อผู้ใช้งาน (ผู้บันทึก)
+          <div className="relative">
+            <span className="material-symbols-outlined text-base text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2">search</span>
+            <input value={submitter} onChange={e => setSubmitter(e.target.value)} placeholder="พิมพ์ชื่อ-สกุล หรือฝ่าย"
+              className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-[200px]" />
+          </div>
         </label>
         <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
           สถานะ
@@ -197,12 +223,12 @@ export default function VerifyHistoryPage() {
           </select>
         </label>
         <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
-          ผู้ตรวจสอบ
-          <select value={reviewer} onChange={e => setReviewer(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
-            <option value="">ทุกคน</option>
-            {reviewerOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-          </select>
+          ค้นหาชื่อผู้ตรวจสอบ
+          <div className="relative">
+            <span className="material-symbols-outlined text-base text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2">search</span>
+            <input value={reviewer} onChange={e => setReviewer(e.target.value)} placeholder="พิมพ์ชื่อผู้ตรวจสอบ"
+              className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-[200px]" />
+          </div>
         </label>
         {hasActiveFilter && (
           <button onClick={clearFilters}
@@ -265,8 +291,8 @@ export default function VerifyHistoryPage() {
                     <span>วันที่ในภาพ: {dateMatch === true ? <b className="text-emerald-600 dark:text-emerald-400">ตรงกัน</b> : dateMatch === false ? <b className="text-red-600 dark:text-red-400">ไม่ตรง</b> : <b className="text-amber-600 dark:text-amber-400">ไม่พบ/ไม่ชัด</b>}</span>
                   </div>
                   <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    ตรวจสอบโดย <span className="font-bold">{auditor ? auditor.Full_Name : (item.Auditor_ID || '—')}</span>
-                    {item.Reviewed_At && <span> · {item.Reviewed_At}</span>}
+                    ตรวจสอบโดย <span className="font-bold">{auditor ? `${displayName(auditor)}${auditor.Department ? ` (${auditor.Department})` : ''}` : (item.Auditor_ID || '—')}</span>
+                    {item.Reviewed_At && <span> เมื่อวันที่ {safeThaiDate(item.Reviewed_At)} เวลา {formatThaiTime(item.Reviewed_At)}</span>}
                     {item.Status === 'Rejected' && item.Reject_Reason && (
                       <span className="text-red-500"> · เหตุผล: {item.Reject_Reason}</span>
                     )}
@@ -361,8 +387,7 @@ export default function VerifyHistoryPage() {
 
               <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-300">
                 <p><span className="text-gray-400">ผลการตรวจสอบ:</span> {sel.Status === 'Approved' ? <span className="font-bold text-emerald-600 dark:text-emerald-400">อนุมัติ</span> : <span className="font-bold text-red-600 dark:text-red-400">ไม่อนุมัติ</span>}</p>
-                <p className="mt-1"><span className="text-gray-400">ตรวจสอบโดย:</span> <span className="font-bold">{selAuditor ? selAuditor.Full_Name : (sel.Auditor_ID || '—')}</span></p>
-                {sel.Reviewed_At && <p className="mt-1"><span className="text-gray-400">เวลาตรวจสอบ:</span> <span className="font-bold">{sel.Reviewed_At}</span></p>}
+                <p className="mt-1"><span className="text-gray-400">ตรวจสอบโดย:</span> <span className="font-bold">{selAuditor ? `${displayName(selAuditor)}${selAuditor.Department ? ` (${selAuditor.Department})` : ''}` : (sel.Auditor_ID || '—')}</span>{sel.Reviewed_At && <span> เมื่อวันที่ {safeThaiDate(sel.Reviewed_At)} เวลา {formatThaiTime(sel.Reviewed_At)}</span>}</p>
                 {sel.Status === 'Rejected' && sel.Reject_Reason && (
                   <p className="mt-1 text-red-500"><span className="text-gray-400">เหตุผลที่ไม่อนุมัติ:</span> <span className="font-bold">{sel.Reject_Reason}</span></p>
                 )}

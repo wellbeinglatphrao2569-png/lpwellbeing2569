@@ -80,6 +80,32 @@ export function totalsInRange(stepsData: StepsLog[], startKey: string, endKey: s
   return totals;
 }
 
+/**
+ * คำนวณจำนวนก้าวรวม (ทุกสถานะ — รวม Pending ที่รอตรวจสอบด้วย) ของแต่ละคน
+ * ใช้ "ข้อมูลล่าสุดของวัน" กันการนับซ้ำ — เพื่อให้การจัดอันดับแสดงผลทันทีหลังบันทึก
+ */
+export function totalsInRangeAll(stepsData: StepsLog[], startKey: string, endKey: string): Map<string, number> {
+  const byUser = new Map<string, Map<string, StepsLog>>();
+  for (const s of stepsData) {
+    const day = toDateKey(s.Date_Thai);
+    if (!day || day < startKey || day > endKey) continue;
+    // ใช้ User_ID แบบ trim เทียบเคส number/string
+    const uid = String(s.User_ID ?? '').trim();
+    if (!uid) continue;
+    let byDay = byUser.get(uid);
+    if (!byDay) { byDay = new Map(); byUser.set(uid, byDay); }
+    const cur = byDay.get(day);
+    if (!cur || compareLog(s, cur) > 0) byDay.set(day, s);
+  }
+  const totals = new Map<string, number>();
+  for (const [uid, byDay] of byUser) {
+    let sum = 0;
+    for (const log of byDay.values()) sum += Number(log.Steps_Count) || 0;
+    totals.set(uid, sum);
+  }
+  return totals;
+}
+
 /** ค่า boolean ยืดหยุ่น (ทำงานกับ true/false หรือ 'TRUE'/'FALSE'/'1') */
 export function isTrue(val: unknown): boolean {
   if (val === true) return true;

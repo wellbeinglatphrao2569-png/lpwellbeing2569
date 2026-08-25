@@ -11,6 +11,7 @@ import { DEPARTMENTS } from '@/utils/personnel';
 import {
   periodRangeFor,
   totalsInRange,
+  totalsInRangeAll,
   individualRankingOf,
   deptRankingOf,
   programTotals,
@@ -50,8 +51,9 @@ export default function DashboardPage() {
   const period = periodRangeFor(tab, weekOffset, monthFrom, monthTo);
   const activeRange = { startKey: period.startKey, endKey: period.endKey, periodLabel: period.periodLabel };
 
+  // ใช้ทุกสถานะ (รวม Pending) เพื่อให้อันดับแสดงทันทีหลังบันทึก — แม้ยังรอตรวจสอบก็เห็นยอดแล้ว
   const perUserSteps = useMemo(
-    () => totalsInRange(stepsData, activeRange.startKey, activeRange.endKey),
+    () => totalsInRangeAll(stepsData, activeRange.startKey, activeRange.endKey),
     [stepsData, activeRange.startKey, activeRange.endKey]
   );
 
@@ -247,7 +249,7 @@ export default function DashboardPage() {
               {shownIndividual.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
                   <span className="material-symbols-outlined text-3xl">footprint</span>
-                  <p className="text-sm">ยังไม่มีข้อมูลก้าวที่อนุมัติในรอบนี้</p>
+                  <p className="text-sm">ยังไม่มีข้อมูลก้าวในรอบนี้ — บันทึกก้าวแล้วจะปรากฏที่นี่ทันที (แม้ยังรอตรวจสอบ)</p>
                 </div>
               )}
             </div>
@@ -296,7 +298,7 @@ export default function DashboardPage() {
               {shownDept.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
                   <span className="material-symbols-outlined text-3xl">groups</span>
-                  <p className="text-sm">ยังไม่มีข้อมูลฝ่ายที่เข้าร่วมในรอบนี้</p>
+                  <p className="text-sm">ยังไม่มีข้อมูลฝ่ายในรอบนี้ — บันทึกก้าวแล้วจะปรากฏที่นี่ทันที</p>
                 </div>
               )}
             </div>
@@ -360,12 +362,12 @@ export default function DashboardPage() {
                     </div>
                   );
                 })}
-                {shownBag.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
-                    <span className="material-symbols-outlined text-3xl">footprint</span>
-                    <p className="text-sm">ฝ่ายนี้ยังไม่มีข้อมูลก้าวที่อนุมัติในรอบนี้</p>
-                  </div>
-                )}
+                  {shownBag.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+                      <span className="material-symbols-outlined text-3xl">footprint</span>
+                      <p className="text-sm">ฝ่ายนี้ยังไม่มีข้อมูลก้าวในรอบนี้ — บันทึกก้าวแล้วจะปรากฏที่นี่ทันที</p>
+                    </div>
+                  )}
               </div>
               {bagRanking.length > INDIVIDUAL_LIMIT && (
                 <Link href={`${viewAllHref}&bagDept=${encodeURIComponent(bagDept)}`}

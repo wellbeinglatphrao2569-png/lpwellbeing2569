@@ -24,7 +24,7 @@ export default function LoginPage() {
       const res = await postData('login', { User_ID: userId, Password: password });
       if (res?.success) {
         login(res.user);
-        router.push(res.user?.Role === 'Admin' ? '/admin/personnel' : '/home');
+        router.push(res.user?.Role === 'Admin' ? '/admin/personnel' : '/dashboard');
       } else {
         setError(res?.message || 'รหัสผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง');
       }

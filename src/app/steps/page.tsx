@@ -5,6 +5,7 @@ import ProgressRing from '@/components/ui/ProgressRing';
 import ProofImage from '@/components/ProofImage';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import { toThaiDateShort } from '@/utils/thaiDate';
+import { profileImageUrl } from '@/utils/personnel';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postData } from '@/services/api';
 import type { StepsLog, User, AiImageAnalysis } from '@/types';
@@ -1132,7 +1133,7 @@ export default function StepsPage() {
                       : 'bg-gradient-to-r from-amber-50/50 to-yellow-50/50 dark:from-amber-900/10 dark:to-yellow-900/10 border-amber-200 dark:border-amber-700'
                   }`}>
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold text-sm shrink-0">1</div>
-                    <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-sm shrink-0">{topThreeFromDept[0].name.charAt(0)}</div>
+                    {(() => { const u = deptUsers.find(x => String(x.User_ID ?? '').trim() === String(topThreeFromDept[0].userId ?? '').trim()); const src = u ? profileImageUrl(u.Profile_Image) : null; return src ? <img src={src} alt="" className="w-8 h-8 rounded-full object-cover ring-1 ring-amber-300 shrink-0" /> : <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-sm shrink-0">{topThreeFromDept[0].name.charAt(0)}</div>; })()}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{topThreeFromDept[0].name}{topThreeFromDept[0].isCurrentUser && <span className="text-[10px] text-indigo-500 ml-1">ตัวคุณ</span>}</p>
                       <p className="text-[10px] text-amber-600 dark:text-amber-400">🏆 เดอะแบก</p>
@@ -1147,7 +1148,7 @@ export default function StepsPage() {
                       : 'bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-600'
                   }`}>
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center text-white font-bold text-sm shrink-0">2</div>
-                    <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-white font-bold text-sm shrink-0">{topThreeFromDept[1].name.charAt(0)}</div>
+                    {(() => { const u = deptUsers.find(x => String(x.User_ID ?? '').trim() === String(topThreeFromDept[1].userId ?? '').trim()); const src = u ? profileImageUrl(u.Profile_Image) : null; return src ? <img src={src} alt="" className="w-8 h-8 rounded-full object-cover ring-1 ring-gray-300 shrink-0" /> : <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-white font-bold text-sm shrink-0">{topThreeFromDept[1].name.charAt(0)}</div>; })()}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{topThreeFromDept[1].name}{topThreeFromDept[1].isCurrentUser && <span className="text-[10px] text-indigo-500 ml-1">ตัวคุณ</span>}</p>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400">รองเดอะแบก</p>
@@ -1162,7 +1163,7 @@ export default function StepsPage() {
                       : 'bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-700/50'
                   }`}>
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-sm shrink-0">3</div>
-                    <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-sm shrink-0">{topThreeFromDept[2].name.charAt(0)}</div>
+                    {(() => { const u = deptUsers.find(x => String(x.User_ID ?? '').trim() === String(topThreeFromDept[2].userId ?? '').trim()); const src = u ? profileImageUrl(u.Profile_Image) : null; return src ? <img src={src} alt="" className="w-8 h-8 rounded-full object-cover ring-1 ring-orange-300 shrink-0" /> : <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-sm shrink-0">{topThreeFromDept[2].name.charAt(0)}</div>; })()}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{topThreeFromDept[2].name}{topThreeFromDept[2].isCurrentUser && <span className="text-[10px] text-indigo-500 ml-1">ตัวคุณ</span>}</p>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400">ที่สามเดอะแบก</p>

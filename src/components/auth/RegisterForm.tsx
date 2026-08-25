@@ -336,9 +336,10 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
               <label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">เลขบัตรประชาชน 13 หลัก</label>
               <input value={form.citizenId} onChange={e => update('citizenId', e.target.value.replace(/\D/g, '').slice(0, 13))}
                 inputMode="numeric"
-                className={`w-full px-4 py-3 rounded-xl border bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 ${citizenDup ? 'border-red-400 dark:border-red-600 ring-2 ring-red-200 dark:ring-red-900/30' : 'border-gray-200 dark:border-gray-700'}`} placeholder="เช่น 1xxxx..." />
-              {form.citizenId && !citizenOk && <p className="text-red-500 text-sm mt-1">เลขบัตรประชาชนไม่ถูกต้อง (ตรวจสอบครบ 13 หลัก)</p>}
+                className={`w-full px-4 py-3 rounded-xl border bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 ${citizenDup ? 'border-red-400 dark:border-red-600 ring-2 ring-red-200 dark:ring-red-900/30' : form.citizenId.length===13 && !citizenOk ? 'border-amber-400 dark:border-amber-600 ring-2 ring-amber-200 dark:ring-amber-900/30' : 'border-gray-200 dark:border-gray-700'}`} placeholder="เช่น 1xxxx..." />
+              {form.citizenId.length===13 && !citizenOk && <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">เลขบัตรประชาชนไม่ถูกต้อง (ตรวจสอบครบ 13 หลักตามสูตร)</p>}
               {citizenDup && <p className="text-red-500 text-sm mt-1 font-medium">ไม่สามารถบันทึกเลขบัตรประชาชนได้เนื่องจากมีผู้ใช้งานแล้ว</p>}
+              {form.citizenId.length>0 && form.citizenId.length<13 && <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">{13 - form.citizenId.length} หลักที่เหลือ • กรอกให้ครบ 13 หลัก</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

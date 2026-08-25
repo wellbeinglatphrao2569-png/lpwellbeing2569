@@ -7,6 +7,7 @@ import ProfileAvatar from '@/components/ui/ProfileAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData } from '@/services/api';
 import type { StepsLog, User } from '@/types';
+import { DEPARTMENTS } from '@/utils/personnel';
 import {
   periodRangeFor,
   totalsInRange,
@@ -26,7 +27,7 @@ function currentMonth(): string {
 export default function RankingContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isLoggedIn } = useAuth();
 
   const [users, setUsers] = useState<User[]>([]);
   const [stepsData, setStepsData] = useState<StepsLog[]>([]);
@@ -36,6 +37,7 @@ export default function RankingContent() {
   const [monthTo, setMonthTo] = useState(() => searchParams.get('to') || currentMonth());
   const [search, setSearch] = useState('');
   const [wantScrollMe, setWantScrollMe] = useState(0);
+  const [bagDept, setBagDept] = useState(() => searchParams.get('bagDept') || '');
 
   // เก็บค่าช่วงเวลาลง URL เพื่อแชร์/ย้อนกลับได้
   useEffect(() => {
@@ -44,9 +46,10 @@ export default function RankingContent() {
     params.set('week', String(weekOffset));
     params.set('from', monthFrom);
     params.set('to', monthTo);
+    if (bagDept) params.set('bagDept', bagDept);
     const qs = params.toString();
     if (String(searchParams) !== qs) router.replace(`/dashboard/ranking?${qs}`, { scroll: false });
-  }, [tab, weekOffset, monthFrom, monthTo, router, searchParams]);
+  }, [tab, weekOffset, monthFrom, monthTo, bagDept, router, searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +78,11 @@ export default function RankingContent() {
 
   const myRow = allRows.find(r => r.isCurrent);
   const myRankNum = myRow ? allRows.indexOf(myRow) + 1 : null;
+  const bagRows = useMemo<IndRow[]>(() => {
+    if (!bagDept) return [];
+    const filteredUsers = users.filter(u => u.Department === bagDept);
+    return individualRankingOf(filteredUsers, perUserSteps, user?.User_ID);
+  }, [users, perUserSteps, bagDept, user]);
 
   // ── ค้นหา ──
   const q = search.trim().toLowerCase();
@@ -123,46 +131,54 @@ export default function RankingContent() {
         </div>
       </div>
 
-      {/* สรุปอันดับของฉัน */}
-      <GlassCard className={`p-5 ${myRow ? 'bg-gradient-to-br from-emerald-600 to-teal-600 border-emerald-500 shadow-xl shadow-emerald-200/40 dark:shadow-emerald-950/40' : 'border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/10'}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className={`flex items-start gap-3 min-w-0 ${myRow ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
-            <span className={`material-symbols-outlined text-2xl mt-0.5 ${myRow ? 'text-emerald-100' : 'text-amber-500 dark:text-amber-400'}`}>
-              {myRow ? 'emoji_events' : 'priority_high'}
-            </span>
-            <div className="min-w-0">
-              {myRow ? (
-                <>
-                  <p className="text-xl md:text-2xl font-black tabular-nums">
-                    คุณอยู่อันดับที่ {myRankNum} <span className="text-sm md:text-base font-bold opacity-90">จาก {allRows.length} คน</span>
-                  </p>
-                  <p className={`text-xs mt-1 ${myRow ? 'text-emerald-100/90' : 'text-gray-500 dark:text-gray-400'}`}>
-                    ในช่วง {activeRange.periodLabel} · ก้าวรวมของคุณ {myRow.steps.toLocaleString()} ก้าว
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-xl md:text-2xl font-black">คุณยังไม่มีก้าวที่อนุมัติในรอบนี้</p>
-                  <p className={`text-xs mt-1 ${myRow ? 'text-emerald-100/90' : 'text-gray-500 dark:text-gray-400'}`}>
-                    ในช่วง {activeRange.periodLabel} — บันทึกก้าวและรอการอนุมัติเพื่อเข้าสู่อันดับ
-                  </p>
-                </>
-              )}
+      {/* สรุปอันดับของฉัน — ซ่อนเมื่อไม่ login */}
+      {!isLoggedIn ? (
+        <GlassCard className="p-5 border-dashed text-center">
+          <p className="font-bold text-gray-900 dark:text-white">เข้าสู่ระบบเพื่อดูอันดับของตนเอง</p>
+          <p className="text-sm text-gray-500 mt-1">ส่วนนี้จะแสดงอันดับส่วนตัวของคุณเมื่อลงทะเบียน/เข้าสู่ระบบแล้ว</p>
+          <Link href="/login" className="inline-flex mt-3 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold">เข้าสู่ระบบ / ลงทะเบียน</Link>
+        </GlassCard>
+      ) : (
+        <GlassCard className={`p-5 ${myRow ? 'bg-gradient-to-br from-emerald-600 to-teal-600 border-emerald-500 shadow-xl shadow-emerald-200/40 dark:shadow-emerald-950/40' : 'border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/10'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className={`flex items-start gap-3 min-w-0 ${myRow ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
+              <span className={`material-symbols-outlined text-2xl mt-0.5 ${myRow ? 'text-emerald-100' : 'text-amber-500 dark:text-amber-400'}`}>
+                {myRow ? 'emoji_events' : 'priority_high'}
+              </span>
+              <div className="min-w-0">
+                {myRow ? (
+                  <>
+                    <p className="text-xl md:text-2xl font-black tabular-nums">
+                      คุณอยู่อันดับที่ {myRankNum} <span className="text-sm md:text-base font-bold opacity-90">จาก {allRows.length} คน</span>
+                    </p>
+                    <p className={`text-xs mt-1 ${myRow ? 'text-emerald-100/90' : 'text-gray-500 dark:text-gray-400'}`}>
+                      ในช่วง {activeRange.periodLabel} · ก้าวรวมของคุณ {myRow.steps.toLocaleString()} ก้าว
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xl md:text-2xl font-black">คุณยังไม่มีก้าวที่อนุมัติในรอบนี้</p>
+                    <p className={`text-xs mt-1 ${myRow ? 'text-emerald-100/90' : 'text-gray-500 dark:text-gray-400'}`}>
+                      ในช่วง {activeRange.periodLabel} — บันทึกก้าวและรอการอนุมัติเพื่อเข้าสู่อันดับ
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
+            {user && (
+              <button onClick={findMe}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                  myRow
+                    ? 'bg-white/20 hover:bg-white/30 text-white backdrop-blur'
+                    : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-emerald-700 dark:text-emerald-400 border border-gray-200 dark:border-gray-700'
+                }`}>
+                <span className="material-symbols-outlined text-lg">my_location</span>
+                ค้นหาตำแหน่งของฉัน
+              </button>
+            )}
           </div>
-          {user && (
-            <button onClick={findMe}
-              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-                myRow
-                  ? 'bg-white/20 hover:bg-white/30 text-white backdrop-blur'
-                  : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-emerald-700 dark:text-emerald-400 border border-gray-200 dark:border-gray-700'
-              }`}>
-              <span className="material-symbols-outlined text-lg">my_location</span>
-              ค้นหาตำแหน่งของฉัน
-            </button>
-          )}
-        </div>
-      </GlassCard>
+        </GlassCard>
+      )}
 
       {/* ── ตัวกรองช่วง + ค้นหา ── */}
       <GlassCard className="p-5 md:p-6">
@@ -291,7 +307,7 @@ export default function RankingContent() {
         </div>
 
         {/* ── อันดับรายส่วนราชการ (เต็ม) ── */}
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-6">
           <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
             <h4 className="font-bold text-gray-900 dark:text-white">อันดับภาพรวมรายส่วนราชการ</h4>
             <p className="text-xs text-gray-500 mt-0.5">จัดอันดับจากก้าวรวม ÷ จำนวนคนที่เข้าร่วมในฝ่าย</p>
@@ -326,6 +342,55 @@ export default function RankingContent() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* เดอะแบกตามฝ่าย */}
+        <div className="rounded-2xl border border-amber-200 dark:border-amber-800 overflow-hidden">
+          <div className="px-5 py-4 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="material-symbols-outlined text-amber-600">military_tech</span>เดอะแบกประจำฝ่าย</h4>
+              <p className="text-xs text-gray-500 mt-0.5">เลือกฝ่ายเพื่อดูอันดับ Top ในฝ่ายตามช่วงเวลาเดียวกัน</p>
+            </div>
+            <select value={bagDept} onChange={e => setBagDept(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-amber-200 dark:border-amber-700 bg-white dark:bg-gray-800 text-sm min-w-[220px]">
+              <option value="">— เลือกส่วนราชการ —</option>
+              {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          {!bagDept ? (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+              <span className="material-symbols-outlined text-3xl">group</span>
+              <p className="text-sm">กรุณาเลือกฝ่ายเพื่อดูอันดับเดอะแบก</p>
+            </div>
+          ) : (
+            <div className="max-h-[480px] overflow-y-auto">
+              {bagRows.map((r, idx) => {
+                const rank = idx + 1;
+                const badge = rankBadge(rank);
+                return (
+                  <div key={r.user.User_ID}
+                    className={`flex items-center gap-3 px-5 py-3 border-b border-gray-100 dark:border-gray-800/60 ${r.isCurrent ? 'bg-amber-50/70 dark:bg-amber-900/20' : 'hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors'}`}>
+                    <div className={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center font-black tabular-nums ${badge.badge}`}>{badge.emoji || rank}</div>
+                    <ProfileAvatar user={r.user} size="w-10 h-10" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm text-gray-900 dark:text-white truncate">{r.user.Prefix} {r.user.Full_Name}{r.isCurrent && <span className="ml-1.5 inline-flex px-1.5 py-0.5 rounded-md bg-amber-600 text-white text-[10px] font-bold align-middle">คุณ</span>}</p>
+                      <p className="text-xs text-gray-500 truncate">{r.user.Position}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-black text-amber-600 dark:text-amber-400 tabular-nums">{r.steps.toLocaleString()}</p>
+                      <p className="text-[10px] text-gray-400">ก้าว</p>
+                    </div>
+                  </div>
+                );
+              })}
+              {bagRows.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+                  <span className="material-symbols-outlined text-3xl">footprint</span>
+                  <p className="text-sm">ฝ่ายนี้ยังไม่มีข้อมูลก้าวที่อนุมัติในรอบนี้</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </GlassCard>
     </div>

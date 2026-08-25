@@ -148,6 +148,10 @@ export default function LoginPage() {
                     </span>
                   )}
                 </button>
+                <a href="/dashboard" className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white/90 bg-white/10 border border-white/20 hover:bg-white/15 transition-all">
+                  <span className="material-symbols-outlined text-lg">visibility</span>
+                  ดูแดชบอร์ดสาธารณะโดยไม่ต้องเข้าสู่ระบบ
+                </a>
               </form>
             </>
           ) : (

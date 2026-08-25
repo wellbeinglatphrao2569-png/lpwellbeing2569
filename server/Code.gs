@@ -2752,6 +2752,8 @@ function addBatchSteps_(data) {
       }
       if (targetRow > 0) {
         var set = function(name, value){ var c=col(name); if(c>0) sheet.getRange(targetRow+1, c).setValue(value); };
+        var incomingStatus2 = String(item.Status || '').trim();
+        var finalStatus2 = (incomingStatus2 === 'Approved' || incomingStatus2 === 'Pending' || incomingStatus2 === 'Rejected') ? incomingStatus2 : (String(item.Alert_Flag || 'FALSE') === 'TRUE' ? 'Pending' : 'Approved');
         set('Steps_Count', stepsCount);
         if (imageDriveId) set('Image_Drive_ID', imageDriveId);
         set('AI_Steps', (item.AI_Steps !== undefined && item.AI_Steps !== null && item.AI_Steps !== '') ? item.AI_Steps : '');
@@ -2759,6 +2761,7 @@ function addBatchSteps_(data) {
         set('Date_Match', item.Date_Match || '');
         set('Alert_Flag', item.Alert_Flag || 'FALSE');
         set('Alert_Reason', item.Alert_Reason || '');
+        set('Status', finalStatus2);
         set('Auditor_ID', String(data.Logged_By));
         set('Recorded_At', getTimestamp_());
         if (item.Notes) set('Notes', item.Notes);
@@ -2770,6 +2773,9 @@ function addBatchSteps_(data) {
         continue;
       }
     }
+    // Server-only AI: ถ้า Next.js ส่ง Status มา (Approved/Pending) ให้ใช้ตามนั้น ไม่เช่นนั้นดูจาก Alert_Flag
+    var incomingStatus = String(item.Status || '').trim();
+    var finalStatus = (incomingStatus === 'Approved' || incomingStatus === 'Pending' || incomingStatus === 'Rejected') ? incomingStatus : (String(item.Alert_Flag || 'FALSE') === 'TRUE' ? 'Pending' : 'Approved');
     appendData_('Steps_Log', {
       Record_ID: generateSequentialId_('Steps_Log', 'ST'),
       User_ID: userId,
@@ -2782,7 +2788,7 @@ function addBatchSteps_(data) {
       Date_Match: item.Date_Match || '',
       Alert_Flag: item.Alert_Flag || 'FALSE',
       Alert_Reason: item.Alert_Reason || '',
-      Status: 'Approved',
+      Status: finalStatus,
       Week_Number: getWeekNumber_(),
       Auditor_ID: String(data.Logged_By),
       Recorded_At: getTimestamp_(),

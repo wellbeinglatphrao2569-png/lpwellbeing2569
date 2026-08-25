@@ -82,7 +82,12 @@ export default function BatchStepsPage(){
   const [confirmSave, setConfirmSave] = useState(false);
   const [resultPopup, setResultPopup] = useState<{type:'success'|'error', title:string, message:string}|null>(null);
   const [allowOverwrite, setAllowOverwrite] = useState(false);
+  const [overwriteWarning, setOverwriteWarning] = useState(false);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  // ตาราง 7 วัน: กรอกเลข + แนบภาพต่อวัน (hybrid)
+  const [gridInputs, setGridInputs] = useState<Record<string, Record<string, string>>>({});
+  const [gridImages, setGridImages] = useState<Record<string, Record<string, { preview:string, file: File }>>>({});
+  const gridFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const weekMonday = useMemo(()=> getMonday(new Date(weekStart)),[weekStart]);
   const weekDays: string[] = useMemo(()=> Array.from({length:7},(_,i)=>{ const d=new Date(weekMonday); d.setDate(d.getDate()+i); return toIsoLocal(d); }),[weekMonday]);
@@ -354,16 +359,15 @@ export default function BatchStepsPage(){
   async function handleSave(){
     setConfirmSave(false);
     if(!user) return;
-    if(totalReady===0){
-      setResultPopup({type:'error', title:'ไม่มีข้อมูลพร้อมบันทึก', message:'กรุณาอัปโหลดและให้ AI ประมวลผลก่อน (1 ช่อง/คน, AI จะแสดงค่าทันที)'});
+    const gridReadyCount = Object.entries(gridInputs).reduce((s,[uid,days])=> s + Object.entries(days).filter(([d,v])=> weekDays.includes(d) && parseInt(v,10)>0 && gridImages[uid]?.[d]).length,0);
+    const fileReadyCount = totalReady;
+    if(fileReadyCount===0 && gridReadyCount===0){
+      setResultPopup({type:'error', title:'ไม่มีข้อมูลพร้อมบันทึก', message:'กรุณากรอกจำนวนก้าวในตาราง 7 วันพร้อมแนบภาพ หรือโยนไฟล์แล้วใส่จำนวนก้าว'});
       return;
     }
     for(const [uid, arr] of Object.entries(userFiles)){
       for(const f of arr){
-        if(!f.aiResult && !f.manualSteps){
-          setResultPopup({type:'error', title:'ข้อมูลไม่ครบ', message:`${displayName(users.find(u=>String(u.User_ID)===uid)||null)} มีไฟล์ที่ยังไม่ได้ประมวลผล — กรุณากด AI ประมวลผล`});
-          return;
-        }
+        // server-only mode: อนุญาต manualSteps โดยไม่ต้องมี aiResult
         const stepsNum=parseInt(f.manualSteps||String(f.aiResult?.steps||''),10);
         if(!stepsNum || stepsNum<=0){
           setResultPopup({type:'error', title:'จำนวนก้าวไม่ถูกต้อง', message:`${displayName(users.find(u=>String(u.User_ID)===uid)||null)} วันที่ ${f.targetDate} — กรุณาใส่ก้าวมากกว่า 0`});
@@ -372,6 +376,23 @@ export default function BatchStepsPage(){
         if(!weekDays.includes(f.targetDate)){
           setResultPopup({type:'error', title:'วันที่เป้าหมายไม่อยู่ในสัปดาห์', message:`วันที่ ${f.targetDate} ไม่อยู่ในสัปดาห์ที่เลือก (${formatWeekRangeThai(weekMonday)})`});
           return;
+        }
+      }
+    }
+    // ตรวจ grid inputs
+    for(const [uid, days] of Object.entries(gridInputs)){
+      for(const [d, v] of Object.entries(days)){
+        if(!weekDays.includes(d)) continue;
+        if(v && v.trim()!=='' ){
+          const stepsNum=parseInt(v,10);
+          if(!stepsNum || stepsNum<=0){
+            setResultPopup({type:'error', title:'จำนวนก้าวไม่ถูกต้อง', message:`${displayName(users.find(u=> getUserKey(u)===uid)||null)} วันที่ ${d} — กรุณาใส่ก้าวมากกว่า 0 หรือเว้นว่าง`});
+            return;
+          }
+          if(!gridImages[uid]?.[d]){
+            setResultPopup({type:'error', title:'ขาดภาพหลักฐาน', message:`${displayName(users.find(u=> getUserKey(u)===uid)||null)} วันที่ ${d} มีจำนวนก้าวแต่ยังไม่ได้แนบภาพหลักฐาน`});
+            return;
+          }
         }
       }
     }
@@ -403,6 +424,43 @@ export default function BatchStepsPage(){
           });
         }
       }
+      // เพิ่มข้อมูลจากตาราง 7 วัน (hybrid)
+      for(const [uid, days] of Object.entries(gridInputs)){
+        for(const [d, v] of Object.entries(days)){
+          if(!weekDays.includes(d)) continue;
+          const stepsNum=parseInt(v,10);
+          if(!stepsNum || stepsNum<=0) continue;
+          const img = gridImages[uid]?.[d];
+          if(!img) continue;
+          // กันซ้ำกับ userFiles ที่บันทึกซ้ำวันเดียวกัน — ให้ grid ทับถ้าชนกัน (แจ้งเตือนแล้ว)
+          const already = payloadSteps.some(p=> p.User_ID===uid && p.Day===d);
+          if(already && !allowOverwrite) continue;
+          if(already) {
+            // ลบตัวเก่าให้เหลือล่าสุด (grid)
+            const idx = payloadSteps.findIndex(p=> p.User_ID===uid && p.Day===d);
+            if(idx>=0) payloadSteps.splice(idx,1);
+          }
+          payloadSteps.push({
+            User_ID: uid,
+            Day: d,
+            Steps_Count: stepsNum,
+            Image_Base64: img.preview,
+            AI_Steps: '',
+            AI_Confidence: '',
+            Date_In_Image: '',
+            Date_Match: '',
+            Alert_Flag: 'FALSE',
+            Alert_Reason: '',
+            Notes: 'บันทึกผ่านตาราง 7 วัน (hybrid) — AI จะตรวจหลังบันทึก'
+          });
+        }
+      }
+      // ตรวจว่าจะมีการเขียนทับหรือไม่ — แจ้งเตือนตามสเปค 2.2
+      const willOverwrite = payloadSteps.some(p=> existingMap.has(`${p.User_ID}|${p.Day}`));
+      if(willOverwrite && !allowOverwrite) {
+        setResultPopup({type:'error', title:'มีวันที่ซ้ำ', message:'บางวันมีข้อมูลอนุมัติแล้ว — หากต้องการแทนที่ให้ติ๊ก "อนุญาตแทนที่วันที่บันทึกแล้ว" หรือบันทึกจะข้ามรายการเหล่านั้น'});
+        // ยังให้ GAS ตัดสินใจข้ามเอง
+      }
       const res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user.User_ID, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: payloadSteps }) });
       const data = await res.json().catch(()=>({}));
       if(!res.ok || data.error) throw new Error(data.error||'บันทึกไม่สำเร็จ');
@@ -410,16 +468,44 @@ export default function BatchStepsPage(){
       const skipped=data.skipped ?? 0;
       const errors=data.errors ?? 0;
       let msg=data.message || `บันทึกสำเร็จ ${saved} รายการ`;
-      if(skipped>0) msg+=` (ข้าม ${skipped} รายการที่ซ้ำ)`;
+      if(saved>0) msg+= `\nAI จะตรวจสอบหลังบันทึก — ถ้าผ่านจะอนุมัติทันที ไม่ผ่านจะขึ้นสถานะรอตรวจสอบต่างฝ่าย (ดูที่เมนูตรวจสอบนับก้าว)`;
+      if(skipped>0) msg+=` (ข้าม ${skipped} รายการที่ซ้ำ — จะแสดงเฉพาะจำนวนก้าวล่าสุดที่บันทึก ไม่นับซ้ำรายวัน)`;
       if(errors>0) msg+=` (ผิดพลาด ${errors} รายการ)`;
       if(data.details) msg+= `\n`+ JSON.stringify(data.details).slice(0,500);
       setResultPopup({type:'success', title:'บันทึกสำเร็จ', message: msg});
       setUserFiles({});
+      setGridInputs({});
+      setGridImages({});
       const s=await fetchData<StepsLog[]>('steps');
       if(s) setStepsData(s);
     }catch(err){
       setResultPopup({type:'error', title:'บันทึกไม่สำเร็จ', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
     }finally{ setSaving(false); }
+  }
+
+  function setGridStep(uid:string, day:string, val:string){
+    setGridInputs(prev=> ({...prev, [uid]: {...(prev[uid]||{}), [day]: val}}));
+    if(val && existingMap.has(`${uid}|${day}`) && !overwriteWarning){
+      setOverwriteWarning(true);
+    }
+  }
+  async function handleGridImage(uid:string, day:string, files: FileList | null){
+    if(!files || files.length===0) return;
+    const file=files[0];
+    if(!file.type.startsWith('image/')) return;
+    try{
+      const preview=await compressImage(file);
+      setGridImages(prev=> ({...prev, [uid]: {...(prev[uid]||{}), [day]: {preview, file}}}));
+    }catch(e){
+      setResultPopup({type:'error', title:'อ่านรูปไม่สำเร็จ', message: e instanceof Error? e.message:'อ่านไฟล์รูปไม่สำเร็จ'});
+    }
+  }
+  function clearGridImage(uid:string, day:string){
+    setGridImages(prev=>{
+      const next={...prev};
+      if(next[uid]){ const c={...next[uid]}; delete c[day]; next[uid]=c; if(Object.keys(c).length===0) delete next[uid]; }
+      return next;
+    });
   }
 
   if(loading) return <div className="flex items-center justify-center py-20"><span className="loading loading-spinner loading-lg text-emerald-600"></span></div>;
@@ -636,15 +722,121 @@ export default function BatchStepsPage(){
             </div>
             <div className="flex items-center gap-2">
               <button onClick={()=>{ if(confirm('ล้างภาพทั้งหมด?')) setUserFiles({}); }} className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium hover:bg-white">ล้างทั้งหมด</button>
-              <button onClick={handleAiAll} disabled={aiProcessing || totalPending===0} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-sm shadow-lg hover:shadow-xl disabled:opacity-40 flex items-center gap-2">
-                {aiProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวลผล... {aiProgress? `${aiProgress.done}/${aiProgress.total} (${aiProgress.percent}%)`: ''}</> : <><span className="material-symbols-outlined text-lg">auto_awesome</span> AI ประมวลผลทั้งหมด ({totalPending} ภาพ)</>}
-              </button>
-              <button onClick={()=> setConfirmSave(true)} disabled={saving || totalReady===0} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-bold text-sm shadow-lg hover:shadow-xl disabled:opacity-40 flex items-center gap-2">
-                {saving ? <><span className="loading loading-spinner loading-xs"></span> กำลังบันทึก...</> : <><span className="material-symbols-outlined">save</span> บันทึกทั้งหมด ({totalReady})</>}
+              <button onClick={handleAiAll} disabled={aiProcessing || totalPending===0} className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-xs shadow-lg hover:shadow-xl disabled:opacity-40 flex items-center gap-1">
+                {aiProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวล...</> : <><span className="material-symbols-outlined text-base">auto_awesome</span> AI ประมวล ({totalPending})</>}
               </button>
             </div>
           </div>
         )}
+      </GlassCard>
+
+      {/* ตาราง 7 วัน hybrid: กรอกเลข + แนบภาพต่อวัน (ตามสเปค 2.2) */}
+      <GlassCard className="overflow-hidden p-0">
+        <div className="px-5 py-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="material-symbols-outlined text-emerald-600">calendar_view_week</span>ตารางกรอกก้าว 7 วัน (Hybrid)</h3>
+            <p className="text-xs text-gray-500 mt-0.5">กรอกจำนวนก้าวแต่ละวันในสัปดาห์ที่เลือก (7 วัน) พร้อมแนบภาพหลักฐานต่อวัน · สามารถบันทึกย้อนหลังได้ · หากบันทึกซ้ำวันเดียวกันจะแสดง “จำนวนก้าวล่าสุด” เท่านั้น ไม่นับซ้ำ</p>
+          </div>
+          <span className="text-xs font-medium px-3 py-1 rounded-full bg-white dark:bg-gray-800 border">{formatWeekRangeThai(weekMonday)}</span>
+        </div>
+        {overwriteWarning && (
+          <div className="mx-5 mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+            <span className="material-symbols-outlined text-base">warning</span>
+            <span>คำเตือน: คุณกำลังแก้ไขวันที่ที่มีข้อมูลอนุมัติแล้ว — เมื่อบันทึก ระบบจะแสดง <strong>จำนวนก้าวล่าสุด</strong> ที่บันทึกเท่านั้น (ไม่บวกซ้ำ) สามารถพิมพ์ทับและแนบภาพใหม่ได้ทันที</span>
+            <button onClick={()=> setOverwriteWarning(false)} className="ml-auto text-amber-600 hover:text-amber-800">✕</button>
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[1100px]">
+            <thead>
+              <tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase">
+                <th className="px-3 py-3 font-semibold sticky left-0 bg-gray-50 dark:bg-gray-800/80 backdrop-blur z-10 min-w-[180px] text-left">บุคลากร</th>
+                {weekDays.map((d,i)=> (
+                  <th key={d} className="px-2 py-3 font-semibold text-center min-w-[130px]">
+                    <div className="flex flex-col items-center">
+                      <span>{weekDaysLabel[i].split(' ').slice(0,2).join(' ')}</span>
+                      <span className="text-[10px] font-normal normal-case">{d.slice(5)}</span>
+                      {existingMap.size>0 && <span className="text-[9px] font-normal">อนุมัติ: {existingMap.has(`${'placeholder'}|${d}`) ? '—' : ''}</span>}
+                    </div>
+                  </th>
+                ))}
+                <th className="px-3 py-3 font-semibold text-center min-w-[90px]">รวม</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {filteredUsers.length===0 ? (
+                <tr><td colSpan={9} className="px-6 py-10 text-center text-gray-400">ไม่พบข้อมูลบุคลากร</td></tr>
+              ) : filteredUsers.map(u=>{
+                const uid=getUserKey(u);
+                const isMode2=String(u.Step_Record_Mode||'1')==='2';
+                const pendingUser=isPendingUser(u);
+                const locked = !pendingUser && !isMode2 && !allowOverwrite;
+                const name=displayName(u);
+                return (
+                  <tr key={uid} className={`${locked? 'bg-gray-50 dark:bg-gray-800/30 opacity-60' : 'hover:bg-gray-50/30'} ${!uid? 'opacity-40':''}`}>
+                    <td className="px-3 py-2 sticky left-0 bg-white dark:bg-gray-800 z-10 border-r border-gray-100 dark:border-gray-700 align-top">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">{(u.Full_Name||'ส').charAt(0)}</div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-xs truncate max-w-[120px]" title={name}>{name}</p>
+                          <p className="text-[10px] text-gray-400 truncate">{u.Department}</p>
+                          {locked && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 text-[9px] font-bold mt-1"><span className="material-symbols-outlined text-xs">lock</span>ล็อก Mode1</span>}
+                          {!locked && isMode2 && <span className="inline-flex px-1 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold mt-1">Mode2</span>}
+                        </div>
+                      </div>
+                    </td>
+                    {weekDays.map(d=>{
+                      const existing = existingMap.get(`${uid}|${d}`);
+                      const val = gridInputs[uid]?.[d] ?? (existing ? String(existing.Steps_Count) : '');
+                      const hasExisting = !!existing;
+                      const img = gridImages[uid]?.[d];
+                      const disabled = locked || !uid;
+                      return (
+                        <td key={d} className={`px-2 py-2 align-top text-center ${hasExisting? 'bg-emerald-50/30 dark:bg-emerald-900/10':''}`}>
+                          <input type="number" min={0} placeholder={hasExisting? String(existing.Steps_Count) : '—'} value={gridInputs[uid]?.[d] ?? ''}
+                            onChange={e=> setGridStep(uid, d, e.target.value)}
+                            disabled={disabled}
+                            title={locked? 'โหมดบันทึกเอง — ต้องให้เจ้าตัวบันทึกเอง หรือติ๊กอนุญาตแทนที่' : hasExisting? `มีข้อมูลแล้ว ${Number(existing.Steps_Count).toLocaleString()} ก้าว — พิมพ์ทับเพื่อแก้ไข` : '' }
+                            className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold text-center ${disabled? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 cursor-not-allowed' : hasExisting? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'} focus:outline-none focus:ring-1 focus:ring-emerald-500`} />
+                          <div className="mt-1 flex flex-col items-center gap-1">
+                            {img ? (
+                              <div className="relative">
+                                <img src={img.preview} alt="" className="w-14 h-10 object-cover rounded border" />
+                                <button onClick={()=> clearGridImage(uid,d)} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] leading-none">✕</button>
+                              </div>
+                            ) : (
+                              <label className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border cursor-pointer ${disabled? 'opacity-40 pointer-events-none bg-gray-100' : 'bg-white dark:bg-gray-700 hover:bg-emerald-50 border-gray-200 dark:border-gray-600'}`}>
+                                <span className="material-symbols-outlined text-xs">image</span> แนบภาพ
+                                <input type="file" accept="image/*" className="hidden" onChange={e=> handleGridImage(uid,d,e.target.files)} disabled={disabled} ref={el=>{ if(el) gridFileInputs.current[`${uid}|${d}`]=el; }} />
+                              </label>
+                            )}
+                            {hasExisting && !gridInputs[uid]?.[d] && <span className="text-[9px] text-emerald-600 font-medium">{Number(existing.Steps_Count).toLocaleString()} ก้าว</span>}
+                          </div>
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-2 text-center align-top">
+                      <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                        {weekDays.reduce((s,d)=>{
+                          const v=gridInputs[uid]?.[d];
+                          const n=v? parseInt(v,10):0;
+                          return s + (n>0? n : 0);
+                        },0).toLocaleString()}
+                      </span>
+                      <p className="text-[9px] text-gray-400">ก้าว</p>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-3 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30">
+          <p className="text-xs text-gray-500">พิมพ์ทับเพื่อแก้ไขวันเดิมได้ทันที · ต้องแนบภาพทุกวันที่มีจำนวนก้าว · บันทึกแล้ว AI จะตรวจหลังบันทึก (Server-only)</p>
+          <button onClick={()=> setConfirmSave(true)} disabled={saving} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-bold text-sm shadow disabled:opacity-40 flex items-center gap-2">
+            {saving? <><span className="loading loading-spinner loading-xs"></span> กำลังบันทึก...</> : <><span className="material-symbols-outlined">save</span> บันทึกตาราง 7 วัน + โยนไฟล์</>}
+          </button>
+        </div>
       </GlassCard>
 
       <ConfirmPopup open={confirmSave} title="ยืนยันบันทึกแบบกลุ่ม" message={`คุณกำลังจะบันทึก ${totalReady} รายการ สัปดาห์ ${formatWeekRangeThai(weekMonday)} — ${allowOverwrite? 'โหมดแทนที่เปิดอยู่ จะเขียนทับวันที่ซ้ำ':'จะข้ามวันที่บันทึกซ้ำ'} แน่ใจหรือไม่?`} variant="primary" loading={saving} onConfirm={handleSave} onClose={()=> setConfirmSave(false)} />

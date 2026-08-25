@@ -1,7 +1,7 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { postData, fetchData } from '@/services/api';
+import { postData, postDataJson, fetchData } from '@/services/api';
 import type { User } from '@/types';
 import Link from 'next/link';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
@@ -228,7 +228,7 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
       Password: form.password,
     };
     if (profileImage) payload.Profile_Image_Base64 = profileImage;
-    const res = await postData('register', payload);
+    const res = await postDataJson('register', payload);
     setSubmitting(false);
     if (res?.success) {
       setSubmitSuccess(res?.message || 'ลงทะเบียนยืนยันตัวตนเรียบร้อยแล้ว');
@@ -570,6 +570,16 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
           มีบัญชีแล้ว? <Link href="/login" className="text-emerald-600 font-medium hover:underline">เข้าสู่ระบบ</Link>
         </p>
       </div>
+
+      {submitting && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 flex flex-col items-center gap-4 shadow-2xl border border-white/20 max-w-sm w-full">
+            <span className="loading loading-spinner loading-lg text-emerald-600"></span>
+            <p className="font-bold text-gray-900 dark:text-white text-lg">กำลังบันทึกข้อมูล...</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 text-center">กรุณารอสักครู่ อย่าปิดหน้าต่าง<br/>กำลังยืนยันตัวตนและบันทึกโปรไฟล์</p>
+          </div>
+        </div>
+      )}
 
       <ConfirmPopup
         open={confirming}

@@ -673,7 +673,7 @@ function registerUser_(data) {
   for (let i = 1; i < rows.length; i++) {
     if (i === rowIndex) continue;
     if (uidCol > 0 && String(rows[i][uidCol - 1]) === uid) {
-      return { success: false, message: 'เลขบัตรประชาชนนี้ถูกใช้ลงทะเบียนแล้ว' };
+      return { success: false, message: 'ไม่สามารถบันทึกเลขบัตรประชาชนได้เนื่องจากมีผู้ใช้งานแล้ว' };
     }
   }
 

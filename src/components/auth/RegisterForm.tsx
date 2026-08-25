@@ -1,7 +1,8 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { postData } from '@/services/api';
+import { postData, fetchData } from '@/services/api';
+import type { User } from '@/types';
 import Link from 'next/link';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import ResultPopup from '@/components/ui/ResultPopup';
@@ -72,6 +73,7 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
   const [submitError, setSubmitError] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const [citizenDup, setCitizenDup] = useState(false);
 
   const update = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -88,9 +90,19 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
 
   const passwordOk = form.password.length >= 6;
   const citizenOk = isValidThaiCitizenId(form.citizenId);
+  useEffect(() => {
+    if (!citizenOk || !form.citizenId) { setCitizenDup(false); return; }
+    let cancelled = false;
+    fetchData<User[]>('users').then(users => {
+      if (cancelled || !users) return;
+      const dup = users.some(u => String(u.User_ID ?? '').trim() === form.citizenId.trim() && String(u.Personnel_ID ?? '').trim() !== String(selected?.Personnel_ID ?? '').trim());
+      if (!cancelled) setCitizenDup(dup);
+    });
+    return () => { cancelled = true; };
+  }, [form.citizenId, citizenOk, selected?.Personnel_ID]);
   const personalOk = !!(
     form.firstName.trim() && form.lastName.trim() && form.nickname.trim() &&
-    form.position.trim() && form.department && effectivePrefix && birthOk && citizenOk
+    form.position.trim() && form.department && effectivePrefix && birthOk && citizenOk && !citizenDup
   );
   const healthOk = !!Number(form.weight) && !!Number(form.height);
   const passwordMatchOk = passwordOk && form.password === form.confirmPassword;
@@ -154,7 +166,7 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
     if (fileRef.current) fileRef.current.value = '';
   };
 
-  const requestSubmit = () => {
+  const requestSubmit = async () => {
     if (!selected?.Personnel_ID) return;
     if (form.prefix === CUSTOM_PREFIX && !form.customPrefix.trim()) {
       setSubmitError('กรุณากรอกคำนำหน้าในช่อง "อื่น ๆ (ระบุ)"');
@@ -164,6 +176,17 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
       setSubmitError('เลขบัตรประชาชนไม่ถูกต้อง (ตรวจสอบครบ 13 หลัก)');
       return;
     }
+    // ตรวจซ้ำเลขบัตรประชาชนแบบทันที (ก่อนยืนยัน)
+    try {
+      const users = await fetchData<User[]>('users');
+      if (users) {
+        const dup = users.find(u => String(u.User_ID ?? '').trim() === form.citizenId.trim() && String(u.Personnel_ID) !== String(selected.Personnel_ID));
+        if (dup) {
+          setSubmitError('ไม่สามารถบันทึกเลขบัตรประชาชนได้เนื่องจากมีผู้ใช้งานแล้ว');
+          return;
+        }
+      }
+    } catch {}
     if (form.password.length < 6) {
       setSubmitError('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
       return;
@@ -313,8 +336,9 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
               <label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">เลขบัตรประชาชน 13 หลัก</label>
               <input value={form.citizenId} onChange={e => update('citizenId', e.target.value.replace(/\D/g, '').slice(0, 13))}
                 inputMode="numeric"
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="เช่น 1xxxx..." />
+                className={`w-full px-4 py-3 rounded-xl border bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 ${citizenDup ? 'border-red-400 dark:border-red-600 ring-2 ring-red-200 dark:ring-red-900/30' : 'border-gray-200 dark:border-gray-700'}`} placeholder="เช่น 1xxxx..." />
               {form.citizenId && !citizenOk && <p className="text-red-500 text-sm mt-1">เลขบัตรประชาชนไม่ถูกต้อง (ตรวจสอบครบ 13 หลัก)</p>}
+              {citizenDup && <p className="text-red-500 text-sm mt-1 font-medium">ไม่สามารถบันทึกเลขบัตรประชาชนได้เนื่องจากมีผู้ใช้งานแล้ว</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

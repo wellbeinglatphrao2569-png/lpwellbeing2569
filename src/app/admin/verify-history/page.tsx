@@ -72,14 +72,14 @@ export default function VerifyHistoryPage() {
   const historyItems: HistoryItem[] = useMemo(() => {
     return steps
       .filter(s =>
-        (s.Record_Method === 'ภาพถ่าย' || (s.Image_Drive_ID && s.Image_Drive_ID.trim() !== '')) &&
+        (s.Record_Method === 'ภาพถ่าย' || (s.Image_Drive_ID && String(s.Image_Drive_ID).trim() !== '')) &&
         s.Status !== 'Pending'
       )
       .map(s => {
-        const u = userMap.get(s.User_ID);
+        const u = userMap.get(String(s.User_ID));
         return {
           ...s,
-          userName: u?.Full_Name || s.User_ID,
+          userName: String(u?.Full_Name || s.User_ID || '?'),
           userDept: u?.Department || '',
           userNickname: u?.Nickname || '',
           userProfileImage: profileImageUrl(u?.Profile_Image) || undefined,
@@ -245,7 +245,7 @@ export default function VerifyHistoryPage() {
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={item.userProfileImage} alt="" className="w-9 h-9 rounded-full object-cover ring-2 ring-emerald-200 dark:ring-emerald-800 shrink-0" />
                       ) : (
-                        <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold shrink-0">{(item.userName || '?').charAt(0)}</div>
+                        <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold shrink-0">{String(item.userName || '?').charAt(0)}</div>
                       )}
                       <div className="min-w-0">
                         <p className="font-bold text-gray-900 dark:text-white truncate">{item.userName}</p>
@@ -288,7 +288,7 @@ export default function VerifyHistoryPage() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={sel.userProfileImage} alt="" className="w-11 h-11 rounded-full object-cover ring-2 ring-emerald-200 dark:ring-emerald-800 shrink-0" />
                 ) : (
-                  <div className="w-11 h-11 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold text-lg shrink-0">{(sel.userName || '?').charAt(0)}</div>
+                  <div className="w-11 h-11 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold text-lg shrink-0">{String(sel.userName || '?').charAt(0)}</div>
                 )}
                 <div className="min-w-0">
                   <p className="font-bold text-gray-900 dark:text-white truncate">{sel.userName}</p>

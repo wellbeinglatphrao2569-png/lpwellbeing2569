@@ -63,7 +63,7 @@ function UserAvatar({ item, size = 'md' }: { item: VerifyItem; size?: 'sm' | 'md
   }
   return (
     <div className={`${cls} rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold shrink-0`}>
-      {(item.userName || 'ส').charAt(0)}
+      {String(item.userName || 'ส').charAt(0)}
     </div>
   );
 }
@@ -140,12 +140,12 @@ export default function VerifyStepsPage() {
 
   const imageItems: VerifyItem[] = useMemo(() => {
     return steps
-      .filter(s => s.Record_Method === 'ภาพถ่าย' || (s.Image_Drive_ID && s.Image_Drive_ID.trim() !== ''))
+      .filter(s => s.Record_Method === 'ภาพถ่าย' || (s.Image_Drive_ID && String(s.Image_Drive_ID).trim() !== ''))
       .map(s => {
-        const u = userMap.get(s.User_ID);
+        const u = userMap.get(String(s.User_ID));
         return {
           ...s,
-          userName: u?.Full_Name || s.User_ID,
+          userName: String(u?.Full_Name || s.User_ID || 'ส'),
           userDept: u?.Department || '',
           userNickname: u?.Nickname || '',
           userProfileImage: profileImageUrl(u?.Profile_Image) || undefined,

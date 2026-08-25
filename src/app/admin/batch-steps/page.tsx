@@ -6,7 +6,7 @@ import ResultPopup from "@/components/ui/ResultPopup";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchData } from "@/services/api";
 import type { User, StepsLog, AiImageAnalysis } from "@/types";
-import { profileImageUrl, displayName, DEPARTMENTS } from "@/utils/personnel";
+import { displayName } from "@/utils/personnel";
 
 const thaiShortMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function toThaiYear(date: Date): string { return String(date.getFullYear()+543); }
@@ -93,7 +93,9 @@ export default function BatchStepsPage(){
   const weekDays: string[] = useMemo(()=> Array.from({length:7},(_,i)=>{ const d=new Date(weekMonday); d.setDate(d.getDate()+i); return toIsoLocal(d); }),[weekMonday]);
   const weekDaysLabel = useMemo(()=> weekDays.map(d=>{ const dt=new Date(d); const dow=['จ.','อ.','พ.','พฤ.','ศ.','ส.','อา.'][dt.getDay()===0?6:dt.getDay()-1]; return `${dow} ${formatThaiDateShort(dt)}`; }),[weekDays]);
 
-  useEffect(()=>{ if(user?.Department) setDeptFilter(user.Department); },[user?.Department]);
+  // ล็อกฝ่าย: บันทึกได้เฉพาะฝ่ายของตนเองเท่านั้น — กันเปลี่ยนฝ่ายจาก UI / แทรกค่าผ่าน devtools
+  const actorDepartment = useMemo(()=> String(user?.Department||'').trim(), [user?.Department]);
+  useEffect(()=>{ if(actorDepartment) setDeptFilter(actorDepartment); },[actorDepartment]);
 
   async function load(){
     setLoading(true);
@@ -117,8 +119,10 @@ export default function BatchStepsPage(){
   },[stepsData]);
 
   const filteredUsers = useMemo(()=>{
+    // บังคับกรองเฉพาะฝ่ายของตนเองเท่านั้น — ต่อให้ deptFilter ถูกแก้ผ่าน devtools ก็ต้องยึด actorDepartment
     let list=users;
-    if(deptFilter) list=list.filter(u=>u.Department===deptFilter);
+    if(actorDepartment) list=list.filter(u=> String(u.Department||'').trim()===actorDepartment);
+    else list=[]; // ไม่มีฝ่าย = ไม่แสดงใคร เพื่อกันบันทึกข้ามฝ่าย
     if(search.trim()){
       const q=search.toLowerCase();
       list=list.filter(u=> `${u.Full_Name} ${u.First_Name} ${u.Last_Name} ${u.Nickname}`.toLowerCase().includes(q));
@@ -129,7 +133,7 @@ export default function BatchStepsPage(){
       if(ma!==mb) return ma-mb;
       return String(a.Full_Name||'').localeCompare(String(b.Full_Name||''),'th');
     });
-  },[users, deptFilter, search]);
+  },[users, actorDepartment, search]);
 
   const mode2Count = filteredUsers.filter(u=>String(u.Step_Record_Mode||'1')==='2').length;
 
@@ -359,6 +363,38 @@ export default function BatchStepsPage(){
   async function handleSave(){
     setConfirmSave(false);
     if(!user) return;
+    if(!actorDepartment){
+      setResultPopup({type:'error', title:'ไม่พบฝ่ายของคุณ', message:'บัญชีของคุณไม่มีข้อมูลฝ่าย/ส่วนราชการ — ไม่สามารถบันทึกได้ กรุณาติดต่อผู้ดูแลระบบ'});
+      return;
+    }
+    // ตรวจข้ามฝ่ายก่อนทุกอย่าง: ถ้ามี uid ที่ไม่อยู่ฝ่ายตนเองให้บล็อกทันที (กันแก้ไข deptFilter / ส่งข้อมูลดัก)
+    const userDeptByKey = new Map<string,string>();
+    for(const u of users){
+      const k=getUserKey(u);
+      if(k) userDeptByKey.set(k, String(u.Department||'').trim());
+      const pid=String((u as any).Personnel_ID||'').trim();
+      if(pid && !userDeptByKey.has(pid)) userDeptByKey.set(pid, String(u.Department||'').trim());
+    }
+    const crossDeptUids = new Set<string>();
+    for(const uid of Object.keys(userFiles)){
+      if(userDeptByKey.get(uid)!==actorDepartment) crossDeptUids.add(uid);
+    }
+    for(const uid of Object.keys(gridInputs)){
+      const hasAny = Object.values(gridInputs[uid]||{}).some(v=> parseInt(String(v||''),10)>0);
+      if(hasAny && userDeptByKey.get(uid)!==actorDepartment) crossDeptUids.add(uid);
+    }
+    for(const uid of Object.keys(gridImages)){
+      const hasImg = Object.keys(gridImages[uid]||{}).length>0;
+      if(hasImg && userDeptByKey.get(uid)!==actorDepartment) crossDeptUids.add(uid);
+    }
+    if(crossDeptUids.size>0){
+      const names=[...crossDeptUids].map(uid=>{
+        const u=users.find(x=> getUserKey(x)===uid || String((x as any).Personnel_ID)===uid);
+        return u? `${displayName(u)} (${u.Department||'—'})` : uid;
+      }).slice(0,5).join(', ');
+      setResultPopup({type:'error', title:'บันทึกได้เฉพาะฝ่ายของตนเอง', message:`คุณอยู่ฝ่าย “${actorDepartment}” ไม่สามารถบันทึกให้บุคลากรต่างฝ่ายได้ — พบ ${crossDeptUids.size} คนที่ไม่ใช่ฝ่ายคุณ: ${names}${crossDeptUids.size>5?' …':''}`});
+      return;
+    }
     const gridReadyCount = Object.entries(gridInputs).reduce((s,[uid,days])=> s + Object.entries(days).filter(([d,v])=> weekDays.includes(d) && parseInt(v,10)>0 && gridImages[uid]?.[d]).length,0);
     const fileReadyCount = totalReady;
     if(fileReadyCount===0 && gridReadyCount===0){
@@ -461,7 +497,7 @@ export default function BatchStepsPage(){
         setResultPopup({type:'error', title:'มีวันที่ซ้ำ', message:'บางวันมีข้อมูลอนุมัติแล้ว — หากต้องการแทนที่ให้ติ๊ก "อนุญาตแทนที่วันที่บันทึกแล้ว" หรือบันทึกจะข้ามรายการเหล่านั้น'});
         // ยังให้ GAS ตัดสินใจข้ามเอง
       }
-      const res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user.User_ID, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: payloadSteps }) });
+      const res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user.User_ID, Logged_Department: actorDepartment, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: payloadSteps }) });
       const data = await res.json().catch(()=>({}));
       if(!res.ok || data.error) throw new Error(data.error||'บันทึกไม่สำเร็จ');
       const saved=data.saved ?? payloadSteps.length;
@@ -532,18 +568,23 @@ export default function BatchStepsPage(){
             <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-full border">{formatWeekRangeThai(weekMonday)}</span>
           </div>
           <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 hidden md:block" />
-          <select value={deptFilter} onChange={e=>setDeptFilter(e.target.value)} className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
-            <option value="">ทุกส่วนราชการ</option>
-            {DEPARTMENTS.map(d=> <option key={d} value={d}>{d}</option>)}
-          </select>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อ..." className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm flex-1 min-w-[140px]" />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-sm" title="ล็อกตามฝ่ายของคุณ — บันทึกได้เฉพาะฝ่ายตนเองเท่านั้น">
+            <span className="material-symbols-outlined text-base text-emerald-600">apartment</span>
+            <span className="font-bold text-gray-900 dark:text-white">{actorDepartment || '— ไม่พบฝ่าย —'}</span>
+            <span className="text-xs text-gray-500">• บันทึกได้เฉพาะฝ่ายนี้</span>
+          </div>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อในฝ่ายคุณ..." className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm flex-1 min-w-[140px]" />
           <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 cursor-pointer">
             <input type="checkbox" checked={allowOverwrite} onChange={e=>setAllowOverwrite(e.target.checked)} className="checkbox checkbox-xs" />
             อนุญาตแทนที่วันที่บันทึกแล้ว
           </label>
         </div>
-        <div className="mt-3 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-           วิธีใช้: อัปโหลดรูปหลักฐานลง <strong>ช่องโยนไฟล์ของแต่ละคน (1 ช่อง/คน)</strong> — ลากหรือคลิกเลือกได้ครั้งละหลายไฟล์ (สูงสุด 7 ภาพ/คน/สัปดาห์) — แล้วกด <strong>AI ประมวลผล</strong> (ประมวลพร้อมกัน <strong>ทีละ 6 คน</strong> โดย <strong>กระจาย AI คนละตัวต่อคนแบบ round-robin</strong> — <code>คน 1:Gemini → คน 2:stealth/ox-alpha → คน 3:Gemma → วนลูป</code> — แต่ละคน <strong>ล็อค AI ตัวเดียวแล้ววนจนครบทุกภาพของคนนั้น</strong> เพื่อไม่เสียเวลารอคิวโมเดลเดียว หากโมเดลล่มจะ fallback อัตโนมัติ) — AI จะอ่านจำนวนก้าว + วันที่ในภาพ แล้วแสดงค่าทันทีในแถวของคนนั้น (แก้ไขก้าว/วันที่เป้าหมายได้) + แสดง badge ว่าใช้ AI ตัวไหน — หากวันที่ไม่ชัด AI จะใส่หมายเหตุ <em>“จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง”</em> — หากวันนั้นมีข้อมูล Approved แล้ว ระบบจะข้าม (เว้นแต่ติ๊กอนุญาตแทนที่)
+        <div className="mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300 leading-relaxed flex items-start gap-2">
+          <span className="material-symbols-outlined text-base mt-0.5">lock</span>
+          <span><strong>ข้อจำกัดฝ่าย:</strong> บัญชีนี้บันทึกได้เฉพาะ <strong>ฝ่าย/ส่วนราชการของตนเอง ({actorDepartment || '—'})</strong> เท่านั้น — ระบบล็อกฝ่ายอัตโนมัติและตรวจทั้งหน้าบ้าน/หลังบ้าน หากพยายามบันทึกให้ฝ่ายอื่นจะถูกปฏิเสธ</span>
+        </div>
+        <div className="mt-2 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+            วิธีใช้: กรอกจำนวนก้าวใน <strong>ตาราง 7 วัน</strong> พร้อมแนบภาพหลักฐานต่อวัน — สามารถบันทึกย้อนหลังได้ หากวันนั้นมีข้อมูล Approved แล้ว ระบบจะข้าม (เว้นแต่ติ๊กอนุญาตแทนที่)
         </div>
       </GlassCard>
 
@@ -572,163 +613,7 @@ export default function BatchStepsPage(){
         </GlassCard>
       )}
 
-      <GlassCard className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[1000px]">
-            <thead>
-              <tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase">
-                <th className="px-3 py-3 font-semibold sticky left-0 bg-gray-50 dark:bg-gray-800/80 backdrop-blur z-10 min-w-[220px] text-left">บุคลากร (1 แถว = 1 คน)</th>
-                <th className="px-3 py-3 font-semibold text-left min-w-[380px]">โยนไฟล์หลักฐาน (1 ช่อง/คน — สูงสุด 7 ภาพ/สัปดาห์)</th>
-                <th className="px-3 py-3 font-semibold text-left min-w-[420px]">ผล AI ประมวลผล (แสดงทันทีเมื่อเสร็จแต่ละภาพ)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {filteredUsers.length===0 ? (
-                <tr><td colSpan={3} className="px-6 py-10 text-center text-gray-400">ไม่พบข้อมูลบุคลากร — ลองเปลี่ยนตัวกรองฝ่าย หรือตรวจสอบว่าบุคลากรถูกตั้งเป็น Mode 2</td></tr>
-              ) : filteredUsers.map(u=>{
-                const uid=getUserKey(u);
-                const pendingUser=isPendingUser(u);
-                const isMode2=String(u.Step_Record_Mode||'1')==='2';
-                const name=displayName(u);
-                const files=userFiles[uid]||[];
-                const existingWeek=getExistingForUserWeek(uid);
-                const pendingInRow = files.filter(f=> !f.aiResult).length;
-                const doneInRow = files.filter(f=> f.aiResult).length;
-                const isThisRowProcessing = processingUserId===uid && aiProcessing;
-                return (
-                  <tr key={uid} className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/30 ${!uid?'opacity-60':''} ${!isMode2 && !pendingUser?'bg-amber-50/20 dark:bg-amber-900/5':''} ${isThisRowProcessing? 'bg-purple-50/30 dark:bg-purple-900/10':''}`}>
-                    <td className="px-3 py-3 sticky left-0 bg-white dark:bg-gray-800 z-10 border-r border-gray-100 dark:border-gray-700 align-top">
-                      <div className="flex items-center gap-2.5">
-                        {u.Profile_Image ? <img src={profileImageUrl(u.Profile_Image)||''} alt="" className="w-10 h-10 rounded-full object-cover ring-1 ring-emerald-200 shrink-0" /> : <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0">{(u.Full_Name||u.First_Name||'ส').charAt(0)}</div>}
-                        <div className="min-w-0">
-                          <div className="font-bold text-gray-900 dark:text-white truncate max-w-[150px]" title={name}>{name}</div>
-                          <div className="text-[11px] text-gray-400 truncate">{u.Department} • {u.Position||'—'}</div>
-                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border mt-1 ${isMode2? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border-purple-200':'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200'}`}>{isMode2?'Mode 2: จนท.บันทึกให้':'Mode 1: บันทึกเอง'}</span>
-                          {pendingUser && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border mt-1 ml-1 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200">รอลงทะเบียน</span>}
-                          {!uid && <div className="text-[10px] text-red-400">ไม่พบรหัสบุคลากร</div>}
-                          {existingWeek.length>0 && <div className="mt-1 flex flex-wrap gap-1">{existingWeek.map(e=> <span key={e.date} className="px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-medium">{e.date.slice(5)}:{Number(e.log.Steps_Count).toLocaleString()}</span>)}</div>}
-                          <div className="text-[10px] text-gray-400 mt-0.5">สัปดาห์นี้: {existingWeek.length}/7 วัน</div>
-                          {files.length>0 && (
-                            <div className="mt-1 flex items-center gap-1.5">
-                              <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                                <div className="h-1.5 bg-gradient-to-r from-emerald-500 to-purple-600 rounded-full transition-all" style={{width: `${files.length? Math.round((doneInRow/files.length)*100):0}%`}}></div>
-                              </div>
-                              <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400">{doneInRow}/{files.length}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 align-top">
-                      <label className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed cursor-pointer transition-all min-h-[110px] ${!uid?'opacity-40 pointer-events-none':''} ${files.length>0?'border-emerald-300 bg-emerald-50/30 dark:bg-emerald-900/10':'border-gray-300 dark:border-gray-600 hover:border-emerald-400 hover:bg-emerald-50/20'} ${isThisRowProcessing? 'ring-2 ring-purple-400':''}`}>
-                        <span className="material-symbols-outlined text-2xl text-gray-400">cloud_upload</span>
-                        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">โยนไฟล์ที่นี่ หรือคลิกเลือก (สูงสุด 7 ภาพ)</span>
-                        <span className="text-[11px] text-gray-400">{files.length}/7 ภาพ • {weekDaysLabel.join(' • ').slice(0,80)}...</span>
-                        <input type="file" accept="image/*" multiple className="hidden" ref={el=>{ fileInputRefs.current[uid]=el; }} onChange={e=>{ const fl=e.target.files; if(fl && fl.length>0) handleFilesForUser(uid, fl); }} disabled={!uid} />
-                      </label>
-                      {files.length>0 && (
-                        <div className="mt-2 grid grid-cols-4 gap-2">
-                          {files.map(f=> (
-                            <div key={f.id} className={`relative rounded-lg overflow-hidden border-2 bg-white dark:bg-gray-800 ${f.isProcessing? 'border-purple-400 ring-2 ring-purple-200': f.aiResult? 'border-emerald-300':'border-gray-200 dark:border-gray-700'}`}>
-                              <img src={f.preview} alt="preview" className="w-full h-20 object-cover" />
-                              {f.isProcessing && (
-                                <div className="absolute inset-0 bg-purple-600/60 flex flex-col items-center justify-center">
-                                  <span className="loading loading-spinner loading-sm text-white"></span>
-                                  <span className="text-[9px] font-bold text-white mt-1">AI...</span>
-                                </div>
-                              )}
-                              <button onClick={()=> removeFile(uid, f.id)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600"><span className="material-symbols-outlined text-sm">close</span></button>
-                              <div className="px-1.5 py-1 text-[10px] font-medium text-gray-700 dark:text-gray-300 truncate bg-gray-50 dark:bg-gray-700/50 text-center">{f.file.name.slice(0,18)}</div>
-                              {f.aiResult && !f.isProcessing && <div className="absolute bottom-6 left-1 px-1 py-0.5 rounded bg-purple-600 text-white text-[9px] font-bold">{f.aiResult.steps!=null? f.aiResult.steps.toLocaleString():'—'} ก้าว</div>}
-                              {f.aiResult && !f.isProcessing && <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center"><span className="material-symbols-outlined text-xs">check</span></div>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className="mt-2 flex gap-2">
-                        <button onClick={()=> handleAiForUser(uid)} disabled={aiProcessing || files.filter(f=>!f.aiResult).length===0 || !uid} title={`จะใช้ ${providerLabel(getProviderForUid(uid))} สำหรับคนนี้ (ล็อค 1 คน = 1 AI)`} className="flex-1 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-400 font-bold text-xs hover:bg-purple-100 disabled:opacity-40 flex items-center justify-center gap-1">
-                          {isThisRowProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวล...</> : <><span className="material-symbols-outlined text-sm">auto_awesome</span> AI ประมวลแถวนี้ ({files.filter(f=>!f.aiResult).length}) • {providerLabel(getProviderForUid(uid))}</>}
-                        </button>
-                        {files.length>0 && <button onClick={()=> { setUserFiles(prev=>{ const n={...prev}; delete n[uid]; return n; }); const r=fileInputRefs.current[uid]; if(r) r.value=''; }} className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium hover:bg-gray-50">ล้าง</button>}
-                      </div>
-                      {isThisRowProcessing && files.length>0 && (
-                        <div className="mt-2">
-                          <div className="flex justify-between text-[11px] font-medium text-purple-600 dark:text-purple-400 mb-1">
-                            <span>{doneInRow}/{files.length} ภาพ</span>
-                            <span>{Math.round((doneInRow/files.length)*100)}%</span>
-                          </div>
-                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
-                            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 h-2 rounded-full transition-all duration-300" style={{width: `${Math.round((doneInRow/files.length)*100)}%`}}></div>
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 align-top">
-                      {files.length===0 ? (
-                        <div className="text-xs text-gray-400 text-center py-6 border border-dashed rounded-xl">ยังไม่มีภาพ — โยนไฟล์ที่ช่องกลาง แล้วกด AI ประมวลผล</div>
-                      ) : files.every(f=> !f.aiResult && !f.isProcessing) ? (
-                        <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 text-center">
-                          <span className="material-symbols-outlined text-lg">hourglass_empty</span><br/>รอ AI ประมวลผล — กดปุ่ม <strong>AI ประมวลแถวนี้</strong> หรือปุ่มบน <strong>AI ประมวลผลทั้งหมด</strong>
-                        </div>
-                      ) : (
-                        <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-                          {files.map(f=> (
-                            <div key={f.id} className={`p-2.5 rounded-xl border-2 bg-white dark:bg-gray-800 space-y-1.5 ${f.isProcessing? 'border-purple-300 bg-purple-50 dark:bg-purple-900/10': f.aiResult?.alert? 'border-red-200 dark:border-red-800':'border-emerald-200 dark:border-emerald-800'} ${f.isProcessing? 'animate-pulse':''}`}>
-                              <div className="flex items-center gap-2">
-                                <img src={f.preview} alt="" className="w-10 h-10 rounded-lg object-cover border" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {f.isProcessing ? (
-                                      <span className="flex items-center gap-1 text-xs font-bold text-purple-600"><span className="loading loading-spinner loading-xs"></span> กำลังอ่าน...</span>
-                                    ) : (
-                                      <>
-                                        <span className="text-xs font-black text-purple-600 dark:text-purple-400">{f.aiResult?.steps!=null? f.aiResult.steps.toLocaleString():'—'} ก้าว</span>
-                                        <span className="text-[10px] text-gray-400">มั่นใจ {f.aiResult? Math.round((f.aiResult.confidence||0)*100):'—'}%</span>
-                                        {f.aiResult?.provider && (()=>{ const m=String(f.aiResult.model||''); const isGemma=m.includes('gemma'); const badge=isGemma? 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 border-teal-200' : f.aiResult.provider==='openrouter'? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200':'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200'; const label=f.aiResult.provider==='openrouter'? (isGemma? `Gemma:${m.split('/').pop()}` : `ox-alpha:${m.split('/').pop()||'ox-alpha'}`) : `Gemini:${m.split('/').pop()||'gemini'}`; return <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${badge}`} title={m}>{label}</span>; })()}
-                                        {f.aiResult && <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center ml-1"><span className="material-symbols-outlined text-xs">check</span></span>}
-                                      </>
-                                    )}
-                                  </div>
-                                  <select value={f.targetDate} onChange={e=> updateFile(uid, f.id, {targetDate: e.target.value})} disabled={!!f.isProcessing} className="mt-1 w-full text-xs px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 disabled:opacity-50">
-                                    {weekDays.map((d,i)=> <option key={d} value={d}>{weekDaysLabel[i]} ({d}) {existingMap.has(`${uid}|${d}`)? '• บันทึกแล้ว':''}</option>)}
-                                  </select>
-                                </div>
-                              </div>
-                              {!f.isProcessing && (
-                                <>
-                                  <input value={f.manualSteps} onChange={e=> updateFile(uid, f.id, {manualSteps: e.target.value})} type="number" placeholder="แก้ไขก้าวได้" className="w-full px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-bold text-center" />
-                                  <div className="text-[10px] leading-tight">
-                                    {f.aiResult?.dateMatch===true ? <span className="text-emerald-600">✓ วันที่ตรง {f.aiResult.dateInImage}</span> : f.aiResult?.dateMatch===false ? <span className="text-red-600">⚠ ไม่ตรง ({f.aiResult.dateInImage||'—'}) → จะบันทึก {f.targetDate}</span> : f.aiResult ? <span className="text-amber-600">? ไม่พบวันที่ → จะบันทึก {f.targetDate}</span> : <span className="text-gray-400">รอผล AI...</span>}
-                                  </div>
-                                  {f.aiResult?.notes && <div className="text-[10px] text-gray-500 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded leading-tight">{f.aiResult.notes.slice(0,220)}</div>}
-                                  {f.aiResult?.alert && <div className="text-[10px] text-red-600 bg-red-50 dark:bg-red-900/20 p-1 rounded">{f.aiResult.alertReasons.join('; ').slice(0,160)}</div>}
-                                </>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {filteredUsers.length>0 && (
-          <div className="p-3 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30">
-            <div className="text-xs text-gray-600 dark:text-gray-400">
-              รวมโยนแล้ว <strong className="text-emerald-600">{totalFiles}</strong> ภาพ • รอ AI <strong className="text-amber-600">{totalPending}</strong> • พร้อมบันทึก <strong className="text-purple-600">{totalReady}</strong> • สูงสุด 7 ภาพ/คน/สัปดาห์
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={()=>{ if(confirm('ล้างภาพทั้งหมด?')) setUserFiles({}); }} className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium hover:bg-white">ล้างทั้งหมด</button>
-              <button onClick={handleAiAll} disabled={aiProcessing || totalPending===0} className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-xs shadow-lg hover:shadow-xl disabled:opacity-40 flex items-center gap-1">
-                {aiProcessing ? <><span className="loading loading-spinner loading-xs"></span> กำลังประมวล...</> : <><span className="material-symbols-outlined text-base">auto_awesome</span> AI ประมวล ({totalPending})</>}
-              </button>
-            </div>
-          </div>
-        )}
-      </GlassCard>
+
 
       {/* ตาราง 7 วัน hybrid: กรอกเลข + แนบภาพต่อวัน (ตามสเปค 2.2) */}
       <GlassCard className="overflow-hidden p-0">
@@ -834,7 +719,7 @@ export default function BatchStepsPage(){
         <div className="p-3 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30">
           <p className="text-xs text-gray-500">พิมพ์ทับเพื่อแก้ไขวันเดิมได้ทันที · ต้องแนบภาพทุกวันที่มีจำนวนก้าว · บันทึกแล้ว AI จะตรวจหลังบันทึก (Server-only)</p>
           <button onClick={()=> setConfirmSave(true)} disabled={saving} className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-bold text-sm shadow disabled:opacity-40 flex items-center gap-2">
-            {saving? <><span className="loading loading-spinner loading-xs"></span> กำลังบันทึก...</> : <><span className="material-symbols-outlined">save</span> บันทึกตาราง 7 วัน + โยนไฟล์</>}
+            {saving? <><span className="loading loading-spinner loading-xs"></span> กำลังบันทึก...</> : <><span className="material-symbols-outlined">save</span> บันทึก</>}
           </button>
         </div>
       </GlassCard>

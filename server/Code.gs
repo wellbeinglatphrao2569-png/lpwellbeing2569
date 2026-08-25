@@ -315,6 +315,9 @@ function doGet(e) {
           case 'set-weight-after-window': result = setWeightAfterWindow_(e.parameter); break;
           case 'test-drive': result = testDrive_(); break;
           case 'set-step-record-mode': result = setStepRecordMode_(e.parameter); break;
+          case 'clear-cycle-data': result = clearCycleData_(e.parameter); break;
+          case 'clear-steps-log': result = clearCycleData_({ Logged_By: e.parameter.Logged_By, targets: 'steps' }); break;
+          case 'clear-sweet-free': result = clearCycleData_({ Logged_By: e.parameter.Logged_By, targets: 'sweet' }); break;
           default: result = { error: 'Unknown action: ' + action };
         }
         break;
@@ -479,6 +482,15 @@ function doPost(e) {
         break;
       case 'add-batch-steps':
         result = addBatchSteps_(data);
+        break;
+      case 'clear-cycle-data':
+        result = clearCycleData_(data);
+        break;
+      case 'clear-steps-log':
+        result = clearCycleData_({ Logged_By: data.Logged_By, targets: 'steps' });
+        break;
+      case 'clear-sweet-free':
+        result = clearCycleData_({ Logged_By: data.Logged_By, targets: 'sweet' });
         break;
       default:
         result = { error: 'Unknown action: ' + action };
@@ -2528,7 +2540,138 @@ function clearStepsLog() {
   if (lastRow > 1) {
     sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
   }
-  return { success: true, message: 'ลบข้อมูลจำนวนก้าวทั้งหมดแล้ว' };
+  // บันทึก Audit Log
+  try {
+    ensureHeaders_('Audit_Log', AUDIT_HEADERS);
+    appendData_('Audit_Log', {
+      Audit_ID: generateSequentialId_('Audit_Log', 'AU'),
+      Record_ID: 'CLEAR-STEPS-' + getTimestamp_().replace(/[^0-9]/g, '').substring(0, 14),
+      Action: 'CLEAR_STEPS_LOG',
+      User_ID: '',
+      Detail: 'ล้างข้อมูลจำนวนก้าวทั้งหมด (คง header) — ลบ ' + Math.max(0, lastRow - 1) + ' แถว',
+      Timestamp: getTimestamp_()
+    });
+  } catch (e) {}
+  return { success: true, message: 'ลบข้อมูลจำนวนก้าวทั้งหมดแล้ว', cleared: Math.max(0, lastRow - 1) };
+}
+
+/**
+ * ล้างข้อมูลการบันทึกงดหวานทั้งหมดในชีท Sweet_Free (คงหัวคอลัมน์ไว้)
+ * วิธีใช้: เปิด Apps Script Editor แล้วรัน clearSweetFreeLog()
+ */
+function clearSweetFreeLog() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Sweet_Free');
+  if (!sheet) return { success: false, message: 'ไม่พบชีท Sweet_Free' };
+  const lastRow = sheet.getLastRow();
+  const cleared = Math.max(0, lastRow - 1);
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+  }
+  try {
+    ensureHeaders_('Audit_Log', AUDIT_HEADERS);
+    appendData_('Audit_Log', {
+      Audit_ID: generateSequentialId_('Audit_Log', 'AU'),
+      Record_ID: 'CLEAR-SWEET-' + getTimestamp_().replace(/[^0-9]/g, '').substring(0, 14),
+      Action: 'CLEAR_SWEET_FREE',
+      User_ID: '',
+      Detail: 'ล้างข้อมูลงดหวานทั้งหมด (คง header) — ลบ ' + cleared + ' แถว',
+      Timestamp: getTimestamp_()
+    });
+  } catch (e) {}
+  return { success: true, message: 'ลบข้อมูลงดหวานทั้งหมดแล้ว', cleared: cleared };
+}
+
+/**
+ * ล้างข้อมูลจำนวนก้าว + งดหวาน พร้อมกันเพื่อเริ่มรอบบันทึกใหม่ (คงหัวคอลัมน์ไว้)
+ * - ล้างชีท Steps_Log และ Sweet_Free
+ * - คงหัวคอลัมน์ (row 1) และไม่แตะชีทอื่น (Users, Points_History ฯลฯ ยังอยู่ครบ)
+ * - บันทึก Audit_Log 1 รายการรวม
+ * วิธีใช้: เปิด Apps Script Editor แล้วรัน clearStepsAndSweetFree()
+ *          หรือเรียกผ่าน API: action=clear-cycle-data (ต้องเป็น Admin)
+ */
+function clearStepsAndSweetFree() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const targets = ['Steps_Log', 'Sweet_Free'];
+  const result = { stepsCleared: 0, sweetCleared: 0 };
+  targets.forEach(function (name) {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+    const lastRow = sheet.getLastRow();
+    const cleared = Math.max(0, lastRow - 1);
+    if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+    if (name === 'Steps_Log') result.stepsCleared = cleared;
+    if (name === 'Sweet_Free') result.sweetCleared = cleared;
+  });
+  try {
+    ensureHeaders_('Audit_Log', AUDIT_HEADERS);
+    appendData_('Audit_Log', {
+      Audit_ID: generateSequentialId_('Audit_Log', 'AU'),
+      Record_ID: 'CLEAR-CYCLE-' + getTimestamp_().replace(/[^0-9]/g, '').substring(0, 14),
+      Action: 'CLEAR_CYCLE_DATA',
+      User_ID: '',
+      Detail: 'ล้างข้อมูลเริ่มรอบใหม่: Steps_Log ' + result.stepsCleared + ' แถว, Sweet_Free ' + result.sweetCleared + ' แถว',
+      Timestamp: getTimestamp_()
+    });
+  } catch (e) {}
+  return {
+    success: true,
+    message: 'ล้างข้อมูลจำนวนก้าว (' + result.stepsCleared + ' แถว) และงดหวาน (' + result.sweetCleared + ' แถว) เรียบร้อย — พร้อมเริ่มรอบบันทึกใหม่',
+    stepsCleared: result.stepsCleared,
+    sweetCleared: result.sweetCleared
+  };
+}
+
+/**
+ * API: ล้างข้อมูลรอบบันทึกใหม่ผ่าน Frontend (เฉพาะ Admin)
+ * - ตรวจสิทธิ์ Logged_By ต้องเป็น Admin
+ * - รองรับพารามิเตอร์ targets: 'steps' | 'sweet' | 'all' (ดีฟอลต์ 'all')
+ * - คืนจำนวนแถวที่ลบ + บันทึก Audit_Log พร้อม User_ID ผู้ดำเนินการ
+ */
+function clearCycleData_(data) {
+  const actor = getData_('Users').find(function (u) {
+    return String(u.User_ID) === String(data.Logged_By);
+  });
+  if (!actor) return { success: false, message: 'ไม่พบผู้ดำเนินการ (Logged_By)' };
+  if (String(actor.Role) !== 'Admin') {
+    return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. (Admin) เท่านั้นที่ล้างข้อมูลรอบใหม่ได้' };
+  }
+  const target = String(data.targets || data.target || 'all').toLowerCase();
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  let toClear = [];
+  if (target === 'steps') toClear = ['Steps_Log'];
+  else if (target === 'sweet' || target === 'sweet_free') toClear = ['Sweet_Free'];
+  else toClear = ['Steps_Log', 'Sweet_Free'];
+
+  const counts = {};
+  toClear.forEach(function (name) {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) { counts[name] = 0; return; }
+    const lastRow = sheet.getLastRow();
+    const cleared = Math.max(0, lastRow - 1);
+    if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+    counts[name] = cleared;
+  });
+
+  ensureHeaders_('Audit_Log', AUDIT_HEADERS);
+  const rid = 'CLEAR-CYCLE-' + getTimestamp_().replace(/[^0-9]/g, '').substring(0, 14);
+  appendData_('Audit_Log', {
+    Audit_ID: generateSequentialId_('Audit_Log', 'AU'),
+    Record_ID: rid,
+    Action: 'CLEAR_CYCLE_DATA',
+    User_ID: String(data.Logged_By),
+    Detail: 'Admin ' + String(actor.Full_Name || actor.User_ID) + ' ล้าง ' + toClear.join('+') + ' — ' + JSON.stringify(counts),
+    Timestamp: getTimestamp_()
+  });
+
+  const stepsN = counts['Steps_Log'] || 0;
+  const sweetN = counts['Sweet_Free'] || 0;
+  let msg = '';
+  if (toClear.length === 2) msg = 'ล้างข้อมูลจำนวนก้าว (' + stepsN + ' แถว) และงดหวาน (' + sweetN + ' แถว) เรียบร้อย — พร้อมเริ่มรอบบันทึกใหม่';
+  else if (toClear[0] === 'Steps_Log') msg = 'ล้างข้อมูลจำนวนก้าว ' + stepsN + ' แถวเรียบร้อย';
+  else msg = 'ล้างข้อมูลงดหวาน ' + sweetN + ' แถวเรียบร้อย';
+
+  return { success: true, message: msg, cleared: counts, targets: toClear };
 }
 
 /**

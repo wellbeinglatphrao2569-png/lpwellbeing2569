@@ -19,11 +19,72 @@ function hasAiKeys(): boolean {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { Logged_By, Week_Start, Steps, Allow_Overwrite } = body;
+    const { Logged_By, Logged_Department, Week_Start, Steps, Allow_Overwrite } = body as { Logged_By: string; Logged_Department?: string; Week_Start: string; Steps: unknown[]; Allow_Overwrite: string };
     if (!Logged_By) return NextResponse.json({ error: 'Logged_By is required' }, { status: 400 });
     if (!Week_Start) return NextResponse.json({ error: 'Week_Start is required' }, { status: 400 });
     if (!Steps || !Array.isArray(Steps) || Steps.length === 0) return NextResponse.json({ error: 'Steps array is required' }, { status: 400 });
     if (!GAS_API_URL) return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
+
+    // ── ตรวจสิทธิ์ฝ่าย: บันทึกได้เฉพาะฝ่ายของตนเองเท่านั้น (กันยิง API ตรง / แก้ devtools) ──
+    let actorDept = String(Logged_Department || '').trim();
+    let usersList: any[] = [];
+    let usersFetchOk = false;
+    try {
+      const uRes = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
+      if (uRes.ok) {
+        const j = await uRes.json();
+        if (Array.isArray(j)) { usersList = j; usersFetchOk = true; }
+      }
+    } catch (e) {
+      console.warn('batch-upload: fetch users for dept check failed', e);
+    }
+    if (!usersFetchOk || usersList.length === 0) {
+      return NextResponse.json({ error: 'ไม่สามารถตรวจสอบสิทธิ์ฝ่ายได้ — โหลดรายชื่อบุคลากรไม่สำเร็จ กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ' }, { status: 503 });
+    }
+    // สร้าง map รองรับทั้ง User_ID และ Personnel_ID (pending users)
+    const deptById = new Map<string, string>();
+    const userById = new Map<string, any>();
+    for (const u of usersList) {
+      const uid = String((u as any).User_ID || '').trim();
+      const pid = String((u as any).Personnel_ID || '').trim();
+      const d = String((u as any).Department || '').trim();
+      if (uid) { deptById.set(uid, d); userById.set(uid, u); }
+      if (pid && !deptById.has(pid)) { deptById.set(pid, d); if (!userById.has(pid)) userById.set(pid, u); }
+    }
+    // ถ้า client ไม่ได้ส่ง Logged_Department ให้ดึงจาก usersList
+    if (!actorDept) {
+      const actor = userById.get(String(Logged_By).trim());
+      if (actor) actorDept = String(actor.Department || '').trim();
+    }
+    if (!actorDept) {
+      return NextResponse.json({ error: 'ไม่พบฝ่าย/ส่วนราชการของผู้บันทึก — ไม่สามารถตรวจสอบสิทธิ์ได้' }, { status: 403 });
+    }
+    // ตรวจว่าผู้บันทึกมีอยู่จริงและตรงกับฝ่ายที่อ้าง
+    const actorFromDb = userById.get(String(Logged_By).trim());
+    if (actorFromDb && String(actorFromDb.Department || '').trim() !== actorDept) {
+      return NextResponse.json({ error: `ฝ่ายของผู้บันทึกไม่ตรงกับข้อมูลระบบ — บันทึกได้เฉพาะฝ่าย "${String(actorFromDb.Department).trim()}" เท่านั้น` }, { status: 403 });
+    }
+    const violations: { User_ID: string; dept: string; name: string }[] = [];
+    for (const s of Steps as any[]) {
+      const tid = String(s.User_ID || '').trim();
+      const tDept = deptById.get(tid);
+      if (!tDept) {
+        // ไม่พบผู้ถูกบันทึกในระบบ — ถือว่าข้ามฝ่าย (กันสร้าง User_ID มั่ว)
+        violations.push({ User_ID: tid, dept: '— ไม่พบในระบบ —', name: tid });
+      } else if (tDept !== actorDept) {
+        const tu = userById.get(tid);
+        const tName = tu ? String(tu.Full_Name || tu.First_Name || tid) : tid;
+        violations.push({ User_ID: tid, dept: tDept, name: tName });
+      }
+    }
+    if (violations.length > 0) {
+      const sample = violations.slice(0, 5).map(v => `${v.name} (${v.dept})`).join(', ');
+      return NextResponse.json({
+        error: `บันทึกได้เฉพาะฝ่าย "${actorDept}" เท่านั้น — พบ ${violations.length} รายการของฝ่ายอื่น: ${sample}${violations.length > 5 ? ' …' : ''}`,
+        violations,
+        actorDepartment: actorDept,
+      }, { status: 403 });
+    }
 
     // Server-only AI: ตรวจภาพทุกใบก่อนส่ง GAS (ถ้ามีคีย์)
     const useAi = hasAiKeys();

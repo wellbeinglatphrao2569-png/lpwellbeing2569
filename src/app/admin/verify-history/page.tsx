@@ -255,7 +255,7 @@ export default function VerifyHistoryPage() {
             const dateMatch = item.Date_Match === 'TRUE' || item.Date_Match === true ? true : item.Date_Match === 'FALSE' || item.Date_Match === false ? false : null;
             const confidence = item.AI_Confidence != null && item.AI_Confidence !== '' ? Number(item.AI_Confidence) : null;
             const aiSteps = item.AI_Steps != null && item.AI_Steps !== '' ? Number(item.AI_Steps) : null;
-            const auditor = item.Auditor_ID ? userMap.get(item.Auditor_ID) : null;
+            const auditor = item.Auditor_ID ? (userMap.get(String(item.Auditor_ID)) || users.find(u => String(u.User_ID) === String(item.Auditor_ID) || String(u.Personnel_ID) === String(item.Auditor_ID)) || null) : null;
             const isApproved = item.Status === 'Approved';
 
             return (

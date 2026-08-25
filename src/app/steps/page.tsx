@@ -305,7 +305,11 @@ export default function StepsPage() {
   const viewMonthLast = useMemo(() => new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0), [viewMonth]);
   const daysInMonth = getDaysInMonth(viewMonth);
 
-  const userSteps = stepsData.filter(s => s.User_ID === user?.User_ID);
+  const userSteps = useMemo(() => {
+    const uid = String(user?.User_ID ?? '').trim();
+    if (!uid) return [];
+    return stepsData.filter(s => String(s.User_ID ?? '').trim() === uid);
+  }, [stepsData, user?.User_ID]);
 
   // ใช้เฉพาะรายการที่ผ่านการอนุมัติ (Approved) แล้วเลือกเฉพาะ "ข้อมูลล่าสุดของวัน"
   // เพื่อไม่ให้เกิดการนับซ้ำเมื่อมีการบันทึกหลายครั้งในวันเดียวกัน (ทั้ง Google Fit และอัปโหลดภาพ)
@@ -348,7 +352,15 @@ export default function StepsPage() {
     }
     return userSteps.some(s => days.has(normalizeDateKey(s.Date_Thai)));
   }, [userSteps, historyMonday]);
-  // รวมก้าวสะสมของสัปดาห์ที่กำลังดู (ผลรวมของจำนวนก้าวที่อนุมัติแล้วของแต่ละวัน ไม่นับซ้ำ)
+  // ข้อมูล "จำนวนก้าวที่อนุมัติแล้ว" ล่าสุดของแต่ละวัน สำหรับแสดงในตารางประวัติรายสัปดาห์
+  const latestUserSteps = useMemo(
+    () => latestStepsByDate(userSteps.filter(s => s.Status === 'Approved')),
+    [userSteps]
+  );
+  // ข้อมูลล่าสุดของแต่ละวัน (ไม่กรองสถานะ) เพื่อตรวจว่ายังมีรายการรอตรวจสอบที่ใหม่กว่ารายการที่อนุมัติหรือไม่
+  const latestAnyUserSteps = useMemo(() => latestStepsByDate(userSteps), [userSteps]);
+
+  // รวมก้าวสะสมของสัปดาห์ที่กำลังดู — แสดงยอดที่บันทึกไปแล้วของบุคคลนั้น (อนุมัติแล้ว + รอตรวจสอบ) ไม่นับซ้ำ
   const historyWeekTotal = useMemo(() => {
     const days = new Set<string>();
     for (let i = 0; i < 7; i++) {
@@ -357,19 +369,12 @@ export default function StepsPage() {
       days.add(toIsoLocal(d));
     }
     let total = 0;
-    for (const [ds, log] of latestApproved) {
-      if (days.has(ds)) total += Number(log.Steps_Count) || 0;
+    for (const ds of days) {
+      const log = latestApproved.get(ds) || latestAnyUserSteps.get(ds);
+      if (log) total += Number(log.Steps_Count) || 0;
     }
     return total;
-  }, [latestApproved, historyMonday]);
-
-  // ข้อมูล "จำนวนก้าวที่อนุมัติแล้ว" ล่าสุดของแต่ละวัน สำหรับแสดงในตารางประวัติรายสัปดาห์
-  const latestUserSteps = useMemo(
-    () => latestStepsByDate(userSteps.filter(s => s.Status === 'Approved')),
-    [userSteps]
-  );
-  // ข้อมูลล่าสุดของแต่ละวัน (ไม่กรองสถานะ) เพื่อตรวจว่ายังมีรายการรอตรวจสอบที่ใหม่กว่ารายการที่อนุมัติหรือไม่
-  const latestAnyUserSteps = useMemo(() => latestStepsByDate(userSteps), [userSteps]);
+  }, [latestApproved, latestAnyUserSteps, historyMonday]);
 
   const resultCards = useMemo(() => ({
     daily: { label: 'วันนี้', date: formatThaiDateShort(viewDate) },

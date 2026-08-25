@@ -1,6 +1,7 @@
 'use client';
 import { useState, useRef } from 'react';
 import Modal from '@/components/ui/Modal';
+import ImageCropModal from '@/components/ui/ImageCropModal';
 import { useAuth } from '@/hooks/useAuth';
 import { postDataJson } from '@/services/api';
 import type { User } from '@/types';
@@ -50,6 +51,8 @@ export default function ProfilePopup({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState<ProfileForm | null>(() => (user ? formFromUser(user) : null));
   const [newImage, setNewImage] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -83,14 +86,15 @@ export default function ProfilePopup({ onClose }: { onClose: () => void }) {
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
-    try {
-      const base64 = await fileToBase64(file);
-      setNewImage(base64);
-    } catch {
-      setMessage({ type: 'error', text: 'อ่านไฟล์รูปไม่สำเร็จ' });
-    }
-    setUploading(false);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (dataUrl) {
+        setCropSrc(dataUrl);
+        setCropOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -378,6 +382,7 @@ export default function ProfilePopup({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </div>
+      <ImageCropModal open={cropOpen && !!cropSrc} imageSrc={cropSrc || ''} onCancel={() => { setCropOpen(false); setCropSrc(null); }} onSave={(b64) => { setNewImage(b64); setCropOpen(false); setCropSrc(null); }} />
     </Modal>
   );
 }

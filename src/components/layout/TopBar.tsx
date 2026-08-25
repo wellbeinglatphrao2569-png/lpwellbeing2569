@@ -1,14 +1,12 @@
 'use client';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useTheme } from '@/hooks/useTheme';
 import { getCurrentThaiDate } from '@/utils/thaiDate';
 import { profileImageUrl } from '@/utils/personnel';
 import ProfilePopup from '@/components/layout/ProfilePopup';
 
 export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const { user, isLoggedIn } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
 
   const avatar = profileImageUrl(user?.Profile_Image);
@@ -23,11 +21,6 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
           <span className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">{getCurrentThaiDate()}</span>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={toggleTheme} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800">
-            <span className="material-symbols-outlined text-gray-600 dark:text-gray-400">
-              {theme === 'light' ? 'dark_mode' : 'light_mode'}
-            </span>
-          </button>
           {isLoggedIn ? (
             <button onClick={() => setProfileOpen(true)} className="flex items-center gap-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 p-1.5 transition-colors cursor-pointer" aria-label="เปิดโปรไฟล์">
               {avatar ? (

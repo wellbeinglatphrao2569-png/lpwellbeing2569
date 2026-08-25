@@ -4,6 +4,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import Modal from '@/components/ui/Modal';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import ResultPopup from '@/components/ui/ResultPopup';
+import ImageCropModal from '@/components/ui/ImageCropModal';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postData, postDataJson } from '@/services/api';
 import type { User } from '@/types';
@@ -80,6 +81,8 @@ export default function AdminPersonnelPage() {
   const [editing, setEditing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     prefix: 'นาย', customPrefix: '', firstName: '', lastName: '', nickname: '', position: '',
     department: DEPARTMENTS[0], gender: 'ไม่ระบุ', birthDay: '', birthMonth: '', birthYearBE: '',
@@ -342,20 +345,15 @@ export default function AdminPersonnelPage() {
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !editTarget) return;
-    setUploading(true);
-    try {
-      const base64 = await fileToBase64(file);
-      setUploading(false);
-      setConfirm({
-        title: 'ยืนยันการอัปโหลดรูปโปรไฟล์',
-        message: `คุณกำลังจะอัปโหลดรูปโปรไฟล์ของ "${displayName(editTarget)}" แทนรูปเดิม แน่ใจหรือไม่?`,
-        variant: 'primary',
-        onConfirm: () => { if (editTarget.Personnel_ID) uploadImage(editTarget.Personnel_ID, base64); },
-      });
-    } catch {
-      setUploading(false);
-      setNotice({ type: 'error', text: 'อ่านไฟล์รูปไม่สำเร็จ' });
-    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (dataUrl) {
+        setCropSrc(dataUrl);
+        setCropOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -980,6 +978,24 @@ export default function AdminPersonnelPage() {
         message={notice?.text || ''}
         confirmLabel="ตกลง"
         onClose={() => setNotice(null)}
+      />
+
+      <ImageCropModal
+        open={cropOpen && !!cropSrc}
+        imageSrc={cropSrc || ''}
+        onCancel={() => { setCropOpen(false); setCropSrc(null); }}
+        onSave={(b64) => {
+          setCropOpen(false);
+          setCropSrc(null);
+          if (editTarget) {
+            setConfirm({
+              title: 'ยืนยันการอัปโหลดรูปโปรไฟล์',
+              message: `คุณกำลังจะอัปโหลดรูปโปรไฟล์ของ "${displayName(editTarget)}" แทนรูปเดิม แน่ใจหรือไม่?`,
+              variant: 'primary',
+              onConfirm: () => { if (editTarget.Personnel_ID) uploadImage(editTarget.Personnel_ID, b64); },
+            });
+          }
+        }}
       />
     </div>
   );

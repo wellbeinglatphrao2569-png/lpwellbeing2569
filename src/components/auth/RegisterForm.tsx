@@ -5,6 +5,7 @@ import { postData } from '@/services/api';
 import Link from 'next/link';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import ResultPopup from '@/components/ui/ResultPopup';
+import ImageCropModal from '@/components/ui/ImageCropModal';
 import {
   DEPARTMENTS, GENDERS, PREFIXES, CUSTOM_PREFIX, ACTIVITIES,
   calcBmi, bmiCategory, birthDateThaiText, calcAge,
@@ -59,6 +60,8 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
   const fileRef = useRef<HTMLInputElement>(null);
   const [profileImage, setProfileImage] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
   const [queryName, setQueryName] = useState('');
   const [queryDept, setQueryDept] = useState('');
   const [results, setResults] = useState<PersonnelRecord[] | null>(null);
@@ -138,14 +141,16 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
   const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
-    try {
-      const base64 = await fileToBase64(file);
-      setProfileImage(base64);
-    } catch {
-      setSubmitError('อ่านไฟล์รูปไม่สำเร็จ');
-    }
-    setUploading(false);
+    // เปิดหน้าครอบตัด 1:1 ก่อนบันทึก
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      if (dataUrl) {
+        setCropSrc(dataUrl);
+        setCropOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -563,6 +568,13 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
           if (onSuccess) onSuccess();
           else router.push('/login');
         }}
+      />
+
+      <ImageCropModal
+        open={cropOpen && !!cropSrc}
+        imageSrc={cropSrc || ''}
+        onCancel={() => { setCropOpen(false); setCropSrc(null); }}
+        onSave={(b64) => { setProfileImage(b64); setCropOpen(false); setCropSrc(null); }}
       />
     </div>
   );

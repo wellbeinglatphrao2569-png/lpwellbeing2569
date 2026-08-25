@@ -296,8 +296,12 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
                   : (form.firstName ? form.firstName.charAt(0) : 'ส')}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">รูปภาพโปรไฟล์</p>
-                <input ref={fileRef} type="file" accept="image/*" onChange={onFileChange} className="text-xs mt-1" />
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">รูปภาพโปรไฟล์ <span className="text-xs text-gray-400">(ครอบ 1:1 ก่อนบันทึก)</span></p>
+                <label className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border-2 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-sm font-bold cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/30 hover:border-emerald-300 transition-all shadow-sm">
+                  <span className="material-symbols-outlined text-base">upload</span>
+                  เลือกรูปโปรไฟล์
+                  <input ref={fileRef} type="file" accept="image/*" onChange={onFileChange} className="hidden" />
+                </label>
                 {uploading && <p className="text-xs text-emerald-600 mt-1">กำลังอ่านรูป...</p>}
                 {profileImage && canShowFileName && (
                   <p className="text-[11px] text-gray-400 mt-1 truncate" title={profileFileName}>บันทึก: {profileFileName}</p>

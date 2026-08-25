@@ -162,7 +162,7 @@ function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise<strin
 }
 
 export default function StepsPage() {
-  const { user } = useAuth();
+  const { user, login } = useAuth();
   const [stepsData, setStepsData] = useState<StepsLog[]>([]);
   const [activeResultCard, setActiveResultCard] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [stepInput, setStepInput] = useState('');
@@ -229,6 +229,26 @@ export default function StepsPage() {
     loadData();
     loadDeptUsers();
   }, []);
+
+  // ซิงก์โหมดล่าสุดจาก GAS: เมื่อ Admin เปลี่ยน Mode 1↔2 แล้ว ผู้ใช้ไม่ต้อง logout/login ใหม่ก็เห็นผลทันที
+  useEffect(() => {
+    if (!user?.User_ID) return;
+    let cancelled = false;
+    (async () => {
+      const usersData = await fetchData<User[]>('users');
+      if (cancelled || !usersData) return;
+      const fresh = usersData.find(u => String(u.User_ID).trim() === String(user.User_ID).trim());
+      if (!fresh) return;
+      const oldMode = String((user as any).Step_Record_Mode || '1').trim();
+      const newMode = String((fresh as any).Step_Record_Mode || '1').trim();
+      const oldDept = String(user.Department || '').trim();
+      const newDept = String(fresh.Department || '').trim();
+      if (oldMode !== newMode || oldDept !== newDept || String(user.Full_Name||'') !== String(fresh.Full_Name||'')) {
+        login(fresh);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.User_ID]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadData() {
     const data = await fetchData<StepsLog[]>('steps');

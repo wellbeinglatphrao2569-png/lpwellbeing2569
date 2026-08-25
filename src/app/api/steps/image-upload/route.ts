@@ -41,6 +41,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
     }
 
+    // กัน Mode 2 บันทึกเอง — ต้องให้ จนท. บันทึกให้เท่านั้น (Mode 1 จึงบันทึกได้)
+    try {
+      const uRes = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
+      if (uRes.ok) {
+        const users = await uRes.json();
+        if (Array.isArray(users)) {
+          const target = users.find((u: any) => String(u.User_ID).trim() === String(userId).trim());
+          if (target && String((target as any).Step_Record_Mode || '1').trim() === '2') {
+            return NextResponse.json({ error: 'คุณอยู่ใน Mode 2 (เจ้าหน้าที่ นสส. บันทึกให้) — ไม่สามารถบันทึกเองได้ กรุณาติดต่อเจ้าหน้าที่ประจำฝ่าย' }, { status: 403 });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('image-upload mode check failed', e);
+    }
+
     const gasRes = await fetch(GAS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },

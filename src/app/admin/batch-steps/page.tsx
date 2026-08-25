@@ -395,6 +395,29 @@ export default function BatchStepsPage(){
       setResultPopup({type:'error', title:'บันทึกได้เฉพาะฝ่ายของตนเอง', message:`คุณอยู่ฝ่าย “${actorDepartment}” ไม่สามารถบันทึกให้บุคลากรต่างฝ่ายได้ — พบ ${crossDeptUids.size} คนที่ไม่ใช่ฝ่ายคุณ: ${names}${crossDeptUids.size>5?' …':''}`});
       return;
     }
+    // ตรวจ Mode 1: ล็อกตายตัว — เจ้าหน้าที่บันทึกให้ไม่ได้ ต้องให้เจ้าตัวบันทึกเอง
+    const mode1Uids = new Set<string>();
+    const checkMode1 = (uid:string)=>{
+      const u=users.find(x=> getUserKey(x)===uid || String((x as any).Personnel_ID)===uid);
+      if(u && !isPendingUser(u) && String(u.Step_Record_Mode||'1')!=='2') mode1Uids.add(uid);
+    };
+    for(const uid of Object.keys(userFiles)) checkMode1(uid);
+    for(const uid of Object.keys(gridInputs)){
+      const hasAny = Object.values(gridInputs[uid]||{}).some(v=> parseInt(String(v||''),10)>0);
+      if(hasAny) checkMode1(uid);
+    }
+    for(const uid of Object.keys(gridImages)){
+      const hasImg = Object.keys(gridImages[uid]||{}).length>0;
+      if(hasImg) checkMode1(uid);
+    }
+    if(mode1Uids.size>0){
+      const names=[...mode1Uids].map(uid=>{
+        const u=users.find(x=> getUserKey(x)===uid || String((x as any).Personnel_ID)===uid);
+        return u? displayName(u) : uid;
+      }).slice(0,5).join(', ');
+      setResultPopup({type:'error', title:'ล็อก Mode 1 — บันทึกไม่ได้', message:`พบ ${mode1Uids.size} คนที่อยู่ Mode 1 (บันทึกเอง): ${names}${mode1Uids.size>5?' …':''} — เจ้าหน้าที่ไม่สามารถบันทึกให้ได้ ต้องให้เจ้า�ตัวบันทึกด้วยตนเองที่หน้า “บันทึกนับก้าว”`});
+      return;
+    }
     const gridReadyCount = Object.entries(gridInputs).reduce((s,[uid,days])=> s + Object.entries(days).filter(([d,v])=> weekDays.includes(d) && parseInt(v,10)>0 && gridImages[uid]?.[d]).length,0);
     const fileReadyCount = totalReady;
     if(fileReadyCount===0 && gridReadyCount===0){
@@ -520,6 +543,11 @@ export default function BatchStepsPage(){
   }
 
   function setGridStep(uid:string, day:string, val:string){
+    const targetU = users.find(x=> getUserKey(x)===uid);
+    if(targetU && !isPendingUser(targetU) && String(targetU.Step_Record_Mode||'1')!=='2'){
+      setResultPopup({type:'error', title:'ล็อก Mode 1', message:`${displayName(targetU)} อยู่ใน Mode 1 (บันทึกเอง) — เจ้าหน้าที่ไม่สามารถบันทึกให้ได้ ต้องให้เจ้าตัวบันทึกด้วยตนเอง`});
+      return;
+    }
     setGridInputs(prev=> ({...prev, [uid]: {...(prev[uid]||{}), [day]: val}}));
     if(val && existingMap.has(`${uid}|${day}`) && !overwriteWarning){
       setOverwriteWarning(true);
@@ -527,6 +555,11 @@ export default function BatchStepsPage(){
   }
   async function handleGridImage(uid:string, day:string, files: FileList | null){
     if(!files || files.length===0) return;
+    const targetU2 = users.find(x=> getUserKey(x)===uid);
+    if(targetU2 && !isPendingUser(targetU2) && String(targetU2.Step_Record_Mode||'1')!=='2'){
+      setResultPopup({type:'error', title:'ล็อก Mode 1', message:`${displayName(targetU2)} อยู่ใน Mode 1 (บันทึกเอง) — เจ้าหน้าที่ไม่สามารถแนบภาพให้ได้`});
+      return;
+    }
     const file=files[0];
     if(!file.type.startsWith('image/')) return;
     try{
@@ -655,7 +688,9 @@ export default function BatchStepsPage(){
                 const uid=getUserKey(u);
                 const isMode2=String(u.Step_Record_Mode||'1')==='2';
                 const pendingUser=isPendingUser(u);
-                const locked = !pendingUser && !isMode2 && !allowOverwrite;
+                // Mode 1 ล็อกตายตัว — ต้องบันทึกด้วยตนเอง เจ้าหน้าที่บันทึกให้ไม่ได้ (ไม่เกี่ยวกับ allowOverwrite)
+                // allowOverwrite มีผลเฉพาะ Mode 2 ที่จะเขียนทับ Approved เดิมเท่านั้น
+                const locked = !pendingUser && !isMode2;
                 const name=displayName(u);
                 return (
                   <tr key={uid} className={`${locked? 'bg-gray-50 dark:bg-gray-800/30 opacity-60' : 'hover:bg-gray-50/30'} ${!uid? 'opacity-40':''}`}>
@@ -665,8 +700,9 @@ export default function BatchStepsPage(){
                         <div className="min-w-0">
                           <p className="font-bold text-xs truncate max-w-[120px]" title={name}>{name}</p>
                           <p className="text-[10px] text-gray-400 truncate">{u.Department}</p>
-                          {locked && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 text-[9px] font-bold mt-1"><span className="material-symbols-outlined text-xs">lock</span>ล็อก Mode1</span>}
-                          {!locked && isMode2 && <span className="inline-flex px-1 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold mt-1">Mode2</span>}
+                          {locked && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 text-[9px] font-bold mt-1" title="Mode 1 — ต้องบันทึกด้วยตนเอง"><span className="material-symbols-outlined text-xs">lock</span>ล็อก Mode 1 • บันทึกเองเท่านั้น</span>}
+                          {!locked && isMode2 && <span className="inline-flex px-1 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold mt-1">Mode 2 • จนท.บันทึกให้</span>}
+                          {!locked && pendingUser && <span className="inline-flex px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-bold mt-1 ml-1">รอลงทะเบียน</span>}
                         </div>
                       </div>
                     </td>
@@ -681,7 +717,7 @@ export default function BatchStepsPage(){
                           <input type="number" min={0} placeholder={hasExisting? String(existing.Steps_Count) : '—'} value={gridInputs[uid]?.[d] ?? ''}
                             onChange={e=> setGridStep(uid, d, e.target.value)}
                             disabled={disabled}
-                            title={locked? 'โหมดบันทึกเอง — ต้องให้เจ้าตัวบันทึกเอง หรือติ๊กอนุญาตแทนที่' : hasExisting? `มีข้อมูลแล้ว ${Number(existing.Steps_Count).toLocaleString()} ก้าว — พิมพ์ทับเพื่อแก้ไข` : '' }
+                            title={locked? 'Mode 1 — ล็อก: ต้องบันทึกด้วยตนเอง เจ้าหน้าที่บันทึกให้ไม่ได้' : hasExisting? `มีข้อมูลแล้ว ${Number(existing.Steps_Count).toLocaleString()} ก้าว — พิมพ์ทับเพื่อแก้ไข` : '' }
                             className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold text-center ${disabled? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 cursor-not-allowed' : hasExisting? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'} focus:outline-none focus:ring-1 focus:ring-emerald-500`} />
                           <div className="mt-1 flex flex-col items-center gap-1">
                             {img ? (

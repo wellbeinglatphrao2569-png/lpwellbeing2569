@@ -85,6 +85,26 @@ export async function POST(request: NextRequest) {
         actorDepartment: actorDept,
       }, { status: 403 });
     }
+    // ── ตรวจ Mode 1: ล็อกตายตัว — ต้องบันทึกด้วยตนเอง เจ้าหน้าที่บันทึกให้ไม่ได้ ──
+    const mode1Violations: { User_ID: string; name: string }[] = [];
+    for (const s of Steps as any[]) {
+      const tid = String(s.User_ID || '').trim();
+      const tu = userById.get(tid);
+      if (!tu) continue; // ไม่พบแล้วถูกจับเป็น dept violation ไปแล้ว
+      const isPending = !String((tu as any).User_ID || '').trim();
+      const mode = String((tu as any).Step_Record_Mode || '1').trim();
+      if (!isPending && mode !== '2') {
+        const tName = String(tu.Full_Name || tu.First_Name || tid);
+        mode1Violations.push({ User_ID: tid, name: tName });
+      }
+    }
+    if (mode1Violations.length > 0) {
+      const sample = mode1Violations.slice(0, 5).map(v => v.name).join(', ');
+      return NextResponse.json({
+        error: `ล็อก Mode 1 — พบ ${mode1Violations.length} คนที่อยู่ Mode 1 (บันทึกเอง): ${sample}${mode1Violations.length > 5 ? ' …' : ''} — เจ้าหน้าที่ไม่สามารถบันทึกให้ได้ ต้องให้เจ้าตัวบันทึกด้วยตนเอง`,
+        mode1Violations,
+      }, { status: 403 });
+    }
 
     // Server-only AI: ตรวจภาพทุกใบก่อนส่ง GAS (ถ้ามีคีย์)
     const useAi = hasAiKeys();

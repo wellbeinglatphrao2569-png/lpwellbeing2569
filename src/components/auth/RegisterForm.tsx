@@ -219,14 +219,14 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
             <p className="text-sm text-gray-500">เจ้าหน้าที่ นสส. ได้เพิ่มรายชื่อบุคลากรไว้แล้ว กรุณาค้นหาชื่อของท่าน (บุคลากร 1 คน ยืนยันตัวตนได้ 1 ครั้ง)</p>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium block mb-1">ชื่อ-นามสกุล / คำค้น</label>
+                <label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">ชื่อ-นามสกุล / คำค้น</label>
                 <input value={queryName} onChange={e => setQueryName(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" placeholder="เช่น สมชาย รักสุขภาพ" />
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="เช่น สมชาย รักสุขภาพ" />
               </div>
               <div>
-                <label className="text-sm font-medium block mb-1">ส่วนราชการ</label>
+                <label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">ส่วนราชการ</label>
                 <select value={queryDept} onChange={e => setQueryDept(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800">
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500">
                   <option value="">ทั้งหมด</option>
                   {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
                 </select>
@@ -284,7 +284,7 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
             <h2 className="font-semibold text-lg">ส่วนที่ 1 ข้อมูลส่วนบุคคล</h2>
 
             {/* รูปโปรไฟล์ */}
-            <div className="flex items-center gap-4 p-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <div className="flex items-center gap-4 p-4 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500">
               <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center text-2xl font-bold overflow-hidden shrink-0">
                 {profileImage
                   ? <img src={`data:image/jpeg;base64,${profileImage}`} alt="โปรไฟล์" className="w-full h-full object-cover" />
@@ -301,40 +301,40 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
             </div>
 
             <div>
-              <label className="text-sm font-medium block mb-1">เลขบัตรประชาชน 13 หลัก</label>
+              <label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">เลขบัตรประชาชน 13 หลัก</label>
               <input value={form.citizenId} onChange={e => update('citizenId', e.target.value.replace(/\D/g, '').slice(0, 13))}
                 inputMode="numeric"
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" placeholder="เช่น 1xxxx..." />
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="เช่น 1xxxx..." />
               {form.citizenId && !citizenOk && <p className="text-red-500 text-sm mt-1">เลขบัตรประชาชนไม่ถูกต้อง (ตรวจสอบครบ 13 หลัก)</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-sm font-medium block mb-1">คำนำหน้า <span className="text-red-500">*</span></label>
-                <select value={form.prefix} onChange={e => update('prefix', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800">
+              <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">คำนำหน้า <span className="text-red-500">*</span></label>
+                <select value={form.prefix} onChange={e => update('prefix', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500">
                   {PREFIXES.map(p => <option key={p}>{p}</option>)}</select>
                 {form.prefix === CUSTOM_PREFIX && (
-                  <input value={form.customPrefix} onChange={e => update('customPrefix', e.target.value)} className="w-full mt-2 px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" placeholder="พิมพ์คำนำหน้า เช่น จ.ส.อ., ดร., คุณ" />
+                  <input value={form.customPrefix} onChange={e => update('customPrefix', e.target.value)} className="w-full mt-2 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="พิมพ์คำนำหน้า เช่น จ.ส.อ., ดร., คุณ" />
                 )}</div>
-              <div><label className="text-sm font-medium block mb-1">ชื่อเล่น <span className="text-red-500">*</span></label>
-                <input value={form.nickname} onChange={e => update('nickname', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" placeholder="ชื่อเล่น" /></div>
+              <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">ชื่อเล่น <span className="text-red-500">*</span></label>
+                <input value={form.nickname} onChange={e => update('nickname', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="ชื่อเล่น" /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-sm font-medium block mb-1">ชื่อ <span className="text-red-500">*</span></label>
-                <input value={form.firstName} onChange={e => update('firstName', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" placeholder="ชื่อ" /></div>
-              <div><label className="text-sm font-medium block mb-1">นามสกุล <span className="text-red-500">*</span></label>
-                <input value={form.lastName} onChange={e => update('lastName', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" placeholder="นามสกุล" /></div>
+              <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">ชื่อ <span className="text-red-500">*</span></label>
+                <input value={form.firstName} onChange={e => update('firstName', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="ชื่อ" /></div>
+              <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">นามสกุล <span className="text-red-500">*</span></label>
+                <input value={form.lastName} onChange={e => update('lastName', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="นามสกุล" /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-sm font-medium block mb-1">ตำแหน่ง <span className="text-red-500">*</span></label>
-                <input value={form.position} onChange={e => update('position', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" placeholder="ตำแหน่ง" /></div>
-              <div><label className="text-sm font-medium block mb-1">ส่วนราชการ <span className="text-red-500">*</span></label>
-                <select value={form.department} onChange={e => update('department', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800">
+              <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">ตำแหน่ง <span className="text-red-500">*</span></label>
+                <input value={form.position} onChange={e => update('position', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="ตำแหน่ง" /></div>
+              <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">ส่วนราชการ <span className="text-red-500">*</span></label>
+                <select value={form.department} onChange={e => update('department', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500">
                   <option value="">เลือกส่วนราชการ</option>
                   {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select></div>
             </div>
 
             <div>
-              <label className="text-sm font-medium block mb-1">เพศ</label>
+              <label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">เพศ</label>
               <div className="flex flex-wrap gap-2">
                 {GENDERS.map(g => (
                   <button key={g} type="button" onClick={() => update('gender', g)}
@@ -348,20 +348,20 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
 
             {/* วันเดือนปีเกิด (พ.ศ.) */}
             <div>
-              <label className="text-sm font-medium block mb-1">วัน เดือน ปี (พ.ศ.) เกิด</label>
+              <label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">วัน เดือน ปี (พ.ศ.) เกิด</label>
               <div className="grid grid-cols-3 gap-3">
                 <select value={form.birthDay} onChange={e => update('birthDay', e.target.value)}
-                  className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800">
+                  className="w-full px-3 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500">
                   <option value="">วัน</option>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
                 <select value={form.birthMonth} onChange={e => update('birthMonth', e.target.value)}
-                  className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800">
+                  className="w-full px-3 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500">
                   <option value="">เดือน</option>
                   {THAI_MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
                 </select>
                 <select value={form.birthYearBE} onChange={e => update('birthYearBE', e.target.value)}
-                  className="w-full px-3 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800">
+                  className="w-full px-3 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500">
                   <option value="">ปี พ.ศ.</option>
                   {Array.from({ length: BIRTH_YEAR_BE_MAX - BIRTH_YEAR_BE_MIN + 1 }, (_, i) => BIRTH_YEAR_BE_MAX - i)
                     .map(y => <option key={y} value={y}>{y}</option>)}
@@ -395,10 +395,10 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
           <div className="space-y-4 animate-fade-in">
             <h2 className="font-semibold text-lg">ส่วนที่ 2 น้ำหนัก / ส่วนสูง</h2>
             <div className="grid grid-cols-2 gap-4">
-              <div><label className="text-sm font-medium block mb-1">น้ำหนัก (กก.)</label>
-                <input type="number" min="0" inputMode="decimal" value={form.weight} onChange={e => update('weight', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" /></div>
-              <div><label className="text-sm font-medium block mb-1">ส่วนสูง (ซม.)</label>
-                <input type="number" min="0" inputMode="decimal" value={form.height} onChange={e => update('height', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" /></div>
+              <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">น้ำหนัก (กก.)</label>
+                <input type="number" min="0" inputMode="decimal" value={form.weight} onChange={e => update('weight', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" /></div>
+              <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">ส่วนสูง (ซม.)</label>
+                <input type="number" min="0" inputMode="decimal" value={form.height} onChange={e => update('height', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" /></div>
             </div>
             {bmi !== null ? (
               <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl text-center">
@@ -458,10 +458,10 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
         {step === 5 && (
           <div className="space-y-4 animate-fade-in">
             <h2 className="font-semibold text-lg">ส่วนที่ 4 รหัสผ่าน</h2>
-            <div><label className="text-sm font-medium block mb-1">รหัสผ่าน (อย่างน้อย 6 ตัวอักษร)</label>
-              <input type="password" value={form.password} onChange={e => update('password', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" /></div>
-            <div><label className="text-sm font-medium block mb-1">ยืนยันรหัสผ่าน</label>
-              <input type="password" value={form.confirmPassword} onChange={e => update('confirmPassword', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white dark:bg-gray-800" /></div>
+            <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">รหัสผ่าน (อย่างน้อย 6 ตัวอักษร)</label>
+              <input type="password" value={form.password} onChange={e => update('password', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" /></div>
+            <div><label className="text-sm font-medium block mb-1 text-gray-700 dark:text-gray-300">ยืนยันรหัสผ่าน</label>
+              <input type="password" value={form.confirmPassword} onChange={e => update('confirmPassword', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500" /></div>
             {form.password !== form.confirmPassword && form.confirmPassword && <p className="text-red-500 text-sm">รหัสผ่านไม่ตรงกัน</p>}
             {form.password && form.password.length < 6 && <p className="text-red-500 text-sm">รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร</p>}
             <p className="text-xs text-gray-400">ข้อมูลอ่อนไหว (เลขบัตรประชาชน รหัสผ่าน น้ำหนัก ส่วนสูง) จะถูกบันทึกเมื่อยืนยันการลงทะเบียนครั้งนี้เท่านั้น และรหัสผ่านจะถูกเก็บแบบ Hash เพื่อความปลอดภัย</p>
@@ -492,7 +492,7 @@ export default function RegisterForm({ onSuccess }: { onSuccess?: () => void }) 
               </div>
             </div>
 
-            <div className="rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 text-sm bg-white dark:bg-gray-800">
+            <div className="rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500">
               <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 font-semibold text-gray-700 dark:text-gray-200">ส่วนที่ 1 · ข้อมูลส่วนบุคคล</div>
               <div className="px-4 py-3 space-y-2">
                 <p><strong>ชื่อ:</strong> {effectivePrefix}{form.firstName} {form.lastName} ({form.nickname})</p>

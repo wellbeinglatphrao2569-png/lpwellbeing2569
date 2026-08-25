@@ -37,7 +37,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
   }, [isLoggedIn, isPublicRoute, isAllowed, homePath, router]);
 
   if (isPublicRoute) {
-    // สาธารณะ: แสดง layout แบบมี Sidebar/TopBar ได้แม้ไม่ login (TopBar/Sidebar จะแสดงปุ่ม login แทนโปรไฟล์)
     if (pathname.startsWith('/dashboard')) {
       return (
         <div className="min-h-screen bg-gradient-to-br from-emerald-50/50 to-cyan-50/50 dark:from-gray-900 dark:to-gray-950 text-gray-900 dark:text-gray-100 flex overflow-x-hidden">
@@ -64,7 +63,16 @@ function AppShell({ children }: { children: React.ReactNode }) {
     }
     return <>{children}</>;
   }
-  if (!isLoggedIn) return null;
+  if (!isLoggedIn) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-emerald-50 to-cyan-50 dark:from-gray-900 dark:to-gray-950">
+        <div className="flex flex-col items-center gap-3">
+          <span className="loading loading-spinner loading-lg text-emerald-600"></span>
+          <p className="text-sm text-gray-500">กำลังตรวจสอบสิทธิ์ — กำลังไปหน้าเข้าสู่ระบบ...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50/50 to-cyan-50/50 dark:from-gray-900 dark:to-gray-950 text-gray-900 dark:text-gray-100 flex overflow-x-hidden">

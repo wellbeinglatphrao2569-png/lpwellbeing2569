@@ -25,6 +25,22 @@ export async function POST(request: NextRequest) {
     if (!Steps || !Array.isArray(Steps) || Steps.length === 0) return NextResponse.json({ error: 'Steps array is required' }, { status: 400 });
     if (!GAS_API_URL) return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
 
+    // ห้วงเวลาบันทึก: ตรวจว่าทุกวันที่ส่งมาอยู่ในห้วง (กันยิง API ตรง)
+    try {
+      const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
+      if (winRes.ok) {
+        const win = await winRes.json();
+        if (win && win.start && win.end) {
+          const out: string[] = [];
+          for (const s of Steps as any[]) {
+            const d = String(s.Day || '').trim().slice(0,10);
+            if (d && (d < String(win.start).slice(0,10) || d > String(win.end).slice(0,10))) out.push(d);
+          }
+          if (out.length>0) return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — พบวันที่นอกห้วง: ${out.slice(0,3).join(', ')}${out.length>3?' …':''}` }, { status: 400 });
+        }
+      }
+    } catch (e) { console.warn('batch-upload window check failed', e); }
+
     // ── ตรวจสิทธิ์ฝ่าย: บันทึกได้เฉพาะฝ่ายของตนเองเท่านั้น (กันยิง API ตรง / แก้ devtools) ──
     let actorDept = String(Logged_Department || '').trim();
     let usersList: any[] = [];

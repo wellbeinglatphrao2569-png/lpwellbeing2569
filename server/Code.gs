@@ -8,6 +8,7 @@
 // ===== CONFIGURATION =====
 const CONFIG = {
   SPREADSHEET_ID: '1cwafR4tIt-gYwkeN_NoH4GeXRJKF76uJNNG3u7U46VI',
+  PROGRAM_START_DATE: '2026-08-24',
   PROGRAM_END_DATE: '2026-11-13',
   SHEET_NAMES: {
     USERS: 'Users',
@@ -364,6 +365,9 @@ function doGet(e) {
       case 'google-fit-links':
         result = getData_('Google_Fit_Links');
         break;
+      case 'project-window':
+        result = getProjectWindow_();
+        break;
       default:
         result = { status: 'ok', project: 'ลาดพร้าวสร้างสุข', version: '1.0.0' };
     }
@@ -495,6 +499,22 @@ function doPost(e) {
       case 'clear-sweet-free':
         result = clearCycleData_({ Logged_By: data.Logged_By, targets: 'sweet' });
         break;
+      case 'set-project-window':
+        result = setProjectWindow_(data);
+        break;
+      case 'get-project-window':
+        result = getProjectWindow_();
+        break;
+      case 'cleanup-out-of-window':
+        {
+          var actor2 = getData_('Users').find(function(u){ return String(u.User_ID)===String(data.Logged_By); });
+          if(!actor2 || String(actor2.Role)!=='Admin') result = { success:false, message:'เฉพาะ Admin เท่านั้น' };
+          else {
+            var cleaned = cleanupOutOfWindowData_(data.targets||'all');
+            result = { success:true, message:'ลบข้อมูลนอกห้วงเวลาแล้ว — Steps ' + cleaned.stepsDeleted + ' แถว, Sweet ' + cleaned.sweetDeleted + ' แถว', cleaned: cleaned, window: getProjectWindow_() };
+          }
+        }
+        break;
       default:
         result = { error: 'Unknown action: ' + action };
     }
@@ -528,6 +548,89 @@ function isWeightAfterOpen_() {
   if (flag === '0') return false;
   const today = getTimestamp_().substring(0, 10); // yyyy-MM-dd
   return today >= CONFIG.PROGRAM_END_DATE;
+}
+
+// ===== PROJECT WINDOW (ห้วงเวลาบันทึกข้อมูล) =====
+function getProjectWindow_() {
+  var props = PropertiesService.getScriptProperties();
+  var start = props.getProperty('PROJECT_START_DATE') || CONFIG.PROGRAM_START_DATE;
+  var end = props.getProperty('PROJECT_END_DATE') || CONFIG.PROGRAM_END_DATE;
+  return { start: start, end: end, defaultStart: CONFIG.PROGRAM_START_DATE, defaultEnd: CONFIG.PROGRAM_END_DATE };
+}
+function setProjectWindow_(data) {
+  var actor = getData_('Users').find(function (u) { return String(u.User_ID) === String(data.Logged_By); });
+  if (!actor) return { success: false, message: 'ไม่พบผู้ดำเนินการ' };
+  if (String(actor.Role) !== 'Admin') return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. เท่านั้นที่ตั้งค่าห้วงเวลาได้' };
+  var start = String(data.Start_Date || data.start || '').trim();
+  var end = String(data.End_Date || data.end || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    return { success: false, message: 'รูปแบบวันที่ต้องเป็น YYYY-MM-DD' };
+  }
+  if (start > end) return { success: false, message: 'วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด' };
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('PROJECT_START_DATE', start);
+  props.setProperty('PROJECT_END_DATE', end);
+  // อัปเดต CONFIG ในหน่วยความจำด้วย (สำหรับ request ปัจจุบัน)
+  CONFIG.PROGRAM_START_DATE = start;
+  CONFIG.PROGRAM_END_DATE = end;
+  ensureHeaders_('Audit_Log', AUDIT_HEADERS);
+  appendData_('Audit_Log', { Audit_ID: generateSequentialId_('Audit_Log', 'AU'), Record_ID: 'WINDOW-' + getTimestamp_().replace(/[^0-9]/g,'').substring(0,14), Action: 'SET_PROJECT_WINDOW', User_ID: String(data.Logged_By), Detail: 'ตั้งห้วงเวลาบันทึก ' + start + ' ถึง ' + end, Timestamp: getTimestamp_() });
+  return { success: true, message: 'ตั้งห้วงเวลาบันทึกเป็น ' + start + ' ถึง ' + end + ' สำเร็จ', start: start, end: end };
+}
+function isDateInWindow_(dateStr) {
+  var win = getProjectWindow_();
+  var key = String(dateStr||'').trim().slice(0,10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+    // ลองแปลง Date object หรือ ISO datetime
+    try { key = Utilities.formatDate(new Date(dateStr), 'Asia/Bangkok', 'yyyy-MM-dd'); } catch(e){ return false; }
+  }
+  return key >= win.start && key <= win.end;
+}
+function cleanupOutOfWindowData_(targets) {
+  var win = getProjectWindow_();
+  var toClean = String(targets||'all').toLowerCase();
+  var result = { stepsDeleted: 0, sweetDeleted: 0 };
+  if (toClean==='steps' || toClean==='all') {
+    var sheet = getSheet_('Steps_Log');
+    var data = sheet.getDataRange().getValues();
+    if (data.length>1) {
+      var headers = data[0];
+      var dateIdx = headers.indexOf('Date_Thai');
+      if (dateIdx>=0) {
+        var rowsToDelete=[];
+        for(var i=1;i<data.length;i++){
+          var d = String(data[i][dateIdx]||'').trim().slice(0,10);
+          if(!d) continue;
+          // แปลงให้เป็น YYYY-MM-DD ตามไทย
+          try { if(data[i][dateIdx] instanceof Date) d = Utilities.formatDate(data[i][dateIdx],'Asia/Bangkok','yyyy-MM-dd'); } catch(e){}
+          if(d < win.start || d > win.end) rowsToDelete.push(i+1);
+        }
+        rowsToDelete.sort(function(a,b){return b-a;});
+        rowsToDelete.forEach(function(r){ sheet.deleteRow(r); });
+        result.stepsDeleted = rowsToDelete.length;
+      }
+    }
+  }
+  if (toClean==='sweet' || toClean==='all' || toClean==='sweet_free') {
+    var sheet2 = getSheet_('Sweet_Free');
+    var data2 = sheet2.getDataRange().getValues();
+    if (data2.length>1) {
+      var headers2 = data2[0];
+      var dateIdx2 = headers2.indexOf('Wednesday_Date');
+      if (dateIdx2>=0) {
+        var rowsToDelete2=[];
+        for(var i=1;i<data2.length;i++){
+          var d2 = String(data2[i][dateIdx2]||'').trim().slice(0,10);
+          try { if(data2[i][dateIdx2] instanceof Date) d2 = Utilities.formatDate(data2[i][dateIdx2],'Asia/Bangkok','yyyy-MM-dd'); } catch(e){}
+          if(d2 < win.start || d2 > win.end) rowsToDelete2.push(i+1);
+        }
+        rowsToDelete2.sort(function(a,b){return b-a;});
+        rowsToDelete2.forEach(function(r){ sheet2.deleteRow(r); });
+        result.sweetDeleted = rowsToDelete2.length;
+      }
+    }
+  }
+  return result;
 }
 
 function generateSequentialId_(sheetName, prefix) {
@@ -1418,6 +1521,12 @@ function loginUser_(data) {
 }
 
 function addStepLog_(data) {
+  // ห้วงเวลาบันทึก: ต้องอยู่ในช่วงโครงการเท่านั้น (24 ส.ค. 2569 – 13 พ.ย. 2569)
+  var dateThaiCheck = String(data.Date_Thai||'').trim() || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  if (!isDateInWindow_(dateThaiCheck)) {
+    var win = getProjectWindow_();
+    return { success: false, message: 'ไม่อยู่ในห้วงเวลาบันทึก (' + win.start + ' ถึง ' + win.end + ') — ไม่สามารถบันทึกวันที่ ' + dateThaiCheck + ' ได้' };
+  }
   // ตรวจสอบโหมดบันทึก — Mode 2 บันทึกเองไม่ได้
   var checkUsers = getData_('Users');
   var checkUser = checkUsers.find(function (u) { return String(u.User_ID) === String(data.User_ID); });
@@ -1485,6 +1594,12 @@ function addSweetFree_(data) {
     return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. หรือกรรมการประจำฝ่ายเท่านั้นที่บันทึกผลงดหวานได้' };
   }
 
+  // ห้วงเวลาโครงการ: ต้องอยู่ในช่วงที่กำหนด (เช่น 24 ส.ค. 2569 – 13 พ.ย. 2569)
+  var winCheck = getProjectWindow_();
+  var wedKeyForWindow = String(data.Wednesday_Date || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd')).trim().slice(0,10);
+  if (!isDateInWindow_(wedKeyForWindow)) {
+    return { success: false, message: 'นอกห้วงเวลาบันทึก (' + winCheck.start + ' ถึง ' + winCheck.end + ') — ไม่สามารถบันทึกวันที่ ' + wedKeyForWindow + ' ได้' };
+  }
   // ตรวจช่วงเวลา: พุธ 14:00 น. – ศุกร์ 23:59 น. (ตามเวลาประเทศไทย UTC+7)
   const _bkk = new Date(new Date().getTime() + 7 * 60 * 60 * 1000);
   const day = _bkk.getUTCDay(); // 0=อาทิตย์ .. 6=เสาร์
@@ -2895,6 +3010,13 @@ function addBatchSteps_(data) {
     var userId = String(item.User_ID || '').trim();
     var dayStr = String(item.Day || '').trim();
     var stepsCount = Number(item.Steps_Count) || 0;
+    // ห้วงเวลาบันทึก: ต้องอยู่ในช่วงโครงการเท่านั้น — นอกช่วงจะไม่รับและถือว่าผิดพลาด
+    if (!isDateInWindow_(dayStr)) {
+      var winB = getProjectWindow_();
+      details.push({ User_ID: userId, Day: dayStr, status: 'error', message: 'นอกห้วงเวลาบันทึก (' + winB.start + ' ถึง ' + winB.end + ')' });
+      errors++;
+      continue;
+    }
     
     // ตรวจ user — รองรับทั้ง User_ID (ลงทะเบียนแล้ว) และ Personnel_ID (รอลงทะเบียน)
     var targetUser = users.find(function (u) { return String(u.User_ID) === userId || String(u.Personnel_ID) === userId; });

@@ -10,6 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postData } from '@/services/api';
 import type { StepsLog, User, AiImageAnalysis } from '@/types';
 import * as GF from '@/lib/google-fitness';
+import { useProjectWindow } from '@/hooks/useProjectWindow';
 
 type DepartmentMember = {
   name: string;
@@ -170,6 +171,7 @@ export default function StepsPage() {
   const [logMethod, setLogMethod] = useState<'google-fit' | 'image-upload'>('google-fit');
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
+  const [savingAiProgress, setSavingAiProgress] = useState<{ percent: number; model: string } | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -184,6 +186,7 @@ export default function StepsPage() {
   const [gfVersion, setGfVersion] = useState(0);
   const [gfLinkedUser, setGfLinkedUser] = useState<{ userId: string; userName: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { window: projectWindow, isInWindow } = useProjectWindow();
 
   // ช่วงเวลาที่ดูย้อนหลังได้ (วัน / สัปดาห์ / เดือน)
   const [dayOffset, setDayOffset] = useState(0);
@@ -548,6 +551,7 @@ export default function StepsPage() {
   const requestSave = () => {
     if (!user) return;
     if (isMode2) { setAiError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
+    if (projectWindow && !isInWindow(logDate)) { setAiError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || aiExtractedSteps);
     if (!steps || steps <= 0) return;
     if (logMethod === 'image-upload' && !imagePreview) {
@@ -563,14 +567,32 @@ export default function StepsPage() {
     if (isMode2) { setAiError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || aiExtractedSteps);
     if (!steps || steps <= 0) return;
+    if (projectWindow && !isInWindow(logDate)) {
+      setAiError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`);
+      return;
+    }
     setSaving(true);
     setAiError(null);
+    let simTimer: any = null;
+    if (logMethod === 'image-upload') {
+      setSavingAiProgress({ percent: 0, model: 'Gemini 3.6-flash' });
+      let pct = 0;
+      const models = ['Gemini 3.6-flash', 'ox-alpha', 'Gemma-4-26b'];
+      let mi = 0;
+      simTimer = setInterval(() => {
+        pct = Math.min(88, pct + Math.random()*7 + 2);
+        mi = (mi+1)%models.length;
+        setSavingAiProgress({ percent: Math.round(pct), model: models[mi] });
+      }, 420);
+    }
 
     let res: { success?: boolean; error?: string } | null = null;
 
     if (logMethod === 'image-upload') {
       if (!imagePreview) {
+        if(simTimer) clearInterval(simTimer);
         setSaving(false);
+        setSavingAiProgress(null);
         setAiError('ไม่พบรูปภาพ — โปรดเลือกไฟล์รูปก่อนบันทึก');
         return;
       }
@@ -592,11 +614,20 @@ export default function StepsPage() {
           }),
         });
         const data = await uploadRes.json().catch(() => ({}));
+        if (simTimer) { clearInterval(simTimer); setSavingAiProgress({ percent: 100, model: data.aiModel || 'Gemini 3.6-flash' }); await new Promise(r=> setTimeout(r, 600)); setSavingAiProgress(null); }
         if (!uploadRes.ok || !data.success) {
           throw new Error(data.error || 'บันทึกไม่สำเร็จ');
         }
+        // แจ้งผล AI หลังบันทึก — ถ้า Approved จะนับคะแนนทันที, ถ้า Pending จะแจ้งให้รอต่างฝ่ายตรวจสอบ
+        if (data.aiStatus === 'Approved') {
+          setAiError(null);
+        } else if (data.aiStatus === 'Pending') {
+          // ไม่ถือเป็น error แต่ให้ผู้ใช้รู้ว่าส่งต่อต่างฝ่ายตรวจ
+        }
         res = data;
       } catch (err) {
+        if(simTimer) clearInterval(simTimer);
+        setSavingAiProgress(null);
         setAiError(err instanceof Error ? err.message : 'บันทึกไม่สำเร็จ');
         setSaving(false);
         return;
@@ -629,10 +660,14 @@ export default function StepsPage() {
       await loadData();
       await loadDeptUsers();
       setSaving(false);
+      setSavingAiProgress(null);
+      if (simTimer) clearInterval(simTimer);
       setTimeout(() => window.location.reload(), 700);
       return;
     }
     setSaving(false);
+    setSavingAiProgress(null);
+    if (simTimer) clearInterval(simTimer);
   }
 
   const activeSteps = logMethod === 'google-fit' ? googleFitSteps : (stepInput ? parseInt(stepInput) : aiExtractedSteps);
@@ -860,10 +895,11 @@ export default function StepsPage() {
               <label className="font-medium text-gray-700 dark:text-gray-300 text-sm block mb-1.5">
                 เลือกวันที่ — {getLogDateDisplay(logDate)}
               </label>
-              <input type="date" value={logDate} onChange={e => {
+              <input type="date" value={logDate} min={projectWindow?.start} max={projectWindow?.end} onChange={e => {
                 setLogDate(e.target.value); resetSteps(); setImageFile(null); setImagePreview(null);
               }}
                 className="w-full p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm [color-scheme:light] dark:[color-scheme:dark]" />
+              {projectWindow && !isInWindow(logDate) && <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-bold">⚠ วันที่นี้อยู่นอกห้วงเวลาบันทึก ({projectWindow.start} ถึง {projectWindow.end}) — บันทึกไม่ได้</p>}
               {isCurrentDate && <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">📍 วันนี้</p>}
             </div>
 
@@ -977,8 +1013,9 @@ export default function StepsPage() {
                     className="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-emerald-50 dark:file:bg-emerald-900/30 file:text-emerald-700 dark:file:text-emerald-400 file:font-bold file:cursor-pointer hover:file:bg-emerald-100 dark:hover:file:bg-emerald-900/50" />
                 </div>
                 {imagePreview && (
-                  <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
-                    <img src={imagePreview} alt="Preview" className="w-full max-h-56 object-contain bg-gray-100 dark:bg-gray-900" />
+                  <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 group">
+                    <img src={imagePreview} alt="Preview — คลิกเพื่อดูเต็มก่อนบันทึก" onClick={()=> window.open(imagePreview, '_blank')} className="w-full max-h-56 object-contain bg-gray-100 dark:bg-gray-900 cursor-zoom-in group-hover:opacity-90 transition" title="คลิกเพื่อดูรูปเต็มก่อนบันทึก — ตรวจว่าเจ้าของข้อมูลตรงกับรูป" />
+                    <span className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-full bg-black/60 text-white text-xs font-medium">คลิกเพื่อดูเต็ม — ตรวจก่อนบันทึก</span>
                   </div>
                 )}
                 {imageFile && aiExtractedSteps === null && (
@@ -1494,11 +1531,31 @@ export default function StepsPage() {
       <ConfirmPopup
         open={confirmSave}
         title="ยืนยันการบันทึกก้าวเดิน"
-        message={`คุณกำลังจะบันทึก ${(activeSteps || 0).toLocaleString()} ก้าว สำหรับวันที่ ${logDate}${logMethod === 'image-upload' ? ' (จากรูปภาพ จะตรวจสอบโดย จนท.นสส. ก่อนนับรวม)' : ' (จาก Google Fit)'} แน่ใจหรือไม่?`}
+        message={`คุณกำลังจะบันทึก ${(activeSteps || 0).toLocaleString()} ก้าว สำหรับวันที่ ${logDate}${logMethod === 'image-upload' ? ' (จากรูปภาพ จะให้ AI ตรวจสอบก่อน — ถ้าชัดเจนตรงกันจะอนุมัติทันที ไม่ชัดเจนจะส่งต่อให้ต่างฝ่ายตรวจ)' : ' (จาก Google Fit)'} แน่ใจหรือไม่?`}
         loading={saving}
         onConfirm={handleSave}
         onClose={() => { if (!saving) setConfirmSave(false); }}
       />
+
+      {saving && savingAiProgress && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 shadow-2xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="loading loading-spinner loading-md text-emerald-600"></span>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white">กำลังบันทึกและตรวจสอบด้วย AI</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">โมเดล: <span className="font-bold text-purple-600 dark:text-purple-400">{savingAiProgress.model}</span></p>
+              </div>
+            </div>
+            <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden border">
+              <div className="bg-gradient-to-r from-emerald-500 to-purple-600 h-4 rounded-full transition-all duration-500 flex items-center justify-end pr-2" style={{width: `${savingAiProgress.percent}%`}}>
+                <span className="text-[11px] font-bold text-white">{savingAiProgress.percent}%</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-2">AI กำลังอ่านจำนวนก้าวและวันที่ในภาพ — ถ้าชัดเจนตรงกันจะอนุมัติและนับคะแนนทันที</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { fetchData } from "@/services/api";
 import type { User, StepsLog, AiImageAnalysis } from "@/types";
 import { displayName, profileImageUrl } from "@/utils/personnel";
+import { useProjectWindow } from "@/hooks/useProjectWindow";
 
 const thaiShortMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function toThaiYear(date: Date): string { return String(date.getFullYear()+543); }
@@ -79,15 +80,18 @@ export default function BatchStepsPage(){
   const [aiProgress, setAiProgress] = useState<{total:number, done:number, percent:number, currentUserName?:string, currentFileName?:string} | null>(null);
   const [processingUserId, setProcessingUserId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingProgress, setSavingProgress] = useState<{ total: number; done: number; percent: number; model: string } | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
   const [resultPopup, setResultPopup] = useState<{type:'success'|'error', title:string, message:string}|null>(null);
   const [allowOverwrite, setAllowOverwrite] = useState(false);
   const [overwriteWarning, setOverwriteWarning] = useState(false);
+  const [zoomPreview, setZoomPreview] = useState<{ src: string; name: string } | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   // ตาราง 7 วัน: กรอกเลข + แนบภาพต่อวัน (hybrid)
   const [gridInputs, setGridInputs] = useState<Record<string, Record<string, string>>>({});
   const [gridImages, setGridImages] = useState<Record<string, Record<string, { preview:string, file: File }>>>({});
   const gridFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const { window: projectWindow, isInWindow } = useProjectWindow();
 
   const weekMonday = useMemo(()=> getMonday(new Date(weekStart)),[weekStart]);
   const weekDays: string[] = useMemo(()=> Array.from({length:7},(_,i)=>{ const d=new Date(weekMonday); d.setDate(d.getDate()+i); return toIsoLocal(d); }),[weekMonday]);
@@ -418,6 +422,22 @@ export default function BatchStepsPage(){
       setResultPopup({type:'error', title:'ล็อก Mode 1 — บันทึกไม่ได้', message:`พบ ${mode1Uids.size} คนที่อยู่ Mode 1 (บันทึกเอง): ${names}${mode1Uids.size>5?' …':''} — เจ้าหน้าที่ไม่สามารถบันทึกให้ได้ ต้องให้เจ้า�ตัวบันทึกด้วยตนเองที่หน้า “บันทึกนับก้าว”`});
       return;
     }
+    // ห้วงเวลาบันทึก: ตรวจว่าทุกวันที่จะบันทึกอยู่ในห้วงโครงการ
+    if (projectWindow) {
+      const outOfWindow: string[] = [];
+      for (const [uid, arr] of Object.entries(userFiles)) {
+        for (const f of arr) { if (!isInWindow(f.targetDate)) outOfWindow.push(`${displayName(users.find(x=> getUserKey(x)===uid)||null)} ${f.targetDate}`); }
+      }
+      for (const [uid, days] of Object.entries(gridInputs)) {
+        for (const [d, v] of Object.entries(days)) {
+          if (weekDays.includes(d) && parseInt(v as string,10)>0 && gridImages[uid]?.[d] && !isInWindow(d)) outOfWindow.push(`${displayName(users.find(x=> getUserKey(x)===uid)||null)} ${d}`);
+        }
+      }
+      if (outOfWindow.length>0) {
+        setResultPopup({type:'error', title:'นอกห้วงเวลาบันทึก', message:`ห้วงที่อนุญาต ${projectWindow.start} ถึง ${projectWindow.end} — พบ ${outOfWindow.length} รายการนอกห้วง: ${outOfWindow.slice(0,3).join(', ')}${outOfWindow.length>3?' …':''} — ไม่สามารถบันทึกได้`});
+        return;
+      }
+    }
     const gridReadyCount = Object.entries(gridInputs).reduce((s,[uid,days])=> s + Object.entries(days).filter(([d,v])=> weekDays.includes(d) && parseInt(v,10)>0 && gridImages[uid]?.[d]).length,0);
     const fileReadyCount = totalReady;
     if(fileReadyCount===0 && gridReadyCount===0){
@@ -455,7 +475,33 @@ export default function BatchStepsPage(){
         }
       }
     }
+    // เตรียม payload ก่อนแล้วค่อยแสดง popup กำลังบันทึก + AI
+    const payloadStepsPre: any[] = [];
+    for(const [uid, arr] of Object.entries(userFiles)){
+      for(const f of arr){
+        const stepsNum=parseInt(f.manualSteps||String(f.aiResult?.steps||''),10);
+        if(stepsNum>0) payloadStepsPre.push({ uid, day: f.targetDate });
+      }
+    }
+    for(const [uid, days] of Object.entries(gridInputs)){
+      for(const [d, v] of Object.entries(days)){
+        if(!weekDays.includes(d)) continue;
+        const n=parseInt(v,10);
+        if(n>0 && gridImages[uid]?.[d]) payloadStepsPre.push({ uid, day:d });
+      }
+    }
+    const totalToSave = payloadStepsPre.length || 1;
     setSaving(true);
+    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: 'Gemini 3.6-flash · ox-alpha · Gemma-4-26b' });
+    // อนิเมชัน % ระหว่างรอเซิร์ฟเวอร์ประมวลผล AI (เพิ่มทีละนิดจนถึง 90% แล้วรอของจริง)
+    let simPercent = 0;
+    const modelsCycle = ['Gemini 3.6-flash', 'ox-alpha (OpenRouter)', 'Gemma-4-26b'];
+    let modelIdx = 0;
+    const simTimer = setInterval(()=>{
+      simPercent = Math.min(90, simPercent + Math.random()*6 + 2);
+      modelIdx = (modelIdx+1)%modelsCycle.length;
+      setSavingProgress(prev=> prev ? { ...prev, percent: Math.round(simPercent), model: modelsCycle[modelIdx], done: Math.round((simPercent/100)*prev.total) } : prev);
+    }, 450);
     try{
       const payloadSteps: any[] = [];
       for(const [uid, arr] of Object.entries(userFiles)){
@@ -522,15 +568,25 @@ export default function BatchStepsPage(){
       }
       const res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user.User_ID, Logged_Department: actorDepartment, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: payloadSteps }) });
       const data = await res.json().catch(()=>({}));
+      clearInterval(simTimer);
+      if(data?.aiApproved !== undefined || data?.aiPending !== undefined){
+        setSavingProgress({ total: payloadSteps.length, done: payloadSteps.length, percent: 100, model: `เสร็จสิ้น — อนุมัติ ${data.aiApproved??0} · รอต่างฝ่ายตรวจ ${data.aiPending??0}` });
+      } else {
+        setSavingProgress({ total: payloadSteps.length, done: payloadSteps.length, percent: 100, model: 'เสร็จสิ้น — กำลังสรุปผล' });
+      }
       if(!res.ok || data.error) throw new Error(data.error||'บันทึกไม่สำเร็จ');
       const saved=data.saved ?? payloadSteps.length;
       const skipped=data.skipped ?? 0;
       const errors=data.errors ?? 0;
       let msg=data.message || `บันทึกสำเร็จ ${saved} รายการ`;
-      if(saved>0) msg+= `\nAI จะตรวจสอบหลังบันทึก — ถ้าผ่านจะอนุมัติทันที ไม่ผ่านจะขึ้นสถานะรอตรวจสอบต่างฝ่าย (ดูที่เมนูตรวจสอบนับก้าว)`;
+      if(data.aiApproved !== undefined) msg+= `\n✓ AI อนุมัติทันที ${data.aiApproved} รายการ (มั่นใจสูง ตัวเลข+วันที่ชัดเจนตรงกัน — นับคะแนนแล้ว)`;
+      if(data.aiPending !== undefined && data.aiPending>0) msg+= `\n⚠ ส่งต่อให้ต่างฝ่ายตรวจ ${data.aiPending} รายการ (สงสัย/ผิดปกติ/ตัดต่อ) — ดูที่เมนูตรวจสอบนับก้าว`;
       if(skipped>0) msg+=` (ข้าม ${skipped} รายการที่ซ้ำ — จะแสดงเฉพาะจำนวนก้าวล่าสุดที่บันทึก ไม่นับซ้ำรายวัน)`;
       if(errors>0) msg+=` (ผิดพลาด ${errors} รายการ)`;
       if(data.details) msg+= `\n`+ JSON.stringify(data.details).slice(0,500);
+      // ดีเลย์ให้เห็น 100% แป๊บนึงก่อนปิด popup
+      await new Promise(r=> setTimeout(r, 900));
+      setSavingProgress(null);
       setResultPopup({type:'success', title:'บันทึกสำเร็จ', message: msg});
       setUserFiles({});
       setGridInputs({});
@@ -538,8 +594,10 @@ export default function BatchStepsPage(){
       const s=await fetchData<StepsLog[]>('steps');
       if(s) setStepsData(s);
     }catch(err){
+      clearInterval(simTimer);
+      setSavingProgress(null);
       setResultPopup({type:'error', title:'บันทึกไม่สำเร็จ', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
-    }finally{ setSaving(false); }
+    }finally{ setSaving(false); if(typeof simTimer!=='undefined') clearInterval(simTimer as any); setTimeout(()=> setSavingProgress(null), 1200); }
   }
 
   function setGridStep(uid:string, day:string, val:string){
@@ -619,6 +677,15 @@ export default function BatchStepsPage(){
         <div className="mt-2 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
             วิธีใช้: กรอกจำนวนก้าวใน <strong>ตาราง 7 วัน</strong> พร้อมแนบภาพหลักฐานต่อวัน — สามารถบันทึกย้อนหลังได้ หากวันนั้นมีข้อมูล Approved แล้ว ระบบจะข้าม (เว้นแต่ติ๊กอนุญาตแทนที่)
         </div>
+        {projectWindow && (
+          <div className={`mt-3 p-2.5 rounded-xl border text-xs leading-relaxed flex items-start gap-2 ${weekDays.every(d=> isInWindow(d)) ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 text-emerald-700' : 'bg-red-50 dark:bg-red-900/20 border-red-300 text-red-700'}`}>
+            <span className="material-symbols-outlined text-base mt-0.5">{weekDays.every(d=> isInWindow(d)) ? 'check_circle' : 'warning'}</span>
+            <span>
+              ห้วงเวลาบันทึกที่อนุญาต: <strong>{projectWindow.start} ถึง {projectWindow.end}</strong> ({formatThaiDateShort(new Date(projectWindow.start))} – {formatThaiDateShort(new Date(projectWindow.end))})
+              {weekDays.every(d=> isInWindow(d)) ? ' · สัปดาห์นี้อยู่ในห้วง บันทึกได้' : ` · สัปดาห์นี้มีวันนอกห้วง — วันนอกห้วงจะบันทึกไม่ได้`} · <a href="/admin/settings" className="underline">ตั้งค่าห้วงเวลา</a>
+            </span>
+          </div>
+        )}
       </GlassCard>
 
       {/* Global progress bar */}
@@ -726,8 +793,9 @@ export default function BatchStepsPage(){
                           <div className="mt-1 flex flex-col items-center gap-1">
                             {img ? (
                               <div className="relative">
-                                <img src={img.preview} alt="" className="w-14 h-10 object-cover rounded border" />
+                                <img src={img.preview} alt="" onClick={()=> setZoomPreview({ src: img.preview, name: `${displayName(users.find(x=> getUserKey(x)===uid) || null)} — ${d}` })} className="w-14 h-10 object-cover rounded border cursor-zoom-in hover:opacity-80 transition" title="คลิกเพื่อดูรูปเต็มก่อนบันทึก" />
                                 <button onClick={()=> clearGridImage(uid,d)} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] leading-none">✕</button>
+                                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1 py-0.5 rounded bg-black/60 text-white text-[7px] whitespace-nowrap">คลิกดูเต็ม</span>
                               </div>
                             ) : (
                               <label className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border cursor-pointer ${disabled? 'opacity-40 pointer-events-none bg-gray-100' : 'bg-white dark:bg-gray-700 hover:bg-emerald-50 border-gray-200 dark:border-gray-600'}`}>
@@ -766,6 +834,74 @@ export default function BatchStepsPage(){
 
       <ConfirmPopup open={confirmSave} title="ยืนยันบันทึกแบบกลุ่ม" message={`คุณกำลังจะบันทึก ${totalReady} รายการ สัปดาห์ ${formatWeekRangeThai(weekMonday)} — ${allowOverwrite? 'โหมดแทนที่เปิดอยู่ จะเขียนทับวันที่ซ้ำ':'จะข้ามวันที่บันทึกซ้ำ'} แน่ใจหรือไม่?`} variant="primary" loading={saving} onConfirm={handleSave} onClose={()=> setConfirmSave(false)} />
       {resultPopup && <ResultPopup open={!!resultPopup} type={resultPopup.type} title={resultPopup.title} message={resultPopup.message} confirmLabel="ตกลง" onClose={()=> setResultPopup(null)} />}
+
+      {/* Popup กำลังบันทึก + ตรวจสอบด้วย AI — แสดงชื่อโมเดลและความคืบหน้า */}
+      {saving && savingProgress && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 shadow-2xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="loading loading-spinner loading-md text-emerald-600"></span>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white">กำลังบันทึกและตรวจสอบด้วย AI</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">โมเดล: <span className="font-bold text-purple-600 dark:text-purple-400">{savingProgress.model}</span></p>
+              </div>
+            </div>
+            <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden border border-gray-200 dark:border-gray-600">
+              <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-purple-600 h-4 rounded-full transition-all duration-500 flex items-center justify-end pr-2" style={{width: `${savingProgress.percent}%`}}>
+                <span className="text-[11px] font-bold text-white">{savingProgress.percent}%</span>
+              </div>
+            </div>
+            <div className="flex justify-between text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+              <span>บันทึก {savingProgress.done}/{savingProgress.total} รายการ</span>
+              <span>{savingProgress.percent < 100 ? 'กำลังประมวลผล...' : 'เสร็จสิ้น'}</span>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-3 leading-relaxed">
+              ระบบกำลังอัปโหลดรูปไป Drive และให้ AI ตรวจสอบความถูกต้อง (จำนวนก้าว+วันที่) — ถ้ามั่นใจสูงจะอนุมัติทันที ไม่มั่นใจจะส่งต่อให้บุคคลต่างฝ่ายตรวจสอบ
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Zoom preview — ดูรูปเต็มก่อนบันทึกเพื่อยืนยันเจ้าของข้อมูล */}
+      {zoomPreview && (
+        <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4" onClick={()=> setZoomPreview(null)}>
+          <div className="relative max-w-lg w-full" onClick={e=> e.stopPropagation()}>
+            <img src={zoomPreview.src} alt={zoomPreview.name} className="w-full max-h-[80vh] object-contain rounded-xl shadow-2xl bg-white" />
+            <p className="mt-2 text-center text-sm text-white font-medium">{zoomPreview.name}</p>
+            <button onClick={()=> setZoomPreview(null)} className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-gray-700 flex items-center justify-center shadow">✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* แผงตรวจสอบรูปก่อนบันทึก — รวมรูปทั้งหมดที่แนบแล้ว */}
+      {(Object.keys(gridImages).length>0 || Object.values(userFiles).some(a=>a.length>0)) && !saving && (
+        <GlassCard className="p-4">
+          <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="material-symbols-outlined text-emerald-600">photo_library</span>ตรวจสอบรูปก่อนบันทึก — คลิกเพื่อดูเต็ม</h3>
+          <p className="text-xs text-gray-500 mt-1">รวม {Object.values(gridImages).reduce((s,a)=>s+Object.keys(a).length,0) + Object.values(userFiles).reduce((s,a)=>s+a.length,0)} รูปที่แนบแล้ว — ตรวจว่าเจ้าของข้อมูลตรงกับรูป</p>
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+            {Object.entries(gridImages).flatMap(([uid, days])=> Object.entries(days).map(([d, img])=>{
+              const u = users.find(x=> getUserKey(x)===uid);
+              return (
+                <div key={`${uid}-${d}`} onClick={()=> setZoomPreview({ src: img.preview, name: `${u? displayName(u):uid} — ${d}` })} className="cursor-zoom-in group">
+                  <img src={img.preview} alt="" className="w-full h-24 object-cover rounded-xl border group-hover:opacity-80 transition" />
+                  <p className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate mt-1">{u? displayName(u):uid}</p>
+                  <p className="text-[10px] text-gray-400">{d}</p>
+                </div>
+              );
+            }))}
+            {Object.entries(userFiles).flatMap(([uid, arr])=> arr.map(f=> {
+              const u = users.find(x=> getUserKey(x)===uid);
+              return (
+                <div key={f.id} onClick={()=> setZoomPreview({ src: f.preview, name: `${u? displayName(u):uid} — ${f.targetDate}` })} className="cursor-zoom-in group">
+                  <img src={f.preview} alt="" className="w-full h-24 object-cover rounded-xl border group-hover:opacity-80 transition" />
+                  <p className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate mt-1">{u? displayName(u):uid}</p>
+                  <p className="text-[10px] text-gray-400">{f.targetDate} · {f.manualSteps||f.aiResult?.steps||'—'} ก้าว</p>
+                </div>
+              );
+            }))}
+          </div>
+        </GlassCard>
+      )}
     </div>
   );
 }

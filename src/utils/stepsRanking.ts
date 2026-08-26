@@ -1,8 +1,8 @@
 import type { StepsLog, User } from '@/types';
 import { toDateKey, thaiMonths, thaiShortMonths } from './thaiDate';
 
-// ช่วงโครงการลาดพร้าวสร้างสุข — ตั้งค่าวันที่เริ่ม/สิ้นสุดโครงการ
-export const PROJECT_START_DATE = '2026-07-01';
+// ช่วงโครงการลาดพร้าวสร้างสุข — ห้วงเวลาบันทึกข้อมูล (ปรับได้โดย นสส. ที่หน้า Admin)
+export const PROJECT_START_DATE = '2026-08-24';
 export const PROJECT_END_DATE = '2026-11-13';
 
 export type RankTab = 'weekly' | 'monthly' | 'project';

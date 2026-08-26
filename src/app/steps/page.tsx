@@ -395,19 +395,17 @@ export default function StepsPage() {
   const weeklyEnc = getEncouragement(weeklySteps, WEEKLY_GOAL);
   const monthlyEnc = getEncouragement(monthlySteps, monthlyGoal);
 
-  // Department leaderboard — แสดงรายชื่อทุกคนในฝ่าย (แม้ยัง 0 ก้าว) เรียงตามยอดก้าวของช่วงนั้น (นับตาม Date_Thai)
+  // Department leaderboard — ตรงกับ Dashboard: นับเฉพาะ Approved เท่านั้น (ตามห้วงเวลา)
   const userDept = user?.Department ?? '';
   const deptMembers: DepartmentMember[] = useMemo(() => {
-    // ใช้ User_ID แบบ trim เปรียบเทียบ + นับตาม Date_Thai (วันของก้าว) ไม่ใช่วันที่บันทึก
+    // ใช้ User_ID แบบ trim เปรียบเทียบ + นับตาม Date_Thai (วันของก้าว) ไม่ใช่วันที่บันทึก — เฉพาะ Approved เท่านั้นเหมือน dashboard
     return deptUsers.map((u) => {
       if (String(u.Department ?? '').trim() !== String(userDept ?? '').trim()) return null;
       const uid = String(u.User_ID ?? '').trim();
       let total = 0;
       const userLogs = stepsData.filter(s => String(s.User_ID ?? '').trim() === uid);
-      const latestByDate = latestStepsByDate(userLogs.filter(s => s.Status === 'Approved'));
-      // ถ้าไม่มี Approved ให้ fallback เป็นข้อมูลล่าสุดทุกสถานะเพื่อให้เห็นรายชื่อแม้ยังรอตรวจสอบ
-      const mapToUse = latestByDate.size > 0 ? latestByDate : latestStepsByDate(userLogs);
-      for (const [ds, log] of mapToUse) {
+      const latestApprovedByDate = latestStepsByDate(userLogs.filter(s => s.Status === 'Approved'));
+      for (const [ds, log] of latestApprovedByDate) {
         const inPeriod = deptPeriod === 'weekly'
           ? (ds >= toIsoLocal(monday) && ds <= toIsoLocal(sunday))
           : (ds >= toIsoLocal(viewMonthFirst) && ds <= toIsoLocal(viewMonthLast));

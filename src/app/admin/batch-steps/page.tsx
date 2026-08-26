@@ -686,15 +686,6 @@ export default function BatchStepsPage(){
         <div className="mt-2 p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
             วิธีใช้: กรอกจำนวนก้าวใน <strong>ตาราง 7 วัน</strong> พร้อมแนบภาพหลักฐานต่อวัน — สามารถบันทึกย้อนหลังได้ หากวันนั้นมีข้อมูล Approved แล้ว ระบบจะข้าม (เว้นแต่ติ๊กอนุญาตแทนที่)
         </div>
-        {projectWindow && (
-          <div className={`mt-3 p-2.5 rounded-xl border text-xs leading-relaxed flex items-start gap-2 ${weekDays.every(d=> isInWindow(d)) ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 text-emerald-700' : 'bg-red-50 dark:bg-red-900/20 border-red-300 text-red-700'}`}>
-            <span className="material-symbols-outlined text-base mt-0.5">{weekDays.every(d=> isInWindow(d)) ? 'check_circle' : 'warning'}</span>
-            <span>
-              ห้วงเวลาบันทึกที่อนุญาต: <strong>{projectWindow.start} ถึง {projectWindow.end}</strong> ({formatThaiDateShort(new Date(projectWindow.start))} – {formatThaiDateShort(new Date(projectWindow.end))})
-              {weekDays.every(d=> isInWindow(d)) ? ' · สัปดาห์นี้อยู่ในห้วง บันทึกได้' : ` · สัปดาห์นี้มีวันนอกห้วง — วันนอกห้วงจะบันทึกไม่ได้`} · <a href="/admin/settings" className="underline">ตั้งค่าห้วงเวลา</a>
-            </span>
-          </div>
-        )}
       </GlassCard>
 
       {/* Global progress bar */}

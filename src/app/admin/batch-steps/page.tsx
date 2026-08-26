@@ -873,35 +873,6 @@ export default function BatchStepsPage(){
         </div>
       )}
 
-      {/* แผงตรวจสอบรูปก่อนบันทึก — รวมรูปทั้งหมดที่แนบแล้ว */}
-      {(Object.keys(gridImages).length>0 || Object.values(userFiles).some(a=>a.length>0)) && !saving && (
-        <GlassCard className="p-4">
-          <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="material-symbols-outlined text-emerald-600">photo_library</span>ตรวจสอบรูปก่อนบันทึก — คลิกเพื่อดูเต็ม</h3>
-          <p className="text-xs text-gray-500 mt-1">รวม {Object.values(gridImages).reduce((s,a)=>s+Object.keys(a).length,0) + Object.values(userFiles).reduce((s,a)=>s+a.length,0)} รูปที่แนบแล้ว — ตรวจว่าเจ้าของข้อมูลตรงกับรูป</p>
-          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-            {Object.entries(gridImages).flatMap(([uid, days])=> Object.entries(days).map(([d, img])=>{
-              const u = users.find(x=> getUserKey(x)===uid);
-              return (
-                <div key={`${uid}-${d}`} onClick={()=> setZoomPreview({ src: img.preview, name: `${u? displayName(u):uid} — ${d}` })} className="cursor-zoom-in group">
-                  <img src={img.preview} alt="" className="w-full h-24 object-cover rounded-xl border group-hover:opacity-80 transition" />
-                  <p className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate mt-1">{u? displayName(u):uid}</p>
-                  <p className="text-[10px] text-gray-400">{d}</p>
-                </div>
-              );
-            }))}
-            {Object.entries(userFiles).flatMap(([uid, arr])=> arr.map(f=> {
-              const u = users.find(x=> getUserKey(x)===uid);
-              return (
-                <div key={f.id} onClick={()=> setZoomPreview({ src: f.preview, name: `${u? displayName(u):uid} — ${f.targetDate}` })} className="cursor-zoom-in group">
-                  <img src={f.preview} alt="" className="w-full h-24 object-cover rounded-xl border group-hover:opacity-80 transition" />
-                  <p className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate mt-1">{u? displayName(u):uid}</p>
-                  <p className="text-[10px] text-gray-400">{f.targetDate} · {f.manualSteps||f.aiResult?.steps||'—'} ก้าว</p>
-                </div>
-              );
-            }))}
-          </div>
-        </GlassCard>
-      )}
     </div>
   );
 }

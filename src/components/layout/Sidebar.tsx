@@ -61,6 +61,7 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         { href: '/admin/batch-steps', label: 'บันทึกนับก้าวแบบกลุ่ม', icon: 'upload' },
         { href: '/admin/verify-steps', label: 'ตรวจสอบนับก้าว', icon: 'verified_user' },
         { href: '/admin/verify-history', label: 'ประวัติตรวจสอบนับก้าว', icon: 'history' },
+        { href: '/admin/settings', label: 'ตั้งค่าห้วงเวลาบันทึกข้อมูล', icon: 'date_range' },
       ]
     : [];
 

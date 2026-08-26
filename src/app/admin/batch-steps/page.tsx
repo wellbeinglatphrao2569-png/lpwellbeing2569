@@ -121,6 +121,17 @@ export default function BatchStepsPage(){
     for(const [k,v] of latest){ if(String(v.Status)==='Approved') approved.set(k,v); }
     return approved;
   },[stepsData]);
+  const pendingMap = useMemo(()=>{
+    const latest=new Map<string, StepsLog>();
+    for(const log of stepsData){
+      const key=`${String(log.User_ID)}|${normalizeDateKey(log.Date_Thai)}`;
+      const cur=latest.get(key);
+      if(!cur || String(log.Recorded_At||'') >= String(cur.Recorded_At||'')) latest.set(key, log);
+    }
+    const pending=new Map<string, StepsLog>();
+    for(const [k,v] of latest){ if(String(v.Status)==='Pending') pending.set(k,v); }
+    return pending;
+  },[stepsData]);
 
   const filteredUsers = useMemo(()=>{
     // บังคับกรองเฉพาะฝ่ายของตนเองเท่านั้น — ต่อให้ deptFilter ถูกแก้ผ่าน devtools ก็ต้องยึด actorDepartment
@@ -222,8 +233,8 @@ export default function BatchStepsPage(){
     }
     const targetUser = users.find(u=> String(u.User_ID)===userId || String((u as any).Personnel_ID)===userId);
     const userName = targetUser ? displayName(targetUser) : userId;
-    // AI คนละตัวต่อคน — ล็อคคนนี้กับโมเดลเดียวแล้ววนจนครบทุกภาพของคนนี้
-    const providerForThisUser: ProviderKey = getProviderForUid(userId);
+    // ใช้โมเดลเดียว (Gemini) สำหรับทุกคน — สลับเฉพาะเมื่อขัดข้อง/429/เกินโควตา (fallback ที่เซิร์ฟเวอร์จัดการให้)
+    const providerForThisUser: ProviderKey = 'gemini';
     setAiProcessing(true);
     setProcessingUserId(userId);
     setAiProgress({total: pending.length, done: 0, percent: 0, currentUserName: `${userName} [${providerLabel(providerForThisUser)}]`});
@@ -304,15 +315,13 @@ export default function BatchStepsPage(){
       setAiProgress({total: totalPending, done: globalDoneRef.value, percent: Math.round((globalDoneRef.value/totalPending)*100), currentUserName: userName, currentFileName: fileName});
     };
     try{
-      const CONCURRENCY = 6; // ประมวลผลพร้อมกัน 6 คน แต่ละคนล็อค AI ของตัวเอง → กระจายโหลด 3 โมเดล (เฉลี่ยโมเดลละ 2 คนขนาน)
-      // จัดสรร AI แบบ round-robin ตามลำดับคิว — คนที่ 0:Gemini, 1:ox-alpha, 2:Gemma, วนลูป
-      const providerForIndex = (idx: number): ProviderKey => PROVIDERS[idx % PROVIDERS.length];
+      const CONCURRENCY = 6; // ประมวลผลพร้อมกัน 6 คน — ใช้โมเดลเดียว (Gemini) สลับเฉพาะเมื่อขัดข้อง/429
       const processOneUser = async (u: User, globalIndex: number) => {
         const uid=getUserKey(u);
         const pending = (userFiles[uid]||[]).filter(f=> !f.aiResult);
         if(pending.length===0) return;
         const userName=displayName(u);
-        const assignedProvider = providerForIndex(globalIndex);
+        const assignedProvider: ProviderKey = 'gemini';
         const usedInBatch = new Set<string>();
         for(const f of (userFiles[uid]||[])){ if(f.aiResult) usedInBatch.add(f.targetDate); }
         if(!allowOverwrite){ for(const d of weekDays){ if(existingMap.has(`${uid}|${d}`)) usedInBatch.add(d); } }
@@ -779,17 +788,21 @@ export default function BatchStepsPage(){
                     </td>
                     {weekDays.map(d=>{
                       const existing = existingMap.get(`${uid}|${d}`);
-                      const val = gridInputs[uid]?.[d] ?? (existing ? String(existing.Steps_Count) : '');
+                      const pending = pendingMap.get(`${uid}|${d}`);
                       const hasExisting = !!existing;
+                      const hasPending = !!pending;
                       const img = gridImages[uid]?.[d];
                       const disabled = locked || !uid;
+                      const bgClass = hasPending ? 'bg-amber-50 dark:bg-amber-900/20' : hasExisting ? 'bg-emerald-50/30 dark:bg-emerald-900/10' : '';
+                      const placeholderVal = hasPending ? String(pending.Steps_Count) : hasExisting ? String(existing.Steps_Count) : '—';
+                      const titleText = locked ? 'Mode 1 — ล็อก: ต้องบันทึกด้วยตนเอง เจ้าหน้าที่บันทึกให้ไม่ได้' : hasPending ? `รอตรวจสอบ ${Number(pending.Steps_Count).toLocaleString()} ก้าว — รอต่างฝ่ายตรวจ` : hasExisting ? `อนุมัติแล้ว ${Number(existing.Steps_Count).toLocaleString()} ก้าว — พิมพ์ทับเพื่อแก้ไข` : '';
                       return (
-                        <td key={d} className={`px-2 py-2 align-top text-center ${hasExisting? 'bg-emerald-50/30 dark:bg-emerald-900/10':''}`}>
-                          <input type="number" min={0} placeholder={hasExisting? String(existing.Steps_Count) : '—'} value={gridInputs[uid]?.[d] ?? ''}
+                        <td key={d} className={`px-2 py-2 align-top text-center ${bgClass}`}>
+                          <input type="number" min={0} placeholder={placeholderVal} value={gridInputs[uid]?.[d] ?? ''}
                             onChange={e=> setGridStep(uid, d, e.target.value)}
                             disabled={disabled}
-                            title={locked? 'Mode 1 — ล็อก: ต้องบันทึกด้วยตนเอง เจ้าหน้าที่บันทึกให้ไม่ได้' : hasExisting? `มีข้อมูลแล้ว ${Number(existing.Steps_Count).toLocaleString()} ก้าว — พิมพ์ทับเพื่อแก้ไข` : '' }
-                            className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold text-center ${disabled? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 cursor-not-allowed' : hasExisting? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'} focus:outline-none focus:ring-1 focus:ring-emerald-500`} />
+                            title={titleText}
+                            className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold text-center ${disabled? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 cursor-not-allowed' : hasPending ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-400 text-amber-800' : hasExisting? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'} focus:outline-none focus:ring-1 focus:ring-emerald-500`} />
                           <div className="mt-1 flex flex-col items-center gap-1">
                             {img ? (
                               <div className="relative">
@@ -803,7 +816,8 @@ export default function BatchStepsPage(){
                                 <input type="file" accept="image/*" className="hidden" onChange={e=> handleGridImage(uid,d,e.target.files)} disabled={disabled} ref={el=>{ if(el) gridFileInputs.current[`${uid}|${d}`]=el; }} />
                               </label>
                             )}
-                            {hasExisting && !gridInputs[uid]?.[d] && <span className="text-[9px] text-emerald-600 font-medium">{Number(existing.Steps_Count).toLocaleString()} ก้าว</span>}
+                            {hasPending && !gridInputs[uid]?.[d] && <span className="text-[9px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-0.5"><span className="material-symbols-outlined text-[10px]">hourglass_top</span>{Number(pending.Steps_Count).toLocaleString()} รอตรวจ</span>}
+                            {!hasPending && hasExisting && !gridInputs[uid]?.[d] && <span className="text-[9px] text-emerald-600 font-medium">{Number(existing.Steps_Count).toLocaleString()} ก้าว ✓</span>}
                           </div>
                         </td>
                       );

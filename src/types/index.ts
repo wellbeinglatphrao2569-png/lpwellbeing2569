@@ -30,9 +30,11 @@ export interface AiImageAnalysis {
   provider?: 'gemini' | 'openrouter';
   model?: string;
 }
+export type SweetFreeOtherReason = 'ลาป่วย' | 'ลากิจ' | 'ลาพักผ่อน' | 'อบรมนอกสถานที่' | string;
 export interface SweetFree {
-  Entry_ID: string; User_ID: string; Wednesday_Date: string; Status: boolean; Logged_By: string;
+  Entry_ID: string; User_ID: string; Wednesday_Date: string; Status: boolean | string; Logged_By: string;
   Recorded_At?: string;
+  Reason?: string;
 }
 export interface BaselineRecord {
   Record_ID: string; User_ID: string;

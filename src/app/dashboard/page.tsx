@@ -90,14 +90,19 @@ export default function DashboardPage() {
   const myCurrentRecord = mySweet.find(s => toDateKey(s.Wednesday_Date) === currentWedKey);
   const myCurrentStatus: boolean | null = myCurrentRecord ? isTrue(myCurrentRecord.Status) : null;
 
+  const isOtherSweet = (s: SweetFree) => {
+    const st = String((s as any).Status || '').trim().toUpperCase();
+    return st === 'OTHER' || st === 'อื่นๆ' || String((s as any).Reason || '').trim() !== '';
+  };
   const sweetThisWeek = useMemo(() => sweetData.filter(s => toDateKey(s.Wednesday_Date) === currentWedKey), [sweetData, currentWedKey]);
-  const sweetGlobalKept = sweetThisWeek.filter(s => isTrue(s.Status)).length;
-  const sweetGlobalFailed = sweetThisWeek.filter(s => !isTrue(s.Status)).length;
+  const sweetGlobalKept = sweetThisWeek.filter(s => isTrue(s.Status) && !isOtherSweet(s)).length;
+  const sweetGlobalFailed = sweetThisWeek.filter(s => !isTrue(s.Status) && !isOtherSweet(s)).length;
+  const sweetGlobalOther = sweetThisWeek.filter(s => isOtherSweet(s)).length;
   const sweetDeptKept = useMemo(() => {
     if (!sweetDeptFilter) return null;
     const deptUserIds = new Set(users.filter(u => u.Department === sweetDeptFilter).map(u => String(u.User_ID)));
     const filtered = sweetThisWeek.filter(s => deptUserIds.has(String(s.User_ID)));
-    return { kept: filtered.filter(s => isTrue(s.Status)).length, failed: filtered.filter(s => !isTrue(s.Status)).length, total: filtered.length };
+    return { kept: filtered.filter(s => isTrue(s.Status) && !isOtherSweet(s)).length, failed: filtered.filter(s => !isTrue(s.Status) && !isOtherSweet(s)).length, other: filtered.filter(s => isOtherSweet(s)).length, total: filtered.length };
   }, [sweetThisWeek, users, sweetDeptFilter]);
 
   const todayLabel = (() => {
@@ -409,13 +414,13 @@ export default function DashboardPage() {
           </div>
           <div className="rounded-2xl p-5 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 text-center">
             <p className="text-sm font-bold text-gray-700 dark:text-gray-300">รวมบันทึกแล้ว</p>
-            <p className="text-4xl font-black text-gray-900 dark:text-white mt-2 tabular-nums">{(sweetDeptKept ? sweetDeptKept.total : sweetGlobalKept + sweetGlobalFailed).toLocaleString()}</p>
-            <p className="text-xs text-gray-500 mt-1">คน · พุธที่ {formatThaiShort(currentWedKey)}</p>
+            <p className="text-4xl font-black text-gray-900 dark:text-white mt-2 tabular-nums">{(sweetDeptKept ? sweetDeptKept.total : sweetGlobalKept + sweetGlobalFailed + sweetGlobalOther).toLocaleString()}</p>
+            <p className="text-xs text-gray-500 mt-1">คน · พุธที่ {formatThaiShort(currentWedKey)} {sweetGlobalOther>0 ? `· อื่นๆ ${sweetGlobalOther} คน (ไม่นับ)` : ''}</p>
           </div>
         </div>
         {sweetDeptFilter && sweetDeptKept && (
           <div className="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300">
-            กำลังดูเฉพาะฝ่าย <strong>{sweetDeptFilter}</strong> — ถือศีล {sweetDeptKept.kept} คน · หลุดศีล {sweetDeptKept.failed} คน · คละกับภาพรวมทั้งสำนักงานด้านบน (ถือศีล {sweetGlobalKept} · หลุดศีล {sweetGlobalFailed})
+            กำลังดูเฉพาะฝ่าย <strong>{sweetDeptFilter}</strong> — ถือศีล {sweetDeptKept.kept} คน · หลุดศีล {sweetDeptKept.failed} คน {sweetDeptKept.other ? `· อื่นๆ ${sweetDeptKept.other} คน (ไม่นับ)` : ''} · คละกับภาพรวมทั้งสำนักงานด้านบน (ถือศีล {sweetGlobalKept} · หลุดศีล {sweetGlobalFailed} {sweetGlobalOther ? `· อื่นๆ ${sweetGlobalOther}` : ''})
           </div>
         )}
       </GlassCard>

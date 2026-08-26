@@ -15,6 +15,24 @@ function isTrue(val: boolean | string | unknown): boolean {
   const s = String(val).trim().toUpperCase();
   return s === 'TRUE' || s === '1' || s === 'YES' || s === 'Y' || s === 'T';
 }
+function isOtherStatus(val: unknown, reason?: unknown): boolean {
+  const s = String(val || '').trim().toUpperCase();
+  if (s === 'OTHER' || s === 'อื่นๆ') return true;
+  if (String(reason || '').trim() !== '') return true;
+  // ถ้า Status เป็น OTHER:xxx ก็ถือว่า Other
+  if (String(val || '').trim().toUpperCase().startsWith('OTHER')) return true;
+  return false;
+}
+function isOtherRecord(s: SweetFree): boolean {
+  return isOtherStatus((s as any).Status, (s as any).Reason);
+}
+function isKeptRecord(s: SweetFree): boolean {
+  return isTrue((s as any).Status) && !isOtherRecord(s);
+}
+function isFailedRecord(s: SweetFree): boolean {
+  return !isTrue((s as any).Status) && !isOtherRecord(s);
+}
+const OTHER_REASONS = ['ลาป่วย','ลากิจ','ลาพักผ่อน','อบรมนอกสถานที่'] as const;
 
 // ช่วงเวลาที่บันทึกผลได้: พุธ 14:00 น. – ศุกร์ 23:59 น. (ตามเวลาประเทศไทย UTC+7)
 function getWindowState(): { open: boolean; message: string } {
@@ -48,7 +66,9 @@ function ProfileAvatar({ user, size = 'w-10 h-10', ring = false }: { user?: User
 }
 
 // แถวแสดงบุคคล: โปรไฟล์ + ชื่อ-สกุล + ชื่อเล่น + ตำแหน่ง (+ badge สถานะ ถ้ามี)
-function PersonRow({ user, status }: { user: User; status?: boolean | null }) {
+function PersonRow({ user, status, reason }: { user: User; status?: boolean | string | null; reason?: string }) {
+  const isOther = typeof status === 'string' && (String(status).toUpperCase().startsWith('OTHER') || !!reason);
+  const displayOther = isOther ? (reason || String(status).replace(/^OTHER:?/i,'' ) || 'อื่นๆ') : '';
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50">
       <ProfileAvatar user={user} size="w-9 h-9" />
@@ -58,15 +78,19 @@ function PersonRow({ user, status }: { user: User; status?: boolean | null }) {
           {user.Nickname ? `ชื่อเล่น ${user.Nickname}` : ''}{user.Position ? `${user.Nickname ? ' · ' : ''}${user.Position}` : ''}
         </p>
       </div>
-      {status !== null && status !== undefined && (
+      {isOther ? (
+        <span className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">
+          📝 อื่นๆ: {displayOther}
+        </span>
+      ) : status !== null && status !== undefined ? (
         <span className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-          status
+          status === true || String(status).toUpperCase()==='TRUE'
             ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
             : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
         }`}>
-          {status ? '😎 ถือศีล' : '🫠 หลุดศีล'}
+          {status === true || String(status).toUpperCase()==='TRUE' ? '😎 ถือศีล' : '🫠 หลุดศีล'}
         </span>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -87,14 +111,14 @@ export default function NoSugarPage() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [sweetData, setSweetData] = useState<SweetFree[]>([]);
-  const [selections, setSelections] = useState<Record<string, boolean | null>>({});
+  const [selections, setSelections] = useState<Record<string, boolean | string | null>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [holidayDates] = useState<string[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
-  const [detailStatus, setDetailStatus] = useState<'kept' | 'failed' | 'pending' | null>(null);
+  const [detailStatus, setDetailStatus] = useState<'kept' | 'failed' | 'other' | 'pending' | null>(null);
   const [historyDetail, setHistoryDetail] = useState<string | null>(null);
   const [historyPage, setHistoryPage] = useState(0);
   const currentWedStr = getCurrentWednesdayDate();
@@ -133,7 +157,7 @@ export default function NoSugarPage() {
     if (sweet) setSweetData(sweet);
   }
 
-  const setSel = (uid: string, val: boolean | null) => {
+  const setSel = (uid: string, val: boolean | string | null) => {
     setSelections(prev => ({ ...prev, [uid]: val }));
   };
 
@@ -147,21 +171,25 @@ export default function NoSugarPage() {
 
   const deptUsers = user ? users.filter(u => String(u.Department) === String(user.Department)) : [];
 
-  // บันทึกของสัปดาห์ปัจจุบัน
+  // บันทึกของสัปดาห์ปัจจุบัน — แยก อื่นๆ ออกจากนับถือศีล/หลุดศีล (ไม่นับคะแนน)
   const weekRecords = sweetData.filter(s => toDateKey(s.Wednesday_Date) === currentWedStr && deptUsers.some(u => u.User_ID === s.User_ID));
-  const keptRecords = weekRecords.filter(s => isTrue(s.Status));
-  const failedRecords = weekRecords.filter(s => !isTrue(s.Status));
+  const keptRecords = weekRecords.filter(s => isKeptRecord(s));
+  const failedRecords = weekRecords.filter(s => isFailedRecord(s));
+  const otherRecords = weekRecords.filter(s => isOtherRecord(s));
   const keptCount = keptRecords.length;
   const failedCount = failedRecords.length;
+  const otherCount = otherRecords.length;
   const pendingUsers = deptUsers.filter(u => !weekRecords.some(s => s.User_ID === u.User_ID));
   const pendingCount = pendingUsers.length;
 
-  const detailTitle = detailStatus === 'kept' ? 'รายชื่อผู้ถือศีล (งดน้ำหวาน)' : detailStatus === 'failed' ? 'รายชื่อผู้หลุดศีล (เติมน้ำหวาน)' : 'รายชื่อผู้ยังไม่บันทึก';
+  const detailTitle = detailStatus === 'kept' ? 'รายชื่อผู้ถือศีล (งดน้ำหวาน)' : detailStatus === 'failed' ? 'รายชื่อผู้หลุดศีล (เติมน้ำหวาน)' : detailStatus === 'other' ? 'รายชื่ออื่นๆ (ไม่นับคะแนน)' : 'รายชื่อผู้ยังไม่บันทึก';
   const detailUsers = detailStatus === 'kept'
     ? keptRecords.map(s => userOf(s.User_ID)).filter((u): u is User => !!u)
     : detailStatus === 'failed'
       ? failedRecords.map(s => userOf(s.User_ID)).filter((u): u is User => !!u)
-      : pendingUsers;
+      : detailStatus === 'other'
+        ? otherRecords.map(s => userOf(s.User_ID)).filter((u): u is User => !!u)
+        : pendingUsers;
 
   // ประวัติการบันทึก = สรุปแยกตามสัปดาห์
   const deptRecords = sweetData.filter(s => deptUsers.some(u => u.User_ID === s.User_ID));
@@ -172,15 +200,16 @@ export default function NoSugarPage() {
   const historyPageSafe = Math.min(historyPage, historyTotalPages - 1);
   const pageDates = historyDates.slice(historyPageSafe * HISTORY_PAGE_SIZE, historyPageSafe * HISTORY_PAGE_SIZE + HISTORY_PAGE_SIZE);
   const histRecs = historyDetail ? deptRecords.filter(s => toDateKey(s.Wednesday_Date) === historyDetail) : [];
-  const histKept = histRecs.filter(s => isTrue(s.Status));
-  const histFailed = histRecs.filter(s => !isTrue(s.Status));
+  const histKept = histRecs.filter(s => isKeptRecord(s));
+  const histFailed = histRecs.filter(s => isFailedRecord(s));
+  const histOther = histRecs.filter(s => isOtherRecord(s));
   const histRecorderIds = [...new Set(histRecs.map(s => String(s.Logged_By)))];
   const histRecorders = histRecorderIds
     .map(uid => ({ id: uid, user: resolveUser(uid) }))
     .filter((r): r is { id: string; user: User | undefined } => !!r.id);
-  const weekSummary = (d: string): { kept: number; failed: number } => {
+  const weekSummary = (d: string): { kept: number; failed: number; other: number } => {
     const recs = deptRecords.filter(s => toDateKey(s.Wednesday_Date) === d);
-    return { kept: recs.filter(s => isTrue(s.Status)).length, failed: recs.filter(s => !isTrue(s.Status)).length };
+    return { kept: recs.filter(s => isKeptRecord(s)).length, failed: recs.filter(s => isFailedRecord(s)).length, other: recs.filter(s => isOtherRecord(s)).length };
   };
 
   const requestSaveAll = () => {
@@ -191,7 +220,16 @@ export default function NoSugarPage() {
     }
     const pending = deptUsers.filter(u => selections[u.User_ID] !== null && selections[u.User_ID] !== undefined);
     if (!pending.length) {
-      setNotice({ type: 'error', text: 'ยังไม่มีบุคลากรที่เลือกสถานะ — กรุณาเลือก "ถือศีล" หรือ "หลุดศีล" ก่อนบันทึก' });
+      setNotice({ type: 'error', text: 'ยังไม่มีบุคลากรที่เลือกสถานะ — กรุณาเลือก "ถือศีล" / "หลุดศีล" / "อื่นๆ" ก่อนบันทึก' });
+      return;
+    }
+    // ตรวจว่าที่เลือก อื่นๆ มีเหตุผลครบ
+    const missingReason = pending.find(u => {
+      const v = selections[u.User_ID];
+      return typeof v === 'string' && String(v).toUpperCase().startsWith('OTHER') && !String(v).split(':')[1];
+    });
+    if (missingReason) {
+      setNotice({ type: 'error', text: 'กรุณาเลือกเหตุผลสำหรับสถานะ "อื่นๆ" ให้ครบทุกคน (ลาป่วย/ลากิจ/ลาพักผ่อน/อบรมนอกสถานที่)' });
       return;
     }
     setNotice(null);
@@ -208,10 +246,14 @@ export default function NoSugarPage() {
     const savedPayloads: SweetFree[] = [];
     let ok = 0;
     for (const u of pending) {
-      const statusVal = selections[u.User_ID];
+      const selVal: any = selections[u.User_ID];
+      const isOtherSel = typeof selVal === 'string' && String(selVal).toUpperCase().startsWith('OTHER');
+      const statusToSend: any = isOtherSel ? 'OTHER' : !!selVal;
+      const reasonToSend = isOtherSel ? String(selVal).split(':').slice(1).join(':') : '';
       const res = await postData('add-sweet-free', {
         User_ID: u.User_ID,
-        Status: statusVal,
+        Status: statusToSend,
+        Reason: reasonToSend,
         Wednesday_Date: currentWedStr,
         Logged_By: user.User_ID,
       });
@@ -221,9 +263,10 @@ export default function NoSugarPage() {
           Entry_ID: `SW-new-${u.User_ID}`,
           User_ID: u.User_ID,
           Wednesday_Date: currentWedStr,
-          Status: !!statusVal,
+          Status: isOtherSel ? 'OTHER' : !!selVal,
+          Reason: reasonToSend,
           Logged_By: user.User_ID,
-        });
+        } as SweetFree);
       }
     }
     setConfirmLoading(false);
@@ -296,7 +339,15 @@ export default function NoSugarPage() {
               {deptUsers.map(u => {
                 const recorded = sweetData.find(s => s.User_ID === u.User_ID && toDateKey(s.Wednesday_Date) === currentWedStr);
                 const hasChoice = selections[u.User_ID] !== undefined && selections[u.User_ID] !== null;
-                const sel = hasChoice ? selections[u.User_ID] : (recorded ? isTrue(recorded.Status) : null);
+                let sel: any = hasChoice ? selections[u.User_ID] : null;
+                if (!hasChoice && recorded) {
+                  if (isOtherRecord(recorded)) sel = `OTHER:${String((recorded as any).Reason || '').trim()}`;
+                  else sel = isTrue(recorded.Status);
+                }
+                const selIsOther = typeof sel === 'string' && String(sel).toUpperCase().startsWith('OTHER');
+                const selOtherReason = selIsOther ? String(sel).split(':').slice(1).join(':') : '';
+                const recordedIsOther = recorded ? isOtherRecord(recorded) : false;
+                const recordedReason = recordedIsOther ? String((recorded as any).Reason || '').trim() : '';
                 return (
                   <div key={u.User_ID} className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -309,15 +360,21 @@ export default function NoSugarPage() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
                         {recorded && (
-                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                            isTrue(recorded.Status)
-                              ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
-                              : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
-                          }`}>
-                            {isTrue(recorded.Status) ? '😎 ถือศีล' : '🫠 หลุดศีล'}
-                          </span>
+                          isOtherRecord(recorded) ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">
+                              📝 อื่นๆ: {recordedReason || 'ไม่ระบุ'}
+                            </span>
+                          ) : (
+                            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                              isTrue(recorded.Status)
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+                                : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                            }`}>
+                              {isTrue(recorded.Status) ? '😎 ถือศีล' : '🫠 หลุดศีล'}
+                            </span>
+                          )
                         )}
                         <button onClick={() => setSel(u.User_ID, true)}
                           className={`px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all ${
@@ -335,8 +392,23 @@ export default function NoSugarPage() {
                           }`}>
                           🫠 หลุดศีล
                         </button>
+                        <button onClick={() => setSel(u.User_ID, selIsOther ? null : `OTHER:${OTHER_REASONS[0]}`)}
+                          className={`px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all ${
+                            selIsOther
+                              ? 'border-gray-400 bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300'
+                              : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-400'
+                          }`}>
+                          📝 อื่นๆ
+                        </button>
+                        {selIsOther && (
+                          <select value={selOtherReason} onChange={e=> setSel(u.User_ID, `OTHER:${e.target.value}`)}
+                            className="px-3 py-2 rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm font-medium">
+                            {OTHER_REASONS.map(r=> <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        )}
                       </div>
                     </div>
+                    {selIsOther && <p className="text-[11px] text-gray-400 mt-2">จะบันทึกเป็น “อื่นๆ: {selOtherReason}” — <strong>ไม่นับ</strong>เป็นถือศีล/หลุดศีล เพราะไม่เห็นกับตา</p>}
                   </div>
                 );
               })}
@@ -407,6 +479,23 @@ export default function NoSugarPage() {
               <tr className="hover:bg-gray-50/30 dark:hover:bg-gray-800/30 transition-colors">
                 <td className="px-6 py-4">
                   <span className="inline-flex items-center gap-2 font-medium text-gray-900 dark:text-white">
+                    <span className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center text-base">📝</span>
+                    อื่นๆ (ไม่นับคะแนน)
+                  </span>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="inline-flex items-center justify-center min-w-[2.5rem] px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 font-bold text-sm">{otherCount}</span>
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <button onClick={() => setDetailStatus('other')} disabled={otherCount === 0}
+                    className="text-sm text-cyan-700 dark:text-cyan-400 font-medium hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline">
+                    รายละเอียด
+                  </button>
+                </td>
+              </tr>
+              <tr className="hover:bg-gray-50/30 dark:hover:bg-gray-800/30 transition-colors">
+                <td className="px-6 py-4">
+                  <span className="inline-flex items-center gap-2 font-medium text-gray-900 dark:text-white">
                     <span className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700/50 flex items-center justify-center text-base">⏳</span>
                     ยังไม่บันทึก
                   </span>
@@ -429,12 +518,12 @@ export default function NoSugarPage() {
       <GlassCard className="overflow-hidden">
         <div className="p-5 border-b border-gray-100 dark:border-gray-700">
           <h3 className="font-bold text-gray-900 dark:text-white">ประวัติการบันทึก</h3>
-          <p className="text-sm text-gray-500 mt-0.5">สรุปภาพรวมแยกตามสัปดาห์ — กด “รายละเอียด” เพื่อดูรายชื่อ ผู้ถือศีล / หลุดศีล และผู้ทำการบันทึก</p>
+          <p className="text-sm text-gray-500 mt-0.5">สรุปภาพรวมแยกตามสัปดาห์ — กด “รายละเอียด” เพื่อดูรายชื่อ ผู้ถือศีล / หลุดศีล / อื่นๆ และผู้ทำการบันทึก</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 text-xs uppercase tracking-wider">
-              <th className="px-6 py-4 font-medium">วันพุธ</th><th className="px-6 py-4 font-medium">ถือศีล</th><th className="px-6 py-4 font-medium">หลุดศีล</th><th className="px-6 py-4 font-medium text-right">รายละเอียด</th>
+              <th className="px-6 py-4 font-medium">วันพุธ</th><th className="px-6 py-4 font-medium">ถือศีล</th><th className="px-6 py-4 font-medium">หลุดศีล</th><th className="px-6 py-4 font-medium">อื่นๆ</th><th className="px-6 py-4 font-medium text-right">รายละเอียด</th>
             </tr></thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {pageDates.map(d => {
@@ -446,6 +535,7 @@ export default function NoSugarPage() {
                     </td>
                     <td className="px-6 py-4"><StatusBadge count={wk.kept} kind="kept" /></td>
                     <td className="px-6 py-4"><StatusBadge count={wk.failed} kind="failed" /></td>
+                    <td className="px-6 py-4"><span className="inline-flex items-center justify-center min-w-[2.5rem] px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 font-bold text-sm">{wk.other}</span></td>
                     <td className="px-6 py-4 text-right">
                       <button onClick={() => setHistoryDetail(d)}
                         className="text-sm text-cyan-700 dark:text-cyan-400 font-medium hover:underline">
@@ -456,7 +546,7 @@ export default function NoSugarPage() {
                 );
               })}
               {historyDates.length === 0 && (
-                <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-400">ยังไม่มีประวัติการบันทึก</td></tr>
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">ยังไม่มีประวัติการบันทึก</td></tr>
               )}
             </tbody>
           </table>
@@ -491,7 +581,9 @@ export default function NoSugarPage() {
         <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
           {detailUsers.map(u => {
             const rec = weekRecords.find(s => s.User_ID === u.User_ID);
-            return <PersonRow key={u.User_ID} user={u} status={rec ? isTrue(rec.Status) : null} />;
+            if (!rec) return <PersonRow key={u.User_ID} user={u} status={null} />;
+            if (isOtherRecord(rec)) return <PersonRow key={u.User_ID} user={u} status={`OTHER:${String((rec as any).Reason||'')}`} reason={String((rec as any).Reason||'')} />;
+            return <PersonRow key={u.User_ID} user={u} status={isTrue(rec.Status)} />;
           })}
           {detailUsers.length === 0 && (
             <div className="text-center text-gray-400 py-8">ไม่มีข้อมูลในสถานะนี้</div>
@@ -522,6 +614,16 @@ export default function NoSugarPage() {
                 return u ? <PersonRow key={s.Entry_ID || s.User_ID} user={u} status={false} /> : null;
               })}
               {histFailed.length === 0 && <p className="text-xs text-gray-400">ไม่มีผู้หลุดศีลในสัปดาห์นี้</p>}
+            </div>
+          </div>
+          <div>
+            <p className="font-bold text-sm text-gray-600 dark:text-gray-300 mb-2">📝 อื่นๆ (ไม่นับคะแนน) — {histOther.length} คน</p>
+            <div className="space-y-2">
+              {histOther.map(s => {
+                const u = userOf(s.User_ID);
+                return u ? <PersonRow key={s.Entry_ID || s.User_ID} user={u} status={`OTHER:${String((s as any).Reason||'')}`} reason={String((s as any).Reason||'')} /> : null;
+              })}
+              {histOther.length === 0 && <p className="text-xs text-gray-400">ไม่มีสถานะอื่นๆ ในสัปดาห์นี้</p>}
             </div>
           </div>
           <div>

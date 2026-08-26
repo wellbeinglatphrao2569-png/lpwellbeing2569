@@ -34,7 +34,7 @@ const CONFIG = {
   STEP_PROOF_FOLDER_NAME: 'Step_Proofs'
 };
 
-const SWEET_FREE_HEADERS = ['Entry_ID','User_ID','Wednesday_Date','Status','Logged_By','Recorded_At'];
+const SWEET_FREE_HEADERS = ['Entry_ID','User_ID','Wednesday_Date','Status','Logged_By','Recorded_At','Reason'];
 const STEPS_HEADERS = ['Record_ID','User_ID','Date_Thai','Steps_Count','Submitted_Steps','Record_Method','Image_Drive_ID','AI_Steps','AI_Confidence','Date_Match','Alert_Flag','Alert_Reason','Status','Week_Number','Auditor_ID','Recorded_At','Reject_Reason','Reviewed_At','Notes'];
 const AUDIT_HEADERS = ['Audit_ID','Record_ID','Action','User_ID','Detail','Timestamp'];
 const USER_HEADERS = ['User_ID','Prefix','Full_Name','Nickname','Position','Department','Birth_Date','Gender','Weight_kg','Height_cm','BMI_Value','Waist_Inch','Role','Password','Total_Points','Level','Personnel_ID','Registration_Status','Created_By','Created_Date','First_Name','Last_Name','Profile_Image','Activities','Step_Record_Mode'];
@@ -700,10 +700,18 @@ function getDashboardData_() {
   };
 }
 
+function isOtherStatus_(val) {
+  var s = String(val||'').trim().toUpperCase();
+  return s === 'OTHER' || s === 'อื่นๆ' || s === 'OTHER_REASON';
+}
 function getSweetFreeStats_(data) {
-  const kept = data.filter(d => toBoolean_(d.Status)).length;
-  const failed = data.filter(d => !toBoolean_(d.Status)).length;
-  return { kept, failed, total: kept + failed };
+  var kept = 0, failed = 0, other = 0;
+  data.forEach(function(d){
+    if (isOtherStatus_(d.Status) || String(d.Reason||'').trim() !== '') { other++; }
+    else if (toBoolean_(d.Status)) kept++;
+    else failed++;
+  });
+  return { kept: kept, failed: failed, other: other, total: kept + failed + other };
 }
 
 function getWellnessAverage_(data) {
@@ -1654,10 +1662,19 @@ function addSweetFree_(data) {
     }
   }
 
-  const statusVal = toBoolean_(data.Status);
+  var isOther = isOtherStatus_(data.Status) || String(data.Reason||'').trim() !== '';
+  var statusVal = isOther ? 'OTHER' : toBoolean_(data.Status);
+  var reasonVal = isOther ? String(data.Reason || data.Status_Reason || '').trim() : '';
+  // ตรวจ reason ต้องเป็นหนึ่งในตัวเลือกที่กำหนด (กันค่ามั่ว) — ถ้าไม่ตรงให้เก็บตามที่ส่งมาแต่ตัดช่องว่าง
+  var allowedReasons = ['ลาป่วย','ลากิจ','ลาพักผ่อน','อบรมนอกสถานที่'];
+  if (isOther && reasonVal && allowedReasons.indexOf(reasonVal) < 0) {
+    // อนุญาตค่าอื่นๆ ที่ส่งมาแต่ยังคงเก็บไว้ (ไม่ block)
+  }
   if (rowIndex > 0) {
     if (statusCol > 0) sheet.getRange(rowIndex + 1, statusCol).setValue(statusVal);
     if (loggedCol > 0) sheet.getRange(rowIndex + 1, loggedCol).setValue(data.Logged_By || '');
+    var reasonCol = col('Reason');
+    if (reasonCol > 0) sheet.getRange(rowIndex + 1, reasonCol).setValue(reasonVal);
     const recordedCol = col('Recorded_At');
     if (recordedCol > 0) sheet.getRange(rowIndex + 1, recordedCol).setValue(getTimestamp_());
     return { success: true, message: 'อัปเดตผลงดหวานสำเร็จ' };
@@ -1669,7 +1686,8 @@ function addSweetFree_(data) {
     Wednesday_Date: wedDate || targetWed,
     Status: statusVal,
     Logged_By: data.Logged_By || '',
-    Recorded_At: getTimestamp_()
+    Recorded_At: getTimestamp_(),
+    Reason: reasonVal
   });
   return { success: true, message: 'บันทึกผลงดหวานสำเร็จ' };
 }

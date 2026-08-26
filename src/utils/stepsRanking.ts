@@ -196,12 +196,28 @@ export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: stri
   };
 }
 
+function getUserRankingKey(u: User): string {
+  const uid = String((u as any).User_ID ?? '').trim();
+  if (uid) return uid;
+  return String((u as any).Personnel_ID ?? '').trim();
+}
+function stepsForUser(u: User, totals: Map<string, number>): number {
+  const uid = String((u as any).User_ID ?? '').trim();
+  if (uid && totals.has(uid)) return totals.get(uid)!;
+  const pid = String((u as any).Personnel_ID ?? '').trim();
+  if (pid && totals.has(pid)) return totals.get(pid)!;
+  // fallback: ถ้า map มี key เป็น Personnel_ID แต่ user มี User_ID แล้ว totals ยังเป็น PID ก็ยังดักไว้
+  if (uid) return totals.get(uid) || 0;
+  return totals.get(pid) || 0;
+}
 /** จัดอันดับรายบุคคล ตามจำนวนก้าวรวม (มาก→น้อย) เฉพาะคนที่บันทึกก้าวจริงในรอบ */
 export function individualRankingOf(users: User[], totals: Map<string, number>, currentUserId?: string | number | null): IndRow[] {
+  const curKey = String(currentUserId ?? '').trim();
   return users
     .map(u => {
-      const uid = String(u.User_ID ?? '').trim();
-      return { user: u, steps: totals.get(uid) || 0, isCurrent: uid === String(currentUserId ?? '').trim() };
+      const steps = stepsForUser(u, totals);
+      const myKey = getUserRankingKey(u);
+      return { user: u, steps, isCurrent: myKey === curKey || String((u as any).Personnel_ID ?? '').trim() === curKey };
     })
     .filter(r => r.steps > 0)
     .sort((a, b) => b.steps - a.steps);
@@ -211,8 +227,7 @@ export function individualRankingOf(users: User[], totals: Map<string, number>, 
 export function deptRankingOf(users: User[], totals: Map<string, number>, currentDept?: string | null): DeptRow[] {
   const byDept = new Map<string, { total: number; participants: number }>();
   for (const u of users) {
-    const uid = String(u.User_ID ?? '').trim();
-    const steps = totals.get(uid) || 0;
+    const steps = stepsForUser(u, totals);
     if (steps <= 0 || !u.Department) continue;
     const cur = byDept.get(u.Department) || { total: 0, participants: 0 };
     cur.total += steps;

@@ -11,6 +11,7 @@ export interface User {
 }
 export interface StepsLog {
   Record_ID: string; User_ID: string; Date_Thai: string; Steps_Count: number;
+  Submitted_Steps?: number | string;
   Record_Method: string; Image_Drive_ID: string; Status: string; Week_Number: number;
   Recorded_At?: string; Reject_Reason?: string;
   AI_Steps?: number | string; AI_Confidence?: number | string; Date_Match?: string | boolean;

@@ -3,8 +3,9 @@ import Link from 'next/link';
 import { useState, useEffect, useMemo } from 'react';
 import GlassCard from '@/components/ui/GlassCard';
 import ProofImage from '@/components/ProofImage';
+import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchData } from '@/services/api';
+import { fetchData, postDataJson } from '@/services/api';
 import type { StepsLog, User } from '@/types';
 import { toThaiDateShort } from '@/utils/thaiDate';
 import { profileImageUrl, displayName } from '@/utils/personnel';
@@ -49,7 +50,7 @@ function AlertBadge() {
 }
 
 export default function VerifyHistoryPage() {
-  const { isLoggedIn, isAdmin } = useAuth();
+  const { isLoggedIn, isAdmin, user } = useAuth() as any;
   const [steps, setSteps] = useState<StepsLog[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -163,6 +164,22 @@ export default function VerifyHistoryPage() {
   const selConfidence = sel && sel.AI_Confidence != null && sel.AI_Confidence !== '' ? Number(sel.AI_Confidence) : null;
   const selAiSteps = sel && sel.AI_Steps != null && sel.AI_Steps !== '' ? Number(sel.AI_Steps) : null;
   const selAuditor = sel?.Auditor_ID ? (userMap.get(String(sel.Auditor_ID)) || users.find(u=> String(u.User_ID)===String(sel.Auditor_ID) || String(u.Personnel_ID)===String(sel.Auditor_ID)) || null) : null;
+  const [confirmDelete, setConfirmDelete] = useState<HistoryItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete(item: HistoryItem) {
+    if (!isAdmin || !user) return;
+    setDeleting(true);
+    const res: any = await postDataJson('delete-step', { Record_ID: item.Record_ID, Logged_By: (user as any).User_ID });
+    setDeleting(false);
+    setConfirmDelete(null);
+    if (res?.success) {
+      setSelected(null);
+      load();
+    } else {
+      alert(res?.message || 'ลบไม่สำเร็จ');
+    }
+  }
 
   if (!isLoggedIn) {
     return (
@@ -285,17 +302,31 @@ export default function VerifyHistoryPage() {
                       <StatusBadge status={item.Status} />
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
-                    <span>จำนวนก้าว <b className="text-emerald-600 dark:text-emerald-400">{Number(item.Steps_Count).toLocaleString()}</b></span>
-                    <span>AI อ่านได้ <b className="text-purple-600 dark:text-purple-400">{aiSteps != null ? aiSteps.toLocaleString() : '—'}</b> ({confidence != null ? Math.round(confidence * 100) : '—'}%)</span>
-                    <span>วันที่ในภาพ: {dateMatch === true ? <b className="text-emerald-600 dark:text-emerald-400">ตรงกัน</b> : dateMatch === false ? <b className="text-red-600 dark:text-red-400">ไม่ตรง</b> : <b className="text-amber-600 dark:text-amber-400">ไม่พบ/ไม่ชัด</b>}</span>
-                  </div>
-                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    ตรวจสอบโดย <span className="font-bold">{auditor ? `${displayName(auditor)}${auditor.Department ? ` (${auditor.Department})` : ''}` : (item.Auditor_ID || '—')}</span>
-                    {item.Reviewed_At && <span> เมื่อวันที่ {safeThaiDate(item.Reviewed_At)} เวลา {formatThaiTime(item.Reviewed_At)}</span>}
-                    {item.Status === 'Rejected' && item.Reject_Reason && (
-                      <span className="text-red-500"> · เหตุผล: {item.Reject_Reason}</span>
-                    )}
+                  {(() => {
+                    const submitted = item.Submitted_Steps != null && String(item.Submitted_Steps).trim() !== '' ? Number(item.Submitted_Steps) : Number(item.Steps_Count);
+                    const finalSteps = Number(item.Steps_Count);
+                    const isEdited = !isNaN(submitted) && !isNaN(finalSteps) && submitted !== finalSteps;
+                    return (
+                      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
+                        <span>ส่งครั้งแรก <b className="text-gray-700 dark:text-gray-200">{submitted.toLocaleString()}</b> ก้าว</span>
+                        <span className={isEdited ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>ตรวจสอบแล้ว <b>{finalSteps.toLocaleString()}</b> ก้าว {isEdited && <span className="text-xs font-normal">({finalSteps > submitted ? `+${(finalSteps - submitted).toLocaleString()}` : `${(finalSteps - submitted).toLocaleString()}`})</span>}</span>
+                        {isEdited && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${finalSteps === submitted ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700'}`}>{finalSteps === submitted ? 'ตรงกัน' : 'ต่างกัน'}</span>}
+                        <span>AI อ่านได้ <b className="text-purple-600 dark:text-purple-400">{aiSteps != null ? aiSteps.toLocaleString() : '—'}</b> ({confidence != null ? Math.round(confidence * 100) : '—'}%)</span>
+                        <span>วันที่ในภาพ: {dateMatch === true ? <b className="text-emerald-600 dark:text-emerald-400">ตรงกัน</b> : dateMatch === false ? <b className="text-red-600 dark:text-red-400">ไม่ตรง</b> : <b className="text-amber-600 dark:text-amber-400">ไม่พบ/ไม่ชัด</b>}</span>
+                      </div>
+                    );
+                  })()}
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <div>
+                      ตรวจสอบโดย <span className="font-bold">{auditor ? `${displayName(auditor)}${auditor.Department ? ` (${auditor.Department})` : ''}` : (item.Auditor_ID || '—')}</span>
+                      {item.Reviewed_At && <span> เมื่อวันที่ {safeThaiDate(item.Reviewed_At)} เวลา {formatThaiTime(item.Reviewed_At)}</span>}
+                      {item.Status === 'Rejected' && item.Reject_Reason && (
+                        <span className="text-red-500"> · เหตุผล: {item.Reject_Reason}</span>
+                      )}
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(item); }} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
+                      <span className="material-symbols-outlined text-sm">delete</span> ลบ
+                    </button>
                   </div>
                 </div>
               </div>
@@ -359,15 +390,21 @@ export default function VerifyHistoryPage() {
                   <p className="text-lg font-bold text-gray-900 dark:text-white">{safeThaiDate(sel.Date_Thai)}</p>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
-                  <p className="text-xs text-gray-400 mb-0.5">จำนวนก้าวที่ส่ง</p>
+                  <p className="text-xs text-gray-400 mb-0.5">ส่งครั้งแรก (ผู้ใช้งานพิมพ์)</p>
+                  <p className="text-xl sm:text-2xl font-extrabold text-gray-700 dark:text-gray-200">{Number(sel.Submitted_Steps != null && String(sel.Submitted_Steps).trim() !== '' ? sel.Submitted_Steps : sel.Steps_Count).toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-400">ก่อนตรวจสอบ</p>
+                </div>
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 border border-emerald-200 dark:border-emerald-800">
+                  <p className="text-xs text-gray-400 mb-0.5">ตรวจสอบแล้ว {(() => { const sub = sel.Submitted_Steps != null && String(sel.Submitted_Steps).trim() !== '' ? Number(sel.Submitted_Steps) : Number(sel.Steps_Count); const fin = Number(sel.Steps_Count); return sub !== fin ? (fin > sub ? `(+${(fin - sub).toLocaleString()})` : `(${(fin - sub).toLocaleString()})`) : '(ตรงกัน)'; })()}</p>
                   <p className="text-xl sm:text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">{Number(sel.Steps_Count).toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-400">หลังตรวจสอบ {sel.Submitted_Steps != null && String(sel.Submitted_Steps).trim() !== '' && Number(sel.Submitted_Steps) !== Number(sel.Steps_Count) ? '— มีการแก้ไข' : '— ไม่มีการแก้ไข'}</p>
                 </div>
                 <div className="bg-purple-50 dark:bg-purple-900/10 rounded-xl p-3">
                   <p className="text-xs text-gray-400 mb-0.5">AI อ่านได้</p>
                   <p className="text-xl sm:text-2xl font-extrabold text-purple-600 dark:text-purple-400">{selAiSteps != null ? selAiSteps.toLocaleString() : '—'}</p>
                   <p className="text-[11px] text-gray-400 mt-0.5">ความมั่นใจ {selConfidence != null ? Math.round(selConfidence * 100) : '—'}%</p>
                 </div>
-                <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
+                <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3 col-span-2">
                   <p className="text-xs text-gray-400 mb-0.5">วันที่ในภาพ</p>
                   {selDateMatch === true ? (
                     <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">ตรงกัน</p>
@@ -392,10 +429,16 @@ export default function VerifyHistoryPage() {
                   <p className="mt-1 text-red-500"><span className="text-gray-400">เหตุผลที่ไม่อนุมัติ:</span> <span className="font-bold">{sel.Reject_Reason}</span></p>
                 )}
               </div>
+              <div className="flex justify-end pt-2">
+                <button onClick={() => setConfirmDelete(sel)} disabled={deleting} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
+                  <span className="material-symbols-outlined text-base">delete</span> ลบข้อมูลนี้ (พร้อมรูป) เพื่อให้กรอกใหม่ได้
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
+      <ConfirmPopup open={!!confirmDelete} title="ยืนยันการลบ" message={`คุณกำลังจะลบประวัติก้าวของ "${confirmDelete?.userName || ''}" วันที่ ${confirmDelete ? safeThaiDate(confirmDelete.Date_Thai) : ''} จำนวน ${confirmDelete ? Number(confirmDelete.Steps_Count).toLocaleString() : ''} ก้าว พร้อมรูปภาพ — ลบแล้วต้องกรอกใหม่ แน่ใจหรือไม่?`} variant="danger" loading={deleting} onConfirm={() => confirmDelete && handleDelete(confirmDelete)} onClose={() => setConfirmDelete(null)} />
     </div>
   );
 }

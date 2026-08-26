@@ -34,7 +34,7 @@ const CONFIG = {
 };
 
 const SWEET_FREE_HEADERS = ['Entry_ID','User_ID','Wednesday_Date','Status','Logged_By','Recorded_At'];
-const STEPS_HEADERS = ['Record_ID','User_ID','Date_Thai','Steps_Count','Record_Method','Image_Drive_ID','AI_Steps','AI_Confidence','Date_Match','Alert_Flag','Alert_Reason','Status','Week_Number','Auditor_ID','Recorded_At','Reject_Reason','Reviewed_At','Notes'];
+const STEPS_HEADERS = ['Record_ID','User_ID','Date_Thai','Steps_Count','Submitted_Steps','Record_Method','Image_Drive_ID','AI_Steps','AI_Confidence','Date_Match','Alert_Flag','Alert_Reason','Status','Week_Number','Auditor_ID','Recorded_At','Reject_Reason','Reviewed_At','Notes'];
 const AUDIT_HEADERS = ['Audit_ID','Record_ID','Action','User_ID','Detail','Timestamp'];
 const USER_HEADERS = ['User_ID','Prefix','Full_Name','Nickname','Position','Department','Birth_Date','Gender','Weight_kg','Height_cm','BMI_Value','Waist_Inch','Role','Password','Total_Points','Level','Personnel_ID','Registration_Status','Created_By','Created_Date','First_Name','Last_Name','Profile_Image','Activities','Step_Record_Mode'];
 const PASSWORD_SALT_LENGTH = 16;
@@ -437,6 +437,9 @@ function doPost(e) {
         break;
       case 'update-step-status':
         result = updateStepStatus_(data);
+        break;
+      case 'delete-step':
+        result = deleteStepLog_(data);
         break;
       case 'add-personnel':
         result = addPersonnel_(data);
@@ -1441,6 +1444,7 @@ function addStepLog_(data) {
     User_ID: data.User_ID,
     Date_Thai: data.Date_Thai || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd'),
     Steps_Count: data.Steps_Count || 0,
+    Submitted_Steps: data.Steps_Count || 0,
     Record_Method: data.Record_Method || 'Manual',
     Image_Drive_ID: imageDriveId,
     AI_Steps: (data.AI_Steps === undefined || data.AI_Steps === null || data.AI_Steps === '') ? '' : data.AI_Steps,
@@ -2133,6 +2137,16 @@ function updateStepStatus_(data) {
   setCol('Reviewed_At', getTimestamp_());
   if (newStatus === 'Rejected') setCol('Reject_Reason', data.Reject_Reason || '');
 
+  // เก็บยอดที่ส่งครั้งแรกไว้ใน Submitted_Steps (ถ้ายังไม่มี) เพื่อเทียบกับยอดที่แก้ไข
+  var stepsColIdx = col('Steps_Count');
+  var submittedColIdx = col('Submitted_Steps');
+  if (submittedColIdx > 0) {
+    var curSubmitted = sheet.getRange(rowIndex+1, submittedColIdx).getValue();
+    var curStepsVal = stepsColIdx>0 ? sheet.getRange(rowIndex+1, stepsColIdx).getValue() : '';
+    if (!curSubmitted || String(curSubmitted).trim()==='') {
+      setCol('Submitted_Steps', curStepsVal);
+    }
+  }
   // เจ้าหน้าที่ นสส. สามารถแก้ไขจำนวนก้าวให้ตรงกับรูปหลักฐานก่อนอนุมัติ
   const newSteps = data.Steps_Count !== undefined && data.Steps_Count !== null && data.Steps_Count !== ''
     ? Number(data.Steps_Count)
@@ -2153,6 +2167,60 @@ function updateStepStatus_(data) {
   });
 
   return { success: true, message: newStatus === 'Approved' ? 'อนุมัติจำนวนก้าวสำเร็จ' : 'ไม่อนุมัติจำนวนก้าวแล้ว' };
+}
+
+/**
+ * ลบประวัติก้าวเดิน (พร้อมรูปภาพ) — ใช้เมื่อตรวจสอบแล้วไม่ถูกต้องให้กรอกใหม่
+ * เงื่อนไข: ต้องเป็น Admin หรือ Auditor ต่างฝ่าย, ลบแถวใน Steps_Log + ลบไฟล์ใน Drive ถ้ามี
+ */
+function deleteStepLog_(data) {
+  ensureHeaders_('Steps_Log', STEPS_HEADERS);
+  const sheet = getSheet_('Steps_Log');
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0] || [];
+  const col = function(name){ return headers.indexOf(name)+1; };
+  const recordCol = col('Record_ID');
+  const userCol = col('User_ID');
+  const imageCol = col('Image_Drive_ID');
+  if (recordCol < 1) return { success: false, message: 'Steps_Log ยังไม่มีข้อมูล' };
+  const recordId = String(data.Record_ID || '').trim();
+  if (!recordId) return { success: false, message: 'กรุณาระบุ Record_ID' };
+  let rowIndex = -1;
+  let imageId = '';
+  let targetUserId = '';
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][recordCol-1]).trim() === recordId) {
+      rowIndex = i;
+      imageId = imageCol > 0 ? String(rows[i][imageCol-1] || '').trim() : '';
+      targetUserId = userCol > 0 ? String(rows[i][userCol-1] || '').trim() : '';
+      break;
+    }
+  }
+  if (rowIndex < 1) return { success: false, message: 'ไม่พบ Record_ID: ' + recordId };
+  // ลบไฟล์ใน Drive ถ้ามี
+  if (imageId) {
+    try {
+      const file = DriveApp.getFileById(imageId);
+      file.setTrashed(true);
+    } catch (e) {
+      // ถ้าลบไฟล์ไม่ได้ให้ข้าม (อาจถูกลบไปแล้ว)
+      console.warn('deleteStepLog_ trash file failed', imageId, e);
+    }
+  }
+  sheet.deleteRow(rowIndex+1);
+  // Audit Log
+  try {
+    ensureHeaders_('Audit_Log', AUDIT_HEADERS);
+    appendData_('Audit_Log', {
+      Audit_ID: generateSequentialId_('Audit_Log', 'AU'),
+      Record_ID: recordId,
+      Action: 'DELETE_STEP',
+      User_ID: String(data.Logged_By || data.Auditor_ID || ''),
+      Detail: 'ลบประวัติก้าว ' + recordId + ' ของ ' + targetUserId + (imageId ? ' + รูป ' + imageId : ''),
+      Timestamp: getTimestamp_()
+    });
+  } catch (e) {}
+  return { success: true, message: 'ลบข้อมูลก้าวและรูปภาพสำเร็จ — สามารถกรอกใหม่ได้' };
 }
 
 // ===== GOOGLE FIT LINK MANAGEMENT =====
@@ -2897,6 +2965,12 @@ function addBatchSteps_(data) {
         var set = function(name, value){ var c=col(name); if(c>0) sheet.getRange(targetRow+1, c).setValue(value); };
         var incomingStatus2 = String(item.Status || '').trim();
         var finalStatus2 = (incomingStatus2 === 'Approved' || incomingStatus2 === 'Pending' || incomingStatus2 === 'Rejected') ? incomingStatus2 : (String(item.Alert_Flag || 'FALSE') === 'TRUE' ? 'Pending' : 'Approved');
+        // เก็บยอดที่ส่งครั้งแรกไว้ใน Submitted_Steps (ถ้ายังไม่มี) เพื่อเทียบกับยอดที่แก้ไข
+        var existingSubmitted2 = col('Submitted_Steps')>0 ? rows[targetRow][col('Submitted_Steps')-1] : '';
+        var existingSteps2 = col('Steps_Count')>0 ? Number(rows[targetRow][col('Steps_Count')-1])||0 : 0;
+        if (!existingSubmitted2 || String(existingSubmitted2).trim()==='') {
+          set('Submitted_Steps', existingSteps2);
+        }
         set('Steps_Count', stepsCount);
         if (imageDriveId) set('Image_Drive_ID', imageDriveId);
         set('AI_Steps', (item.AI_Steps !== undefined && item.AI_Steps !== null && item.AI_Steps !== '') ? item.AI_Steps : '');
@@ -2924,6 +2998,7 @@ function addBatchSteps_(data) {
       User_ID: userId,
       Date_Thai: dayStr,
       Steps_Count: stepsCount,
+      Submitted_Steps: stepsCount,
       Record_Method: 'เจ้าหน้าที่ นสส. (บันทึกให้)',
       Image_Drive_ID: imageDriveId,
       AI_Steps: (item.AI_Steps !== undefined && item.AI_Steps !== null && item.AI_Steps !== '') ? item.AI_Steps : '',

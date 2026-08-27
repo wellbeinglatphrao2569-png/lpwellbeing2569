@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'stealth/ox-alpha';
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'z-ai/glm-5.3-flash';
 const OPENROUTER_MODEL_2 = process.env.OPENROUTER_MODEL_2 || 'google/gemma-4-26b-a4b-it:free';
 const MIN_CONFIDENCE = 0.8;
 const MAX_REASONABLE_STEPS = 200000;
@@ -54,7 +54,7 @@ async function callOpenRouterForBatch(prompt: string, data: string, mime: string
     return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL);
   } catch (e) {
     const msg = String(e);
-    if ((msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && OPENROUTER_MODEL_2 !== OPENROUTER_MODEL) {
+    if ((msg.includes('404') || msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && OPENROUTER_MODEL_2 !== OPENROUTER_MODEL) {
       console.warn(`OpenRouter ${OPENROUTER_MODEL} failed in batch (${msg}) — fallback to ${OPENROUTER_MODEL_2}`);
       return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_2);
     }
@@ -151,7 +151,7 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
         finalProvider = 'openrouter'; finalModel = m;
       } catch (e: any) {
         const msg = String(e);
-        if ((msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && m !== OPENROUTER_MODEL_2) {
+        if ((msg.includes('404') || msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && m !== OPENROUTER_MODEL_2) {
           text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_2);
           finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_2; usedFallback = true;
         } else if (GEMINI_API_KEY) {
@@ -166,7 +166,7 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
         finalProvider = 'openrouter'; finalModel = m;
       } catch (e: any) {
         const msg = String(e);
-        if ((msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && m !== OPENROUTER_MODEL) {
+        if ((msg.includes('404') || msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && m !== OPENROUTER_MODEL) {
           text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL);
           finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
         } else if (GEMINI_API_KEY) {
@@ -180,7 +180,7 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
         finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
       } catch (e: any) {
         const status = e?.status || 0;
-        if ((status === 429 || status === 503 || status === 500) && OPENROUTER_API_KEY) {
+        if ((status === 404 || status === 429 || status === 503 || status === 500) && OPENROUTER_API_KEY) {
           text = await callOpenRouterForBatch(prompt, data, mime);
           finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
         } else throw e;

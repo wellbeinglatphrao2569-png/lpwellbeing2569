@@ -50,7 +50,7 @@ type ProviderKey = 'gemini' | 'openrouter' | 'openrouter2';
 const PROVIDERS: ProviderKey[] = ['gemini','openrouter','openrouter2'];
 function hashUid(s: string): number { let h=0; for(let i=0;i<s.length;i++) h=(h*31 + s.charCodeAt(i))|0; return Math.abs(h); }
 function getProviderForUid(uid: string): ProviderKey { return PROVIDERS[hashUid(uid) % PROVIDERS.length]; }
-function providerLabel(p: ProviderKey): string { return p==='gemini' ? 'Gemini' : p==='openrouter' ? 'ox-alpha' : 'Gemma-4-26b'; }
+function providerLabel(p: ProviderKey): string { return p==='gemini' ? 'Gemini' : p==='openrouter' ? 'GLM-5.3' : 'Gemma-4-26b'; }
 function providerBadgeClass(p: ProviderKey | string): string {
   if(p==='openrouter') return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200';
   if(p==='openrouter2') return 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 border-teal-200';
@@ -269,7 +269,7 @@ export default function BatchStepsPage(){
           alert: !!data.alert,
           alertReasons: data.alertReasons ?? [],
           provider: (data.provider as any) ?? 'gemini',
-          model: data.model ?? (data.provider==='openrouter' ? 'stealth/ox-alpha' : 'gemini-3.6-flash'),
+           model: data.model ?? (data.provider==='openrouter' ? 'z-ai/glm-5.3-flash' : 'gemini-3.6-flash'),
         };
         const targetDate = pickTargetDateForResult(userId, r.dateInImage, usedInBatch);
         usedInBatch.add(targetDate);
@@ -342,7 +342,7 @@ export default function BatchStepsPage(){
             alert: !!data.alert,
             alertReasons: data.alertReasons ?? [],
             provider: (data.provider as any) ?? 'gemini',
-            model: data.model ?? (data.provider==='openrouter' ? 'stealth/ox-alpha' : 'gemini-3.6-flash'),
+          model: data.model ?? (data.provider==='openrouter' ? 'z-ai/glm-5.3-flash' : 'gemini-3.6-flash'),
           };
           const targetDate = pickTargetDateForResult(uid, r.dateInImage, usedInBatch);
           usedInBatch.add(targetDate);
@@ -501,10 +501,10 @@ export default function BatchStepsPage(){
     }
     const totalToSave = payloadStepsPre.length || 1;
     setSaving(true);
-    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: 'Gemini 3.6-flash · ox-alpha · Gemma-4-26b' });
+    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: 'Gemini 3.6-flash · GLM-5.3 · Gemma-4-26b' });
     // อนิเมชัน % ระหว่างรอเซิร์ฟเวอร์ประมวลผล AI (เพิ่มทีละนิดจนถึง 90% แล้วรอของจริง)
     let simPercent = 0;
-    const modelsCycle = ['Gemini 3.6-flash', 'ox-alpha (OpenRouter)', 'Gemma-4-26b'];
+    const modelsCycle = ['Gemini 3.6-flash', 'GLM-5.3 (OpenRouter)', 'Gemma-4-26b'];
     let modelIdx = 0;
     const simTimer = setInterval(()=>{
       simPercent = Math.min(90, simPercent + Math.random()*6 + 2);

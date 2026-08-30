@@ -248,9 +248,10 @@ export default function VerifyStepsPage() {
     }
   }
 
-  async function handleVerifyApprove() {
+  async function handleVerifyApprove(preferMode?: 'approve' | 'reject') {
     if (!verifyItem || !user) return;
-    if (verifyMode === 'reject') {
+    const mode = preferMode || verifyMode;
+    if (mode === 'reject') {
       if (!verifyRejectReason.trim()) {
         setNotice({ type: 'error', text: 'กรุณาระบุเหตุผลที่ไม่อนุมัติ (จำเป็นต้องตอบ)' });
         return;
@@ -262,10 +263,11 @@ export default function VerifyStepsPage() {
         Status: 'Rejected',
         Auditor_ID: user.User_ID,
         Reject_Reason: verifyRejectReason.trim(),
+        Steps_Count: verifyEditedSteps.trim() !== '' ? parseInt(verifyEditedSteps, 10) : undefined,
       });
       setBusyId(null);
       if (res?.success) {
-        setNotice({ type: 'success', text: res.message || 'ไม่อนุมัติสำเร็จ' });
+        setNotice({ type: 'success', text: res.message || 'ไม่อนุมัติสำเร็จ — เหตุผลจะแสดงที่ประวัติของผู้ใช้และกลุ่มฝ่าย' });
         setVerifyItem(null);
         setVerifyEditedSteps('');
         setVerifyRejectReason('');
@@ -582,13 +584,9 @@ export default function VerifyStepsPage() {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <button onClick={() => { setVerifyItem(sel); setVerifyEditedSteps(editedSteps); setSelected(null); }} disabled={selBusy}
+                    <button onClick={() => { openVerifyApprove(sel); setVerifyEditedSteps(editedSteps); setSelected(null); }} disabled={selBusy}
                       className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
-                      <span className="material-symbols-outlined text-lg">verified</span>ตรวจสอบก่อนอนุมัติ
-                    </button>
-                    <button onClick={() => setRejectFor(sel.Record_ID)} disabled={selBusy}
-                      className="flex-1 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
-                      <span className="material-symbols-outlined text-lg">cancel</span>ไม่อนุมัติ
+                      <span className="material-symbols-outlined text-lg">fact_check</span>ตรวจสอบ (อนุมัติ/ไม่อนุมัติ)
                     </button>
                   </div>
                 )}
@@ -683,35 +681,40 @@ export default function VerifyStepsPage() {
                   </div>
                 )}
 
-                {verifyMode==='approve' ? (
-                  <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 p-3">
-                    <p className="text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-sm">edit_note</span>แก้ไขจำนวนก้าวก่อนอนุมัติ (ถ้าต้องการ)
-                    </p>
-                    <input type="number" min="0" value={verifyEditedSteps} onChange={e => setVerifyEditedSteps(e.target.value)}
-                      placeholder={`เดิม ${Number(v.Steps_Count).toLocaleString()} ก้าว`}
-                      className="w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-lg font-bold text-center outline-none focus:ring-2 focus:ring-emerald-500" />
-                    <p className="text-[11px] text-gray-400 mt-1 text-center">เว้นว่างไว้เพื่อใช้ค่าต้นฉบับ · กรอกตัวเลขใหม่เพื่อยืนยันค่านั้นแทน</p>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-3">
-                    <p className="text-xs font-bold text-red-700 dark:text-red-400 mb-1.5 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-sm">feedback</span>เหตุผลที่ไม่อนุมัติ <span className="text-red-500">*</span> <span className="font-normal text-gray-400">(จำเป็นต้องตอบ — จะแสดงที่ประวัติของผู้ใช้)</span>
-                    </p>
-                    <textarea value={verifyRejectReason} onChange={e=> setVerifyRejectReason(e.target.value)} rows={3}
-                      placeholder="เช่น ภาพไม่ชัดเจน / วันที่ในภาพไม่ตรงกับวันที่บันทึก / จำนวนก้าวไม่สมเหตุสมผล"
-                      className="w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm outline-none focus:ring-2 focus:ring-red-500" />
-                  </div>
-                )}
+                {/* แก้ไขก้าว — ใช้ได้ทั้งอนุมัติ/ไม่อนุมัติ */}
+                <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-700/20 p-3">
+                  <p className="text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-sm">edit_note</span>แก้ไขจำนวนก้าว (ถ้าต้องการ) — เว้นว่างเพื่อใช้ค่าต้นฉบับ
+                  </p>
+                  <input type="number" min="0" value={verifyEditedSteps} onChange={e => setVerifyEditedSteps(e.target.value)}
+                    placeholder={`เดิม ${Number(v.Steps_Count).toLocaleString()} ก้าว`}
+                    className="w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-lg font-bold text-center outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
 
-                <div className="flex gap-2">
+                <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50/30 dark:bg-red-900/10 p-3">
+                  <p className="text-xs font-bold text-red-700 dark:text-red-400 mb-1.5 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-sm">feedback</span>เหตุผลที่ไม่อนุมัติ <span className="text-red-500">*</span> <span className="font-normal text-gray-400">(จำเป็นเมื่อกด ไม่อนุมัติ — จะแสดงที่ประวัติของผู้ใช้และกลุ่มฝ่าย)</span>
+                  </p>
+                  <textarea value={verifyRejectReason} onChange={e=> { setVerifyRejectReason(e.target.value); if(e.target.value.trim()) setVerifyMode('reject'); }} rows={3}
+                    onFocus={()=> setVerifyMode('reject')}
+                    placeholder="เช่น ภาพไม่ชัดเจน / วันที่ในภาพไม่ตรงกับวันที่บันทึก / จำนวนก้าวไม่สมเหตุสมผล"
+                    className="w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm outline-none focus:ring-2 focus:ring-red-500" />
+                  <p className="text-[11px] text-gray-400 mt-1">กรอกเหตุผลแล้วกด <b>ไม่อนุมัติ</b> ด้านล่าง — ปุ่มอนุมัติจะไม่ต้องใช้เหตุผล</p>
+                </div>
+
+                <div className="flex gap-2 pt-1">
                   <button onClick={() => setVerifyItem(null)} disabled={vBusy}
-                    className="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-sm">
+                    className="flex-1 py-3 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-sm">
                     ยกเลิก
                   </button>
-                  <button onClick={handleVerifyApprove} disabled={vBusy || (verifyMode==='reject' && !verifyRejectReason.trim())}
-                    className={`flex-[1.5] py-2.5 rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5 ${verifyMode==='reject' ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}>
-                    {vBusy ? <><span className="loading loading-spinner loading-xs"></span>กำลังบันทึก...</> : verifyMode==='reject' ? <><span className="material-symbols-outlined text-lg">block</span>ยืนยันไม่อนุมัติ</> : <><span className="material-symbols-outlined text-lg">check_circle</span>ยืนยันอนุมัติ</>}
+                  <button onClick={() => handleVerifyApprove('reject')} disabled={vBusy || !verifyRejectReason.trim()}
+                    title={!verifyRejectReason.trim() ? 'กรุณากรอกเหตุผลก่อนไม่อนุมัติ' : 'ไม่อนุมัติ — เหตุผลจะแสดงที่ประวัติ'}
+                    className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-1.5">
+                    {vBusy ? <><span className="loading loading-spinner loading-xs"></span>กำลังบันทึก...</> : <><span className="material-symbols-outlined text-lg">cancel</span>ไม่อนุมัติ</>}
+                  </button>
+                  <button onClick={() => handleVerifyApprove('approve')} disabled={vBusy}
+                    className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    {vBusy ? <><span className="loading loading-spinner loading-xs"></span>กำลังบันทึก...</> : <><span className="material-symbols-outlined text-lg">check_circle</span>อนุมัติ</>}
                   </button>
                 </div>
               </div>

@@ -855,6 +855,20 @@ function registerUser_(data) {
       }
     }
   } catch(e){ console.error('migrate Steps_Log Personnel_ID->User_ID failed', e); }
+  // ย้ายประวัติงดหวานที่เคยบันทึกด้วย Personnel_ID มาเป็น User_ID ใหม่ด้วย (แก้บั๊กแสดง Dashboard ไม่ติด)
+  try {
+    var sweetSheet = getSheet_('Sweet_Free');
+    var sweetRows = sweetSheet.getDataRange().getValues();
+    var sweetHeaders = sweetRows[0] || [];
+    var swUidCol = sweetHeaders.indexOf('User_ID')+1;
+    if(swUidCol>0){
+      for(var wi=1; wi<sweetRows.length; wi++){
+        if(String(sweetRows[wi][swUidCol-1])===String(pid)){
+          sweetSheet.getRange(wi+1, swUidCol).setValue(uid);
+        }
+      }
+    }
+  } catch(e){ console.error('migrate Sweet_Free Personnel_ID->User_ID failed', e); }
 
   return { success: true, message: 'ลงทะเบียนสำเร็จ', baselineCaptured: !!baseline.captured };
 }
@@ -1589,8 +1603,15 @@ function toBoolean_(val) {
   return s === 'true' || s === '1' || s === 'yes' || s === 'y' || s === 't';
 }
 
+function getCurrentWednesdayKey_() {
+  var bkk = new Date(new Date().getTime() + 7 * 60 * 60 * 1000);
+  var day = bkk.getUTCDay();
+  var wed = new Date(bkk);
+  wed.setUTCDate(wed.getUTCDate() + (3 - day));
+  return Utilities.formatDate(wed, 'UTC', 'yyyy-MM-dd');
+}
+
 function addSweetFree_(data) {
-  // เติมคอลัมน์ Recorded_At (เวลาที่บันทึก) ให้ชีทที่ยังไม่มี — สำหรับข้อมูลใหม่ บันทึกเวลาอัตโนมัติ
   ensureHeaders_('Sweet_Free', SWEET_FREE_HEADERS);
 
   // ตรวจสิทธิ์: ต้องเป็น Admin หรือ Committee
@@ -1602,7 +1623,26 @@ function addSweetFree_(data) {
     return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. หรือกรรมการประจำฝ่ายเท่านั้นที่บันทึกผลงดหวานได้' };
   }
 
-  // ห้วงเวลาโครงการ: ต้องอยู่ในช่วงที่กำหนด (เช่น 24 ส.ค. 2569 – 13 พ.ย. 2569)
+  // หาบุคลากรเป้าหมาย: รองรับทั้ง User_ID (เลขบัตร) และ Personnel_ID (Pxxx) — แก้บั๊ก User_ID ว่างทำให้บันทึกไม่ติด/กดคนเดียวติดทั้งฝ่าย
+  var rawUid = String(data.User_ID || '').trim();
+  var rawPid = String(data.Personnel_ID || '').trim();
+  var allUsers = getData_('Users');
+  var targetUser = null;
+  if (rawUid) {
+    targetUser = allUsers.find(function (u) { return String(u.User_ID) === rawUid || String(u.Personnel_ID || '') === rawUid; }) || null;
+  }
+  if (!targetUser && rawPid) {
+    targetUser = allUsers.find(function (u) { return String(u.Personnel_ID || '') === rawPid; }) || null;
+  }
+  if (!targetUser) {
+    // fallback: ลองหาโดย rawUid เป็น Personnel_ID โดยตรง
+    targetUser = allUsers.find(function (u) { return String(u.Personnel_ID || '') === rawUid; }) || null;
+  }
+  if (!targetUser) return { success: false, message: 'ไม่พบบุคลากรที่ต้องการบันทึก (ID: ' + (rawUid || rawPid || '-') + ')' };
+  var effectiveId = String(targetUser.User_ID || '').trim() || String(targetUser.Personnel_ID || '').trim();
+  if (!effectiveId) return { success: false, message: 'บุคลากรไม่มีรหัสอ้างอิง (User_ID/Personnel_ID)' };
+
+  // ห้วงเวลาโครงการ
   var winCheck = getProjectWindow_();
   var wedKeyForWindow = String(data.Wednesday_Date || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd')).trim().slice(0,10);
   if (!isDateInWindow_(wedKeyForWindow)) {
@@ -1610,12 +1650,9 @@ function addSweetFree_(data) {
   }
   // ตรวจช่วงเวลา: พุธ 14:00 น. – ศุกร์ 23:59 น. (ตามเวลาประเทศไทย UTC+7)
   const _bkk = new Date(new Date().getTime() + 7 * 60 * 60 * 1000);
-  const day = _bkk.getUTCDay(); // 0=อาทิตย์ .. 6=เสาร์
+  const day = _bkk.getUTCDay();
   const minutes = _bkk.getUTCHours() * 60 + _bkk.getUTCMinutes();
   const withinWindow = (day === 3 && minutes >= 14 * 60) || day === 4 || day === 5;
-  if (!withinWindow) {
-    return { success: false, message: 'สามารถบันทึกผลงดหวานได้ตั้งแต่พุธ 14:00 น. ถึงศุกร์ 23:59 น. เท่านั้น' };
-  }
 
   const sheet = getSheet_('Sweet_Free');
   const rows = sheet.getDataRange().getValues();
@@ -1643,19 +1680,27 @@ function addSweetFree_(data) {
     }
   }
 
-  // อัปเดตแทนการเพิ่มซ้ำ: 1 บันทึกต่อบุคลากร 1 คนต่อวันพุธนั้น
+  // ตรวจว่าห้ามบันทึกสัปดาห์ในอนาคต
+  var currentWed = getCurrentWednesdayKey_();
+  if (targetWed > currentWed) {
+    return { success: false, message: 'ไม่สามารถบันทึกสำหรับวันพุธในอนาคต (' + targetWed + ') ได้' };
+  }
+  var isCurrentWeek = targetWed === currentWed;
+
+  // ค้นหาแถวเดิม: 1 บันทึกต่อบุคลากร 1 คนต่อวันพุธ — ต้อง match ทั้ง User_ID และ Personnel_ID (กันบั๊ก ID ว่าง)
   let rowIndex = -1;
   if (userIdCol > 0 && wedCol > 0 && targetWed) {
     const matched = [];
     for (let i = 1; i < rows.length; i++) {
-      if (String(rows[i][userIdCol - 1]) === String(data.User_ID) &&
-          dateKeyOf_(rows[i][wedCol - 1]) === targetWed) {
+      var sid = String(rows[i][userIdCol - 1] || '').trim();
+      var sWed = dateKeyOf_(rows[i][wedCol - 1]);
+      var matchId = (sid === effectiveId) || (sid === String(targetUser.Personnel_ID || '').trim()) || (sid === String(targetUser.User_ID || '').trim());
+      if (matchId && sWed === targetWed) {
         matched.push(i);
       }
     }
     if (matched.length > 0) {
       rowIndex = matched[0];
-      // ล้างแถวที่ซ้ำกัน (เก็บแถวแรกไว้แก้ไข) เพื่อให้ข้อมูลไม่มีรายการซ้ำ
       for (let k = matched.length - 1; k >= 1; k--) {
         sheet.deleteRow(matched[k] + 1);
       }
@@ -1665,31 +1710,46 @@ function addSweetFree_(data) {
   var isOther = isOtherStatus_(data.Status) || String(data.Reason||'').trim() !== '';
   var statusVal = isOther ? 'OTHER' : toBoolean_(data.Status);
   var reasonVal = isOther ? String(data.Reason || data.Status_Reason || '').trim() : '';
-  // ตรวจ reason ต้องเป็นหนึ่งในตัวเลือกที่กำหนด (กันค่ามั่ว) — ถ้าไม่ตรงให้เก็บตามที่ส่งมาแต่ตัดช่องว่าง
   var allowedReasons = ['ลาป่วย','ลากิจ','ลาพักผ่อน','อบรมนอกสถานที่'];
   if (isOther && reasonVal && allowedReasons.indexOf(reasonVal) < 0) {
-    // อนุญาตค่าอื่นๆ ที่ส่งมาแต่ยังคงเก็บไว้ (ไม่ block)
   }
+
+  // กฎการบันทึกย้อนหลัง: นอกช่วง พ.14:00-ศ.23:59 หรือสัปดาห์ย้อนหลัง ให้บันทึกได้เพียงครั้งเดียวแล้วล็อก
   if (rowIndex > 0) {
-    if (statusCol > 0) sheet.getRange(rowIndex + 1, statusCol).setValue(statusVal);
-    if (loggedCol > 0) sheet.getRange(rowIndex + 1, loggedCol).setValue(data.Logged_By || '');
-    var reasonCol = col('Reason');
-    if (reasonCol > 0) sheet.getRange(rowIndex + 1, reasonCol).setValue(reasonVal);
-    const recordedCol = col('Recorded_At');
-    if (recordedCol > 0) sheet.getRange(rowIndex + 1, recordedCol).setValue(getTimestamp_());
-    return { success: true, message: 'อัปเดตผลงดหวานสำเร็จ' };
+    // มีบันทึกเดิมแล้ว
+    if (isCurrentWeek && withinWindow) {
+      // ในช่วงปกติ แก้ได้ตลอด
+      if (statusCol > 0) sheet.getRange(rowIndex + 1, statusCol).setValue(statusVal);
+      if (loggedCol > 0) sheet.getRange(rowIndex + 1, loggedCol).setValue(data.Logged_By || '');
+      var reasonCol = col('Reason');
+      if (reasonCol > 0) sheet.getRange(rowIndex + 1, reasonCol).setValue(reasonVal);
+      const recordedCol = col('Recorded_At');
+      if (recordedCol > 0) sheet.getRange(rowIndex + 1, recordedCol).setValue(getTimestamp_());
+      return { success: true, message: 'อัปเดตผลงดหวานสำเร็จ' };
+    } else {
+      // นอกช่วงหรือสัปดาห์ย้อนหลัง: บันทึกแล้วล็อก ห้ามแก้
+      return { success: false, message: 'สัปดาห์นี้บันทึกแล้ว ไม่สามารถแก้ไขได้ (บันทึกย้อนหลังได้เพียงครั้งเดียว)' };
+    }
+  }
+
+  // ยังไม่มีบันทึกเดิม — ตรวจสิทธิ์เวลาสำหรับการสร้างใหม่
+  if (!isCurrentWeek || !withinWindow) {
+    // เป็นการบันทึกย้อนหลัง (ครั้งเดียว) — อนุญาตถ้ายังไม่มีแถวเดิม
+    // ไม่ต้องเช็ค withinWindow
+  } else {
+    // ในช่วงปกติ — อนุญาต
   }
 
   appendData_('Sweet_Free', {
     Entry_ID: generateSequentialId_('Sweet_Free', 'SW'),
-    User_ID: data.User_ID,
+    User_ID: effectiveId,
     Wednesday_Date: wedDate || targetWed,
     Status: statusVal,
     Logged_By: data.Logged_By || '',
     Recorded_At: getTimestamp_(),
     Reason: reasonVal
   });
-  return { success: true, message: 'บันทึกผลงดหวานสำเร็จ' };
+  return { success: true, message: 'บันทึกผลงดหวานสำเร็จ' + (!isCurrentWeek || !withinWindow ? ' (บันทึกย้อนหลัง)' : '') };
 }
 
 /**

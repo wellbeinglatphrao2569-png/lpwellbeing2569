@@ -74,34 +74,46 @@ export default function DashboardPage() {
 
   const program = useMemo(() => programTotals(stepsData), [stepsData]);
 
-  const userOf = (uid: string): User | undefined => users.find(x => String(x.User_ID) === String(uid));
+  const userOf = (uid: string): User | undefined => users.find(x => String(x.User_ID) === String(uid).trim() || String((x as any).Personnel_ID || '') === String(uid).trim());
   const resolveUser = (ref: string): User | undefined =>
     userOf(ref) ||
     users.find(u => u.Full_Name === String(ref).trim()) ||
     users.find(u => `${u.Prefix} ${u.Full_Name}` === String(ref).trim());
 
   const currentWedKey = getCurrentWednesdayDate();
+  const myEffectiveIds = useMemo(() => {
+    if (!user) return new Set<string>();
+    const ids = new Set<string>();
+    if (String(user.User_ID || '').trim()) ids.add(String(user.User_ID).trim());
+    if (String((user as any).Personnel_ID || '').trim()) ids.add(String((user as any).Personnel_ID).trim());
+    return ids;
+  }, [user]);
   const mySweet = useMemo(
     () => sweetData
-      .filter(s => String(s.User_ID) === String(user?.User_ID) && toDateKey(s.Wednesday_Date))
+      .filter(s => myEffectiveIds.has(String(s.User_ID).trim()) && toDateKey(s.Wednesday_Date))
       .sort((a, b) => (String(b.Wednesday_Date) < String(a.Wednesday_Date) ? -1 : 1)),
-    [sweetData, user]
+    [sweetData, myEffectiveIds]
   );
   const myCurrentRecord = mySweet.find(s => toDateKey(s.Wednesday_Date) === currentWedKey);
-  const myCurrentStatus: boolean | null = myCurrentRecord ? isTrue(myCurrentRecord.Status) : null;
-
   const isOtherSweet = (s: SweetFree) => {
     const st = String((s as any).Status || '').trim().toUpperCase();
-    return st === 'OTHER' || st === 'อื่นๆ' || String((s as any).Reason || '').trim() !== '';
+    return st === 'OTHER' || st === 'อื่นๆ' || st.startsWith('OTHER') || String((s as any).Reason || '').trim() !== '';
   };
+  const myCurrentStatus: boolean | 'other' | null = myCurrentRecord ? (isOtherSweet(myCurrentRecord) ? 'other' : (isTrue(myCurrentRecord.Status) ? true : false)) : null;
+
   const sweetThisWeek = useMemo(() => sweetData.filter(s => toDateKey(s.Wednesday_Date) === currentWedKey), [sweetData, currentWedKey]);
   const sweetGlobalKept = sweetThisWeek.filter(s => isTrue(s.Status) && !isOtherSweet(s)).length;
   const sweetGlobalFailed = sweetThisWeek.filter(s => !isTrue(s.Status) && !isOtherSweet(s)).length;
   const sweetGlobalOther = sweetThisWeek.filter(s => isOtherSweet(s)).length;
   const sweetDeptKept = useMemo(() => {
     if (!sweetDeptFilter) return null;
-    const deptUserIds = new Set(users.filter(u => u.Department === sweetDeptFilter).map(u => String(u.User_ID)));
-    const filtered = sweetThisWeek.filter(s => deptUserIds.has(String(s.User_ID)));
+    const deptUserIds = new Set(users.filter(u => u.Department === sweetDeptFilter).flatMap(u => {
+      const a: string[] = [];
+      if (String(u.User_ID || '').trim()) a.push(String(u.User_ID).trim());
+      if (String((u as any).Personnel_ID || '').trim()) a.push(String((u as any).Personnel_ID).trim());
+      return a;
+    }));
+    const filtered = sweetThisWeek.filter(s => deptUserIds.has(String(s.User_ID).trim()));
     return { kept: filtered.filter(s => isTrue(s.Status) && !isOtherSweet(s)).length, failed: filtered.filter(s => !isTrue(s.Status) && !isOtherSweet(s)).length, other: filtered.filter(s => isOtherSweet(s)).length, total: filtered.length };
   }, [sweetThisWeek, users, sweetDeptFilter]);
 
@@ -454,20 +466,24 @@ export default function DashboardPage() {
             <div className={`rounded-2xl p-5 border ${
               myCurrentStatus === null
                 ? 'border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10'
-                : myCurrentStatus
-                  ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/10'
-                  : 'border-red-200 dark:border-red-800 bg-red-50/60 dark:bg-red-900/10'
+                : myCurrentStatus === 'other'
+                  ? 'border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/30'
+                  : myCurrentStatus
+                    ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-900/10'
+                    : 'border-red-200 dark:border-red-800 bg-red-50/60 dark:bg-red-900/10'
             }`}>
               <div className="text-center mb-4">
                 <div className={`inline-flex items-center gap-2.5 px-6 py-2.5 rounded-2xl text-2xl md:text-3xl font-black shadow-sm ${
                   myCurrentStatus === null
                     ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-                    : myCurrentStatus
-                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                    : myCurrentStatus === 'other'
+                      ? 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300'
+                      : myCurrentStatus
+                        ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                 }`}>
-                  <span className="text-3xl md:text-4xl">{myCurrentStatus === null ? '⏳' : myCurrentStatus ? '😎' : '🫠'}</span>
-                  {myCurrentStatus === null ? 'ยังไม่บันทึก' : myCurrentStatus ? 'ถือศีล' : 'หลุดศีล'}
+                  <span className="text-3xl md:text-4xl">{myCurrentStatus === null ? '⏳' : myCurrentStatus === 'other' ? '📝' : myCurrentStatus ? '😎' : '🫠'}</span>
+                  {myCurrentStatus === null ? 'ยังไม่บันทึก' : myCurrentStatus === 'other' ? `อื่นๆ: ${String((myCurrentRecord as any)?.Reason || '').trim() || 'ไม่ระบุ'}` : myCurrentStatus ? 'ถือศีล' : 'หลุดศีล'}
                 </div>
                 <p className="mt-2.5 text-sm font-bold text-gray-600 dark:text-gray-300">
                   วันพุธ ที่ {formatThaiShort(currentWedKey)}
@@ -520,15 +536,16 @@ export default function DashboardPage() {
               </div>
               <div className="max-h-[300px] overflow-y-auto">
                 {mySweet.map(s => {
+                  const other = isOtherSweet(s);
                   const st = isTrue(s.Status);
                   const recorder = resolveUser(s.Logged_By);
                   return (
                     <div key={s.Entry_ID || `${s.User_ID}-${toDateKey(s.Wednesday_Date)}`}
                       className="flex items-center gap-3 px-5 py-3 border-b border-gray-100 dark:border-gray-800/60">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${
-                        st ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                        other ? 'bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300' : st ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                       }`}>
-                        {st ? '😎 ถือศีล' : '🫠 หลุดศีล'}
+                        {other ? `📝 อื่นๆ: ${String((s as any).Reason || '').trim() || 'ไม่ระบุ'}` : st ? '😎 ถือศีล' : '🫠 หลุดศีล'}
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-gray-900 dark:text-white">{formatThaiShort(toDateKey(s.Wednesday_Date))}</p>

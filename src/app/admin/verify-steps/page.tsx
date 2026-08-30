@@ -191,9 +191,12 @@ export default function VerifyStepsPage() {
   const requestVerify = (item: VerifyItem, status: 'Approved' | 'Rejected', reason = '', stepsValue = editedSteps) => {
     if (!user) return;
     if (status === 'Approved') {
+      const displaySteps = stepsValue.trim() !== '' ? parseInt(stepsValue, 10) : Number(item.Steps_Count);
+      const editedNote = stepsValue.trim() !== '' ? ` (แก้ไขจาก ${Number(item.Steps_Count).toLocaleString()} → ${displaySteps.toLocaleString()} ก้าว)` : '';
+      const alertNote = (item.Alert_Flag === 'TRUE' || item.Alert_Flag === true) && item.Alert_Reason ? `\n⚠️ หมายเหตุ AI: ${item.Alert_Reason}` : '';
       setConfirm({
-        title: 'ยืนยันการอนุมัติ',
-        message: `คุณกำลังจะอนุมัติจำนวนก้าว ${Number(item.Steps_Count).toLocaleString()} ก้าว${stepsValue.trim() !== '' ? ` (แก้ไขเป็น ${parseInt(stepsValue, 10).toLocaleString()} ก้าว)` : ''} ของ "${item.userName}" วันที่ ${toThaiDateShort(item.Date_Thai)} แน่ใจหรือไม่?`,
+        title: 'ตรวจสอบอีกครั้งก่อนอนุมัติ',
+        message: `คุณกำลังจะอนุมัติ ${displaySteps.toLocaleString()} ก้าว${editedNote} ของ "${item.userName}" (${item.userDept || 'ไม่ระบุฝ่าย'}) วันที่ ${toThaiDateShort(item.Date_Thai)}${alertNote}\n\nโปรดตรวจสอบภาพหลักฐานและความถูกต้องอีกครั้งก่อนยืนยัน`,
         variant: 'primary',
         onConfirm: () => handleVerify(item, 'Approved', '', stepsValue),
       });

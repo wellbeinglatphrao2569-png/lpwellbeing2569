@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import GlassCard from '@/components/ui/GlassCard';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import Modal from '@/components/ui/Modal';
-import { getCurrentWednesdayDate, getThaiNow, toDateKey, toThaiWednesdayDisplay } from '@/utils/thaiDate';
+import { getCurrentWednesdayDate, getThaiNow, toDateKey, toThaiWednesdayDisplay, parseThaiDate } from '@/utils/thaiDate';
 import { profileImageUrl } from '@/utils/personnel';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postData } from '@/services/api';
@@ -48,6 +48,20 @@ function getWindowState(): { open: boolean; message: string } {
   }
   // เสาร์ – อังคาร ปิด
   return { open: false, message: 'หมดเวลาบันทึกผลของสัปดาห์นี้แล้ว — เปิดบันทึกได้ตั้งแต่พุธ 14:00 น. ถึงศุกร์ 23:59 น.' };
+}
+
+// ใช้ Personnel_ID เป็น fallback เมื่อ User_ID ยังว่าง (บุคลากรที่รอลงทะเบียน)
+// แก้บั๊ก: ก่อนหน้านี้ selections/key ใช้ User_ID='' ทำให้กดคนเดียวติดทั้งฝ่าย
+function effectiveId(u: User): string {
+  const uid = String(u.User_ID || '').trim();
+  if (uid) return uid;
+  return String((u as any).Personnel_ID || '').trim();
+}
+function sweetMatchesUser(s: SweetFree, u: User): boolean {
+  const sid = String((s as any).User_ID || '').trim();
+  const uid = String(u.User_ID || '').trim();
+  const pid = String((u as any).Personnel_ID || '').trim();
+  return Boolean((uid && sid === uid) || (pid && sid === pid));
 }
 
 // รูปโปรไฟล์ (ถ้ามี) หรือ avatar สีพร้อมอักษรตัวแรกของชื่อ
@@ -124,6 +138,22 @@ export default function NoSugarPage() {
   const currentWedStr = getCurrentWednesdayDate();
   const isWedHoliday = holidayDates.includes(currentWedStr);
   const windowState = getWindowState();
+  // เลือกวันพุธที่จะบันทึก — ปกติเป็นสัปดาห์ปัจจุบัน แต่ย้อนหลังได้
+  const [selectedWedStr, setSelectedWedStr] = useState<string>(currentWedStr);
+  const isCurrentWeek = selectedWedStr === currentWedStr;
+  const isPastWeek = selectedWedStr < currentWedStr;
+  const isFutureWeek = selectedWedStr > currentWedStr;
+  // สร้างรายการวันพุธย้อนหลัง 8 สัปดาห์ + สัปดาห์ปัจจุบัน
+  const wedOptions = (() => {
+    const opts: string[] = [];
+    const base = parseThaiDate(currentWedStr);
+    for (let i = 0; i < 8; i++) {
+      const d = new Date(base);
+      d.setDate(d.getDate() - i * 7);
+      opts.push(toDateKey(d));
+    }
+    return opts;
+  })();
 
   useEffect(() => {
     if (!canAccess) {
@@ -161,25 +191,27 @@ export default function NoSugarPage() {
     setSelections(prev => ({ ...prev, [uid]: val }));
   };
 
-  const userOf = (uid: string): User | undefined => users.find(x => x.User_ID === uid);
+  const userOf = (uid: string): User | undefined =>
+    users.find(x => String(x.User_ID) === String(uid).trim() || String((x as any).Personnel_ID || '') === String(uid).trim());
 
   // ค้นหาผู้ใช้จาก ID หรือชื่อที่เก็บใน Logged_By (กันกรณีที่เก็บเป็นชื่อ-สกุล)
   const resolveUser = (ref: string): User | undefined =>
     users.find(u => String(u.User_ID) === String(ref).trim()) ||
+    users.find(u => String((u as any).Personnel_ID || '') === String(ref).trim()) ||
     users.find(u => u.Full_Name === String(ref).trim()) ||
     users.find(u => `${u.Prefix} ${u.Full_Name}` === String(ref).trim());
 
   const deptUsers = user ? users.filter(u => String(u.Department) === String(user.Department)) : [];
 
-  // บันทึกของสัปดาห์ปัจจุบัน — แยก อื่นๆ ออกจากนับถือศีล/หลุดศีล (ไม่นับคะแนน)
-  const weekRecords = sweetData.filter(s => toDateKey(s.Wednesday_Date) === currentWedStr && deptUsers.some(u => u.User_ID === s.User_ID));
+  // บันทึกของสัปดาห์ที่เลือก — แยก อื่นๆ ออกจากนับถือศีล/หลุดศีล (ไม่นับคะแนน) — ใช้ effectiveId matching
+  const weekRecords = sweetData.filter(s => toDateKey(s.Wednesday_Date) === selectedWedStr && deptUsers.some(u => sweetMatchesUser(s, u)));
   const keptRecords = weekRecords.filter(s => isKeptRecord(s));
   const failedRecords = weekRecords.filter(s => isFailedRecord(s));
   const otherRecords = weekRecords.filter(s => isOtherRecord(s));
   const keptCount = keptRecords.length;
   const failedCount = failedRecords.length;
   const otherCount = otherRecords.length;
-  const pendingUsers = deptUsers.filter(u => !weekRecords.some(s => s.User_ID === u.User_ID));
+  const pendingUsers = deptUsers.filter(u => !weekRecords.some(s => sweetMatchesUser(s, u)));
   const pendingCount = pendingUsers.length;
 
   const detailTitle = detailStatus === 'kept' ? 'รายชื่อผู้ถือศีล (งดน้ำหวาน)' : detailStatus === 'failed' ? 'รายชื่อผู้หลุดศีล (เติมน้ำหวาน)' : detailStatus === 'other' ? 'รายชื่ออื่นๆ (ไม่นับคะแนน)' : 'รายชื่อผู้ยังไม่บันทึก';
@@ -191,8 +223,8 @@ export default function NoSugarPage() {
         ? otherRecords.map(s => userOf(s.User_ID)).filter((u): u is User => !!u)
         : pendingUsers;
 
-  // ประวัติการบันทึก = สรุปแยกตามสัปดาห์
-  const deptRecords = sweetData.filter(s => deptUsers.some(u => u.User_ID === s.User_ID));
+  // ประวัติการบันทึก = สรุปแยกตามสัปดาห์ (ใช้ effective matching)
+  const deptRecords = sweetData.filter(s => deptUsers.some(u => sweetMatchesUser(s, u)));
   const historyDates = [...new Set(deptRecords.map(s => toDateKey(s.Wednesday_Date)).filter(Boolean))].sort((a, b) => (a < b ? 1 : -1));
   // แสดงประวัติครั้งละ 3 รายการต่อหน้า พร้อมปุ่มสลับหน้า
   const HISTORY_PAGE_SIZE = 3;
@@ -212,20 +244,44 @@ export default function NoSugarPage() {
     return { kept: recs.filter(s => isKeptRecord(s)).length, failed: recs.filter(s => isFailedRecord(s)).length, other: recs.filter(s => isOtherRecord(s)).length };
   };
 
+  // ตรวจว่าสัปดาห์ที่เลือกสามารถบันทึก/แก้ไขได้หรือไม่ (ต่อคน)
+  const canEditFor = (u: User, recorded?: SweetFree | null) => {
+    if (isFutureWeek) return false;
+    if (isCurrentWeek && windowState.open) return true; // ในช่วง พ.14:00-ศ.23:59 แก้ได้ตลอด
+    // นอกช่วง หรือสัปดาห์ย้อนหลัง: ถ้ามีบันทึกแล้ว ห้ามแก้ (บันทึกได้ครั้งเดียวแล้วล็อก)
+    if (recorded) return false;
+    return true; // ยังไม่เคยบันทึก -> ให้บันทึกย้อนหลังได้ครั้งเดียว
+  };
+
   const requestSaveAll = () => {
     if (!user) return;
-    if (!windowState.open) {
-      setNotice({ type: 'error', text: windowState.message });
+    if (isFutureWeek) {
+      setNotice({ type: 'error', text: 'ไม่สามารถบันทึกสำหรับสัปดาห์ในอนาคตได้' });
       return;
     }
-    const pending = deptUsers.filter(u => selections[u.User_ID] !== null && selections[u.User_ID] !== undefined);
+    // นอกช่วงปกติ จะอนุญาตเฉพาะการบันทึกย้อนหลังครั้งเดียว (ถ้ามีบันทึกแล้วจะถูกกรองออก)
+    const pending = deptUsers.filter(u => {
+      const eid = effectiveId(u);
+      const v = selections[eid];
+      if (v === null || v === undefined) return false;
+      const rec = sweetData.find(s => toDateKey(s.Wednesday_Date) === selectedWedStr && sweetMatchesUser(s, u));
+      return canEditFor(u, rec || null);
+    });
     if (!pending.length) {
+      if (isCurrentWeek && !windowState.open) {
+        setNotice({ type: 'error', text: 'นอกช่วงเวลาบันทึกปกติ — สัปดาห์นี้สามารถบันทึกย้อนหลังได้เฉพาะคนที่ยังไม่เคยบันทึกเท่านั้น (บันทึกแล้วจะแก้ไขไม่ได้)' });
+        return;
+      }
+      if (isPastWeek) {
+        setNotice({ type: 'error', text: 'สัปดาห์ย้อนหลังนี้ไม่มีคนที่ยังไม่เคยบันทึกแล้ว — บันทึกย้อนหลังได้เพียงครั้งเดียวต่อคน (แก้ไขไม่ได้)' });
+        return;
+      }
       setNotice({ type: 'error', text: 'ยังไม่มีบุคลากรที่เลือกสถานะ — กรุณาเลือก "ถือศีล" / "หลุดศีล" / "อื่นๆ" ก่อนบันทึก' });
       return;
     }
     // ตรวจว่าที่เลือก อื่นๆ มีเหตุผลครบ
     const missingReason = pending.find(u => {
-      const v = selections[u.User_ID];
+      const v = selections[effectiveId(u)];
       return typeof v === 'string' && String(v).toUpperCase().startsWith('OTHER') && !String(v).split(':')[1];
     });
     if (missingReason) {
@@ -242,47 +298,68 @@ export default function NoSugarPage() {
     setConfirmLoading(true);
     setSaving(true);
     setSaved(false);
-    const pending = deptUsers.filter(u => selections[u.User_ID] !== null && selections[u.User_ID] !== undefined);
+    const pending = deptUsers.filter(u => {
+      const eid = effectiveId(u);
+      const v = selections[eid];
+      if (v === null || v === undefined) return false;
+      const rec = sweetData.find(s => toDateKey(s.Wednesday_Date) === selectedWedStr && sweetMatchesUser(s, u));
+      return canEditFor(u, rec || null);
+    });
     const savedPayloads: SweetFree[] = [];
     let ok = 0;
+    let lastError: string | null = null;
     for (const u of pending) {
-      const selVal: any = selections[u.User_ID];
+      const eid = effectiveId(u);
+      const selVal: any = selections[eid];
       const isOtherSel = typeof selVal === 'string' && String(selVal).toUpperCase().startsWith('OTHER');
       const statusToSend: any = isOtherSel ? 'OTHER' : !!selVal;
       const reasonToSend = isOtherSel ? String(selVal).split(':').slice(1).join(':') : '';
       const res = await postData('add-sweet-free', {
-        User_ID: u.User_ID,
+        User_ID: eid,
+        Personnel_ID: (u as any).Personnel_ID || '',
         Status: statusToSend,
         Reason: reasonToSend,
-        Wednesday_Date: currentWedStr,
+        Wednesday_Date: selectedWedStr,
         Logged_By: user.User_ID,
       });
       if (res?.success) {
         ok++;
         savedPayloads.push({
-          Entry_ID: `SW-new-${u.User_ID}`,
-          User_ID: u.User_ID,
-          Wednesday_Date: currentWedStr,
+          Entry_ID: `SW-new-${eid}`,
+          User_ID: eid,
+          Wednesday_Date: selectedWedStr,
           Status: isOtherSel ? 'OTHER' : !!selVal,
           Reason: reasonToSend,
           Logged_By: user.User_ID,
         } as SweetFree);
+      } else if (res?.message) {
+        lastError = String(res.message);
       }
     }
     setConfirmLoading(false);
     setSaving(false);
-    setSelections({});
+    // ล้างเฉพาะคนที่บันทึกสำเร็จ
+    if (ok > 0) {
+      setSelections(prev => {
+        const next = { ...prev };
+        pending.slice(0, ok).forEach(u => { delete next[effectiveId(u)]; });
+        return next;
+      });
+    }
     if (ok > 0) {
       setSaved(true);
-      // อัปเดตข้อมูลในหน้าให้แสดงผลทันที (ไม่ต้องรอ response รอบอ่านคืน)
+      // อัปเดตข้อมูลในหน้าให้แสดงผลทันที (ไม่ต้องรอ response รอบอ่านคืน) — ต้อง match ทั้ง User_ID และ Personnel_ID
       setSweetData(prev => {
         const updated = prev.filter(s =>
-          !savedPayloads.some(np => String(np.User_ID) === String(s.User_ID) && toDateKey(np.Wednesday_Date) === toDateKey(s.Wednesday_Date))
+          !savedPayloads.some(np => toDateKey(np.Wednesday_Date) === toDateKey(s.Wednesday_Date) && (String(np.User_ID) === String((s as any).User_ID)))
         );
         return [...updated, ...savedPayloads];
       });
+      if (ok < pending.length && lastError) {
+        setNotice({ type: 'error', text: lastError });
+      }
     } else {
-      setNotice({ type: 'error', text: 'บันทึกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' });
+      setNotice({ type: 'error', text: lastError || 'บันทึกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' });
     }
     loadData();
   };
@@ -301,20 +378,36 @@ export default function NoSugarPage() {
       )}
 
       <GlassCard className="p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white shadow">
-            <span className="material-symbols-outlined">event_busy</span>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white shadow">
+              <span className="material-symbols-outlined">event_busy</span>
+            </div>
+            <div>
+              <h3 className="font-bold text-gray-900 dark:text-white">บันทึกผลวันพุธนี้</h3>
+              <p className="text-sm text-gray-500">{toThaiWednesdayDisplay(selectedWedStr)}</p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-bold text-gray-900 dark:text-white">บันทึกผลวันพุธนี้</h3>
-            <p className="text-sm text-gray-500">{toThaiWednesdayDisplay(currentWedStr)}</p>
-          </div>
+          <select value={selectedWedStr} onChange={e => { setSelectedWedStr(e.target.value); setSelections({}); setSaved(false); setNotice(null); }}
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium">
+            {wedOptions.map(d => (
+              <option key={d} value={d}>{toThaiWednesdayDisplay(d)}{d===currentWedStr ? ' (สัปดาห์ปัจจุบัน)' : ''}</option>
+            ))}
+          </select>
         </div>
 
-        <div className={`mb-4 text-sm rounded-xl p-2.5 border ${windowState.open ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'}`}>
-          <span className="material-symbols-outlined align-middle mr-1 text-base">{windowState.open ? 'schedule' : 'event_busy'}</span>
-          {windowState.open ? '🟢 เปิดบันทึกผล' : '🔴 ปิดบันทึกผล'} — {windowState.message}
-        </div>
+        {!isCurrentWeek && (
+          <div className={`mb-4 text-sm rounded-xl p-2.5 border ${isFutureWeek ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200' : isPastWeek ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200' : 'bg-gray-50'}`}>
+            {isFutureWeek ? '⛔ ไม่สามารถบันทึกสำหรับสัปดาห์ในอนาคตได้' : `ℹ️ กำลังดูสัปดาห์ย้อนหลัง ${toThaiWednesdayDisplay(selectedWedStr)} — บันทึกย้อนหลังได้เพียงครั้งเดียวต่อคน (บันทึกแล้วจะแก้ไขไม่ได้)`}
+          </div>
+        )}
+        {isCurrentWeek && (
+          <div className={`mb-4 text-sm rounded-xl p-2.5 border ${windowState.open ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'}`}>
+            <span className="material-symbols-outlined align-middle mr-1 text-base">{windowState.open ? 'schedule' : 'event_busy'}</span>
+            {windowState.open ? '🟢 เปิดบันทึกผล' : '🔴 ปิดบันทึกผล'} — {windowState.message}
+            {!windowState.open && <span className="ml-2 text-xs">· สัปดาห์นี้อยู่นอกช่วงเวลา แต่อนุญาตให้บันทึกย้อนหลังได้ครั้งเดียวสำหรับคนที่ยังไม่เคยบันทึก (บันทึกแล้วล็อก)</span>}
+          </div>
+        )}
 
         <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
           <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 font-medium">
@@ -337,9 +430,11 @@ export default function NoSugarPage() {
           <>
             <div className="space-y-3">
               {deptUsers.map(u => {
-                const recorded = sweetData.find(s => s.User_ID === u.User_ID && toDateKey(s.Wednesday_Date) === currentWedStr);
-                const hasChoice = selections[u.User_ID] !== undefined && selections[u.User_ID] !== null;
-                let sel: any = hasChoice ? selections[u.User_ID] : null;
+                const eid = effectiveId(u);
+                const recorded = sweetData.find(s => sweetMatchesUser(s, u) && toDateKey(s.Wednesday_Date) === selectedWedStr);
+                const locked = !canEditFor(u, recorded || null) && !!recorded;
+                const hasChoice = selections[eid] !== undefined && selections[eid] !== null;
+                let sel: any = hasChoice ? selections[eid] : null;
                 if (!hasChoice && recorded) {
                   if (isOtherRecord(recorded)) sel = `OTHER:${String((recorded as any).Reason || '').trim()}`;
                   else sel = isTrue(recorded.Status);
@@ -349,7 +444,7 @@ export default function NoSugarPage() {
                 const recordedIsOther = recorded ? isOtherRecord(recorded) : false;
                 const recordedReason = recordedIsOther ? String((recorded as any).Reason || '').trim() : '';
                 return (
-                  <div key={u.User_ID} className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
+                  <div key={eid} className={`rounded-2xl border p-4 ${locked ? 'border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-900/10' : 'border-gray-200 dark:border-gray-700'}`}>
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <ProfileAvatar user={u} ring />
@@ -376,24 +471,24 @@ export default function NoSugarPage() {
                             </span>
                           )
                         )}
-                        <button onClick={() => setSel(u.User_ID, true)}
-                          className={`px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all ${
+                        <button disabled={locked} onClick={() => setSel(eid, true)}
+                          className={`px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                             sel === true
                               ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
                               : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-emerald-400'
                           }`}>
                           😎 ถือศีล
                         </button>
-                        <button onClick={() => setSel(u.User_ID, false)}
-                          className={`px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all ${
+                        <button disabled={locked} onClick={() => setSel(eid, false)}
+                          className={`px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                             sel === false
                               ? 'border-red-400 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
                               : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-red-400'
                           }`}>
                           🫠 หลุดศีล
                         </button>
-                        <button onClick={() => setSel(u.User_ID, selIsOther ? null : `OTHER:${OTHER_REASONS[0]}`)}
-                          className={`px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all ${
+                        <button disabled={locked} onClick={() => setSel(eid, selIsOther ? null : `OTHER:${OTHER_REASONS[0]}`)}
+                          className={`px-4 py-2 rounded-xl border-2 text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                             selIsOther
                               ? 'border-gray-400 bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300'
                               : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-400'
@@ -401,14 +496,15 @@ export default function NoSugarPage() {
                           📝 อื่นๆ
                         </button>
                         {selIsOther && (
-                          <select value={selOtherReason} onChange={e=> setSel(u.User_ID, `OTHER:${e.target.value}`)}
-                            className="px-3 py-2 rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm font-medium">
+                          <select disabled={locked} value={selOtherReason} onChange={e=> setSel(eid, `OTHER:${e.target.value}`)}
+                            className="px-3 py-2 rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm font-medium disabled:opacity-40">
                             {OTHER_REASONS.map(r=> <option key={r} value={r}>{r}</option>)}
                           </select>
                         )}
                       </div>
                     </div>
-                    {selIsOther && <p className="text-[11px] text-gray-400 mt-2">จะบันทึกเป็น “อื่นๆ: {selOtherReason}” — <strong>ไม่นับ</strong>เป็นถือศีล/หลุดศีล เพราะไม่เห็นกับตา</p>}
+                    {locked && <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2">🔒 บันทึกย้อนหลังแล้ว — แก้ไขไม่ได้ (บันทึกได้เพียงครั้งเดียว)</p>}
+                    {selIsOther && !locked && <p className="text-[11px] text-gray-400 mt-2">จะบันทึกเป็น “อื่นๆ: {selOtherReason}” — <strong>ไม่นับ</strong>เป็นถือศีล/หลุดศีล เพราะไม่เห็นกับตา</p>}
                   </div>
                 );
               })}
@@ -423,11 +519,13 @@ export default function NoSugarPage() {
                   <span className="material-symbols-outlined text-lg">check_circle</span> บันทึกผลงดหวานสำเร็จ
                 </div>
               )}
-              <button onClick={requestSaveAll} disabled={saving || !windowState.open}
+              <button onClick={requestSaveAll} disabled={saving || isFutureWeek}
                 className="btn-primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed">
-                {saving ? <><span className="loading loading-spinner loading-sm"></span> กำลังบันทึก...</> : windowState.open ? 'บันทึกผลทั้งหมด' : 'ยังไม่ถึงช่วงเวลาบันทึกผล'}
+                {saving ? <><span className="loading loading-spinner loading-sm"></span> กำลังบันทึก...</> : isFutureWeek ? 'ไม่สามารถบันทึกสัปดาห์ในอนาคตได้' : isCurrentWeek && windowState.open ? 'บันทึกผลทั้งหมด' : 'บันทึกย้อนหลัง (ครั้งเดียว · แก้ไขไม่ได้)'}
               </button>
-              <p className="text-center text-xs text-gray-400 mt-2">บันทึกผลให้เฉพาะบุคลากรที่เลือกสถานะไว้แล้ว · หากบันทึกซ้ำจะเป็นการแก้ไขผลเดิม (แก้ไขได้ถึงศุกร์ 23:59 น.)</p>
+              <p className="text-center text-xs text-gray-400 mt-2">
+                {isCurrentWeek && windowState.open ? 'บันทึกผลให้เฉพาะบุคลากรที่เลือกสถานะไว้แล้ว · หากบันทึกซ้ำจะเป็นการแก้ไขผลเดิม (แก้ไขได้ถึงศุกร์ 23:59 น.)' : 'บันทึกย้อนหลังได้เพียงครั้งเดียวต่อคน · บันทึกแล้วจะล็อกไม่ให้แก้ไข'}
+              </p>
             </div>
           </>
         )}
@@ -437,7 +535,7 @@ export default function NoSugarPage() {
         <div className="p-5 border-b border-gray-100 dark:border-gray-700 flex flex-wrap justify-between items-center gap-2">
           <div>
             <h3 className="font-bold text-gray-900 dark:text-white">ตารางสรุปยอดพุธนี้ไม่มีเชื่อม</h3>
-            <p className="text-sm text-gray-500 mt-0.5">{toThaiWednesdayDisplay(currentWedStr)}</p>
+            <p className="text-sm text-gray-500 mt-0.5">{toThaiWednesdayDisplay(selectedWedStr)}</p>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -569,7 +667,7 @@ export default function NoSugarPage() {
       <ConfirmPopup
         open={showConfirm}
         title="ยืนยันการบันทึกผลงดน้ำตาล"
-        message={`คุณกำลังจะบันทึกผลงดน้ำตาลของบุคลากร ${deptUsers.filter(u => selections[u.User_ID] !== null && selections[u.User_ID] !== undefined).length} คน ในสัปดาห์นี้ (${toThaiWednesdayDisplay(currentWedStr)}) แน่ใจหรือไม่?`}
+        message={`คุณกำลังจะบันทึกผลงดน้ำตาลของบุคลากร ${deptUsers.filter(u => { const eid=effectiveId(u); return selections[eid]!==null && selections[eid]!==undefined; }).length} คน ในสัปดาห์นี้ (${toThaiWednesdayDisplay(selectedWedStr)}) แน่ใจหรือไม่?`}
         loading={confirmLoading}
         onConfirm={saveAll}
         onClose={() => { if (!confirmLoading) setShowConfirm(false); }}
@@ -577,13 +675,14 @@ export default function NoSugarPage() {
 
       <Modal open={detailStatus !== null} onClose={() => setDetailStatus(null)} wide>
         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">{detailTitle}</h3>
-        <p className="text-sm text-gray-500 mb-4">{toThaiWednesdayDisplay(currentWedStr)} · รวม {detailUsers.length} คน</p>
+        <p className="text-sm text-gray-500 mb-4">{toThaiWednesdayDisplay(selectedWedStr)} · รวม {detailUsers.length} คน</p>
         <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
           {detailUsers.map(u => {
-            const rec = weekRecords.find(s => s.User_ID === u.User_ID);
-            if (!rec) return <PersonRow key={u.User_ID} user={u} status={null} />;
-            if (isOtherRecord(rec)) return <PersonRow key={u.User_ID} user={u} status={`OTHER:${String((rec as any).Reason||'')}`} reason={String((rec as any).Reason||'')} />;
-            return <PersonRow key={u.User_ID} user={u} status={isTrue(rec.Status)} />;
+            const rec = weekRecords.find(s => sweetMatchesUser(s, u));
+            const eid = effectiveId(u);
+            if (!rec) return <PersonRow key={eid} user={u} status={null} />;
+            if (isOtherRecord(rec)) return <PersonRow key={eid} user={u} status={`OTHER:${String((rec as any).Reason||'')}`} reason={String((rec as any).Reason||'')} />;
+            return <PersonRow key={eid} user={u} status={isTrue(rec.Status)} />;
           })}
           {detailUsers.length === 0 && (
             <div className="text-center text-gray-400 py-8">ไม่มีข้อมูลในสถานะนี้</div>

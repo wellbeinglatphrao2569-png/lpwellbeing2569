@@ -188,30 +188,32 @@ export default function VerifyStepsPage() {
     setRejectFor(item.Record_ID);
   }
 
+  const [verifyItem, setVerifyItem] = useState<VerifyItem | null>(null);
+  const [verifyEditedSteps, setVerifyEditedSteps] = useState('');
+
+  const openVerifyApprove = (item: VerifyItem) => {
+    setVerifyEditedSteps('');
+    setVerifyItem(item);
+  };
+
   const requestVerify = (item: VerifyItem, status: 'Approved' | 'Rejected', reason = '', stepsValue = editedSteps) => {
     if (!user) return;
     if (status === 'Approved') {
-      const displaySteps = stepsValue.trim() !== '' ? parseInt(stepsValue, 10) : Number(item.Steps_Count);
-      const editedNote = stepsValue.trim() !== '' ? ` (แก้ไขจาก ${Number(item.Steps_Count).toLocaleString()} → ${displaySteps.toLocaleString()} ก้าว)` : '';
-      const alertNote = (item.Alert_Flag === 'TRUE' || item.Alert_Flag === true) && item.Alert_Reason ? `\n⚠️ หมายเหตุ AI: ${item.Alert_Reason}` : '';
-      setConfirm({
-        title: 'ตรวจสอบอีกครั้งก่อนอนุมัติ',
-        message: `คุณกำลังจะอนุมัติ ${displaySteps.toLocaleString()} ก้าว${editedNote} ของ "${item.userName}" (${item.userDept || 'ไม่ระบุฝ่าย'}) วันที่ ${toThaiDateShort(item.Date_Thai)}${alertNote}\n\nโปรดตรวจสอบภาพหลักฐานและความถูกต้องอีกครั้งก่อนยืนยัน`,
-        variant: 'primary',
-        onConfirm: () => handleVerify(item, 'Approved', '', stepsValue),
-      });
-    } else {
-      setConfirm({
-        title: 'ยืนยันการไม่อนุมัติ',
-        message: `คุณกำลังจะไม่อนุมัติจำนวนก้าว ${Number(item.Steps_Count).toLocaleString()} ก้าวของ "${item.userName}" วันที่ ${toThaiDateShort(item.Date_Thai)} เหตุผล: "${reason}" แน่ใจหรือไม่?`,
-        variant: 'danger',
-        onConfirm: () => handleVerify(item, 'Rejected', reason),
-      });
+      // แทน Popup เดิมด้วยหน้าต่างตรวจสอบก่อนยืนยัน
+      openVerifyApprove(item);
+      return;
     }
+    setConfirm({
+      title: 'ยืนยันการไม่อนุมัติ',
+      message: `คุณกำลังจะไม่อนุมัติจำนวนก้าว ${Number(item.Steps_Count).toLocaleString()} ก้าวของ "${item.userName}" วันที่ ${toThaiDateShort(item.Date_Thai)} เหตุผล: "${reason}" แน่ใจหรือไม่?`,
+      variant: 'danger',
+      onConfirm: () => handleVerify(item, 'Rejected', reason),
+    });
   };
 
   async function handleVerify(item: VerifyItem, status: 'Approved' | 'Rejected', reason = '', stepsValue = editedSteps) {
     setConfirm(null);
+    setVerifyItem(null);
     if (!user) return;
     const newSteps = parseInt(stepsValue, 10);
     if (status === 'Approved' && stepsValue.trim() !== '' && (isNaN(newSteps) || newSteps <= 0)) {
@@ -234,6 +236,35 @@ export default function VerifyStepsPage() {
       setRejectFor(null);
       setRejectReason('');
       setEditedSteps('');
+      setVerifyEditedSteps('');
+      setVerifyItem(null);
+      load();
+    } else {
+      setNotice({ type: 'error', text: res?.message || 'ดำเนินการไม่สำเร็จ' });
+    }
+  }
+
+  async function handleVerifyApprove() {
+    if (!verifyItem || !user) return;
+    const stepsValue = verifyEditedSteps;
+    const newSteps = parseInt(stepsValue, 10);
+    if (stepsValue.trim() !== '' && (isNaN(newSteps) || newSteps <= 0)) {
+      setNotice({ type: 'error', text: 'จำนวนก้าวที่แก้ไขต้องเป็นตัวเลขที่มากกว่า 0' });
+      return;
+    }
+    setBusyId(verifyItem.Record_ID);
+    setNotice(null);
+    const res = await postData('update-step-status', {
+      Record_ID: verifyItem.Record_ID,
+      Status: 'Approved',
+      Auditor_ID: user.User_ID,
+      Steps_Count: stepsValue.trim() !== '' ? newSteps : undefined,
+    });
+    setBusyId(null);
+    if (res?.success) {
+      setNotice({ type: 'success', text: res.message || 'อนุมัติสำเร็จ' });
+      setVerifyItem(null);
+      setVerifyEditedSteps('');
       load();
     } else {
       setNotice({ type: 'error', text: res?.message || 'ดำเนินการไม่สำเร็จ' });
@@ -374,10 +405,10 @@ export default function VerifyStepsPage() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               disabled={!canVerify || busy}
-                              onClick={(e) => { e.stopPropagation(); requestVerify(item, 'Approved', '', ''); }}
-                              title={canVerify ? 'อนุมัติจำนวนก้าวนี้' : 'ฝ่ายเดียวกันกับผู้ส่งก้าว — ไม่สามารถอนุมัติได้'}
+                              onClick={(e) => { e.stopPropagation(); openVerifyApprove(item); }}
+                              title={canVerify ? 'เปิดหน้าต่างตรวจสอบก่อนอนุมัติ' : 'ฝ่ายเดียวกันกับผู้ส่งก้าว — ไม่สามารถอนุมัติได้'}
                               className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 font-bold text-xs hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1">
-                              {busy ? <span className="loading loading-spinner loading-xs"></span> : <span className="material-symbols-outlined text-sm">check_circle</span>}
+                              {busy ? <span className="loading loading-spinner loading-xs"></span> : <span className="material-symbols-outlined text-sm">verified</span>}
                               อนุมัติ
                             </button>
                             <button
@@ -519,9 +550,9 @@ export default function VerifyStepsPage() {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <button onClick={() => requestVerify(sel, 'Approved', '', editedSteps)} disabled={selBusy}
+                    <button onClick={() => { setVerifyItem(sel); setVerifyEditedSteps(editedSteps); setSelected(null); }} disabled={selBusy}
                       className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
-                      {selBusy ? <><span className="loading loading-spinner loading-xs"></span>กำลังบันทึก...</> : <><span className="material-symbols-outlined text-lg">check_circle</span>ยืนยันว่าถูกต้อง</>}
+                      <span className="material-symbols-outlined text-lg">verified</span>ตรวจสอบก่อนอนุมัติ
                     </button>
                     <button onClick={() => setRejectFor(sel.Record_ID)} disabled={selBusy}
                       className="flex-1 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
@@ -544,6 +575,97 @@ export default function VerifyStepsPage() {
         onConfirm={() => confirm?.onConfirm()}
         onClose={() => setConfirm(null)}
       />
+
+      {/* หน้าต่างตรวจสอบก่อนอนุมัติ — แทน ConfirmPopup เดิม */}
+      {verifyItem && (() => {
+        const v = verifyItem;
+        const vIsAlert = v.Alert_Flag === 'TRUE' || v.Alert_Flag === true;
+        const vDateMatch = v.Date_Match === 'TRUE' || v.Date_Match === true ? true : v.Date_Match === 'FALSE' || v.Date_Match === false ? false : null;
+        const vConfidence = v.AI_Confidence != null && v.AI_Confidence !== '' ? Number(v.AI_Confidence) : null;
+        const vAiSteps = v.AI_Steps != null && v.AI_Steps !== '' ? Number(v.AI_Steps) : null;
+        const vBusy = busyId === v.Record_ID;
+        return (
+          <div className="fixed inset-0 z-[60] bg-black/60 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setVerifyItem(null)}>
+            <div className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-800 shadow-2xl my-6" onClick={e => e.stopPropagation()}>
+              <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center">
+                    <span className="material-symbols-outlined">verified</span>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 dark:text-white">ตรวจสอบก่อนอนุมัติ</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">โปรดตรวจภาพหลักฐานและความถูกต้องก่อนยืนยัน — กดยืนยันเพื่ออนุมัติ</p>
+                  </div>
+                </div>
+                <button onClick={() => setVerifyItem(null)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-700">
+                  <UserAvatar item={v} size="md" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-gray-900 dark:text-white truncate">{v.userName} {v.userNickname && <span className="text-xs text-gray-500">({v.userNickname})</span>}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{v.userDept || 'ไม่ระบุฝ่าย'} · {toThaiDateShort(v.Date_Thai)} · {Number(v.Steps_Count).toLocaleString()} ก้าว</p>
+                  </div>
+                  {vIsAlert && <AlertBadge />}
+                </div>
+
+                {v.Image_Drive_ID ? (
+                  <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
+                    <ProofImage fileId={v.Image_Drive_ID} alt={`หลักฐาน ${v.userName}`} onClick={src => window.open(src, '_blank')} />
+                    <button onClick={() => window.open(driveViewUrl(v.Image_Drive_ID!), '_blank')}
+                      className="absolute bottom-2 right-2 px-3 py-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs font-medium flex items-center gap-1">
+                      <span className="material-symbols-outlined text-base">open_in_new</span>เปิดใน Drive
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">ไม่มีรูปภาพหลักฐาน</div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-purple-50 dark:bg-purple-900/10 rounded-xl p-3">
+                    <p className="text-xs text-gray-400">AI อ่านได้</p>
+                    <p className="text-xl font-extrabold text-purple-600 dark:text-purple-400">{vAiSteps != null ? vAiSteps.toLocaleString() : '—'} <span className="text-xs font-normal text-gray-400">ก้าว</span></p>
+                    <p className="text-[11px] text-gray-400">มั่นใจ {vConfidence != null ? Math.round(vConfidence*100) : '—'}% · วันที่ {vDateMatch===true ? 'ตรง' : vDateMatch===false ? 'ไม่ตรง' : 'ไม่ชัด'}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
+                    <p className="text-xs text-gray-400">จำนวนก้าวที่ส่ง</p>
+                    <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400">{Number(v.Steps_Count).toLocaleString()} <span className="text-xs font-normal text-gray-400">ก้าว</span></p>
+                  </div>
+                </div>
+                {vIsAlert && v.Alert_Reason && (
+                  <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+                    <span className="font-bold">แจ้งเตือน: </span>{v.Alert_Reason}
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 p-3">
+                  <p className="text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-sm">edit_note</span>แก้ไขจำนวนก้าวก่อนอนุมัติ (ถ้าต้องการ)
+                  </p>
+                  <input type="number" min="0" value={verifyEditedSteps} onChange={e => setVerifyEditedSteps(e.target.value)}
+                    placeholder={`เดิม ${Number(v.Steps_Count).toLocaleString()} ก้าว`}
+                    className="w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-lg font-bold text-center outline-none focus:ring-2 focus:ring-emerald-500" />
+                  <p className="text-[11px] text-gray-400 mt-1 text-center">เว้นว่างไว้เพื่อใช้ค่าต้นฉบับ · กรอกตัวเลขใหม่เพื่อยืนยันค่านั้นแทน</p>
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={() => setVerifyItem(null)} disabled={vBusy}
+                    className="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-sm">
+                    ยกเลิก
+                  </button>
+                  <button onClick={handleVerifyApprove} disabled={vBusy}
+                    className="flex-[1.5] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    {vBusy ? <><span className="loading loading-spinner loading-xs"></span>กำลังบันทึก...</> : <><span className="material-symbols-outlined text-lg">check_circle</span>ยืนยันอนุมัติ</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

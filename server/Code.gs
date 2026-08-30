@@ -1504,6 +1504,13 @@ function getWeightAfter_(e) {
   const open = isWeightAfterOpen_();
 
   const user = getData_('Users').find(function (u) { return String(u.User_ID) === uid; });
+  // ถ้ายังไม่มี Baseline ให้ถือว่าโปรไฟล์ปัจจุบันคือครั้งแรก — บันทึกเป็นประวัติครั้งแรกก่อน
+  if (uid && user && Number(user.Weight_kg) > 0 && Number(user.Height_cm) > 0) {
+    try {
+      var existingBL = getDataIfExists_('Baseline').some(function (b) { return String(b.User_ID) === uid; });
+      if (!existingBL) captureBaseline_(uid, user.Weight_kg, user.Height_cm, user.BMI_Value, 'profile-first');
+    } catch (e) { console.error('auto-seed baseline in getWeightAfter failed', e); }
+  }
   const records = getData_('Weight_After')
     .filter(function (r) { return String(r.User_ID) === uid; })
     .sort(function (a, b) {
@@ -1537,8 +1544,38 @@ function getWeightComparison_(e) {
   const isAdmin = requester && (String(requester.Role) === 'Admin' || String(requester.Role) === 'Committee');
   const users = isAdmin ? getData_('Users') : (requester ? [requester] : []);
 
-  const baselines = getDataIfExists_('Baseline');
-  const weightAfter = getDataIfExists_('Weight_After');
+  // ให้ถือว่าโปรไฟล์ปัจจุบันของทุกคนคือครั้งแรก — ถ้ายังไม่มี Baseline ให้บันทึกจากโปรไฟล์เป็นประวัติครั้งแรกก่อน (ครั้งต่อไปค่อยเปรียบเทียบเพิ่ม/ลด)
+  var baselinesArr = getDataIfExists_('Baseline');
+  var weightAfterArr = getDataIfExists_('Weight_After');
+
+  // auto-seed baseline จากโปรไฟล์ปัจจุบันสำหรับทุกคนที่ยังไม่มี baseline (เพื่อให้ครั้งที่ 2 เป็นต้นไปเปรียบเทียบได้)
+  try {
+    var existingBaselineIds = {};
+    baselinesArr.forEach(function (b) { var id = String(b.User_ID || '').trim(); if (id) existingBaselineIds[id] = true; });
+    var needSeed = [];
+    // ใช้รายชื่อ users ที่จะส่งกลับ (ตามสิทธิ์) แต่ควร seed ให้ครบทั้งระบบเมื่อ admin เรียก — จะ seed ทั้ง Users ทั้งหมดถ้าเป็น admin
+    var allUsersForSeed = (isAdmin ? getData_('Users') : users);
+    allUsersForSeed.forEach(function (u) {
+      var uid2 = String(u.User_ID || '').trim();
+      if (!uid2) return;
+      if (existingBaselineIds[uid2]) return;
+      var w = Number(u.Weight_kg);
+      var h = Number(u.Height_cm);
+      if (!w || w <= 0 || !h || h <= 0) return;
+      // ถ้ามีประวัติ Weight_After อยู่แล้วแต่ยังไม่มี Baseline ให้ใช้ค่าปัจจุบันในโปรไฟล์เป็นครั้งแรกตามที่ผู้ใช้ระบุ
+      var res = captureBaseline_(uid2, w, h, u.BMI_Value, 'profile-first');
+      if (res && res.captured) {
+        existingBaselineIds[uid2] = true;
+        needSeed.push(uid2);
+      }
+    });
+    if (needSeed.length > 0) {
+      baselinesArr = getDataIfExists_('Baseline'); // reload หลัง seed
+    }
+  } catch (e) { console.error('auto-seed baseline failed', e); }
+
+  const baselines = baselinesArr;
+  const weightAfter = weightAfterArr;
 
   const baseMap = {};
   baselines.forEach(function (b) {

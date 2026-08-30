@@ -1372,9 +1372,17 @@ export default function StepsPage() {
                           </span>
                         )}
                         {!approved && latestAny && (
-                          <span className={`block text-[10px] font-normal mt-0.5 ${latestAny.Status === 'Rejected' ? 'text-red-500 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                            {latestAny.Status === 'Rejected' ? 'ไม่ได้รับการอนุมัติ — ยังไม่นับรวม' : 'รอการอนุมัติ — ยังไม่นับรวม'}
-                          </span>
+                          <>
+                            <span className={`block text-[10px] font-normal mt-0.5 ${latestAny.Status === 'Rejected' ? 'text-red-500 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                              {latestAny.Status === 'Rejected' ? 'ไม่ได้รับการอนุมัติ — ยังไม่นับรวม' : 'รอการอนุมัติ — ยังไม่นับรวม'}
+                            </span>
+                            {latestAny.Status === 'Rejected' && (latestAny as any).Reject_Reason && (
+                              <span className="block text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-2 py-1 mt-1 leading-snug">
+                                <span className="font-bold">เหตุผล:</span> {(latestAny as any).Reject_Reason}
+                                {(latestAny as any).Auditor_ID && <span className="text-gray-400"> · ตรวจโดย {(latestAny as any).Auditor_ID}</span>}
+                              </span>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -1398,7 +1406,19 @@ export default function StepsPage() {
                           </button>
                         )}
                       </td>
-                      <td className="px-4 py-3">{statusBadge}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          {statusBadge}
+                          {hasRejected && !hasPending && latestAny && (latestAny as any).Reject_Reason && (
+                            <span className="text-[11px] text-red-600 dark:text-red-400 leading-snug max-w-[220px] line-clamp-2" title={(latestAny as any).Reject_Reason}>
+                              เหตุผล: {(latestAny as any).Reject_Reason}
+                            </span>
+                          )}
+                          {hasRejected && !hasPending && latestAny && (latestAny as any).Auditor_ID && (
+                            <span className="text-[10px] text-gray-400">ตรวจโดย {(latestAny as any).Auditor_ID}</span>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 });

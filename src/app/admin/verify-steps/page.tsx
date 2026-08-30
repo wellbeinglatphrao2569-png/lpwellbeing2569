@@ -190,9 +190,13 @@ export default function VerifyStepsPage() {
 
   const [verifyItem, setVerifyItem] = useState<VerifyItem | null>(null);
   const [verifyEditedSteps, setVerifyEditedSteps] = useState('');
+  const [verifyMode, setVerifyMode] = useState<'approve' | 'reject'>('approve');
+  const [verifyRejectReason, setVerifyRejectReason] = useState('');
 
   const openVerifyApprove = (item: VerifyItem) => {
     setVerifyEditedSteps('');
+    setVerifyMode('approve');
+    setVerifyRejectReason('');
     setVerifyItem(item);
   };
 
@@ -246,6 +250,32 @@ export default function VerifyStepsPage() {
 
   async function handleVerifyApprove() {
     if (!verifyItem || !user) return;
+    if (verifyMode === 'reject') {
+      if (!verifyRejectReason.trim()) {
+        setNotice({ type: 'error', text: 'กรุณาระบุเหตุผลที่ไม่อนุมัติ (จำเป็นต้องตอบ)' });
+        return;
+      }
+      setBusyId(verifyItem.Record_ID);
+      setNotice(null);
+      const res = await postData('update-step-status', {
+        Record_ID: verifyItem.Record_ID,
+        Status: 'Rejected',
+        Auditor_ID: user.User_ID,
+        Reject_Reason: verifyRejectReason.trim(),
+      });
+      setBusyId(null);
+      if (res?.success) {
+        setNotice({ type: 'success', text: res.message || 'ไม่อนุมัติสำเร็จ' });
+        setVerifyItem(null);
+        setVerifyEditedSteps('');
+        setVerifyRejectReason('');
+        setVerifyMode('approve');
+        load();
+      } else {
+        setNotice({ type: 'error', text: res?.message || 'ดำเนินการไม่สำเร็จ' });
+      }
+      return;
+    }
     const stepsValue = verifyEditedSteps;
     const newSteps = parseInt(stepsValue, 10);
     if (stepsValue.trim() !== '' && (isNaN(newSteps) || newSteps <= 0)) {
@@ -265,6 +295,8 @@ export default function VerifyStepsPage() {
       setNotice({ type: 'success', text: res.message || 'อนุมัติสำเร็จ' });
       setVerifyItem(null);
       setVerifyEditedSteps('');
+      setVerifyRejectReason('');
+      setVerifyMode('approve');
       load();
     } else {
       setNotice({ type: 'error', text: res?.message || 'ดำเนินการไม่สำเร็จ' });
@@ -589,16 +621,26 @@ export default function VerifyStepsPage() {
             <div className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-800 shadow-2xl my-6" onClick={e => e.stopPropagation()}>
               <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center">
-                    <span className="material-symbols-outlined">verified</span>
+                  <div className={`w-11 h-11 rounded-xl text-white flex items-center justify-center ${verifyMode==='reject' ? 'bg-red-600' : 'bg-emerald-600'}`}>
+                    <span className="material-symbols-outlined">{verifyMode==='reject' ? 'block' : 'verified'}</span>
                   </div>
                   <div>
-                    <h3 className="font-bold text-gray-900 dark:text-white">ตรวจสอบก่อนอนุมัติ</h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">โปรดตรวจภาพหลักฐานและความถูกต้องก่อนยืนยัน — กดยืนยันเพื่ออนุมัติ</p>
+                    <h3 className="font-bold text-gray-900 dark:text-white">{verifyMode==='reject' ? 'ตรวจสอบก่อนไม่อนุมัติ' : 'ตรวจสอบก่อนอนุมัติ'}</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{verifyMode==='reject' ? 'โปรดระบุเหตุผลที่ไม่อนุมัติ (จำเป็นต้องตอบ) — เหตุผลจะแสดงที่ประวัติของผู้ใช้' : 'โปรดตรวจภาพหลักฐานและความถูกต้องก่อนยืนยัน — กดยืนยันเพื่ออนุมัติ'}</p>
                   </div>
                 </div>
                 <button onClick={() => setVerifyItem(null)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
                   <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+              <div className="px-5 pt-3 flex gap-2">
+                <button onClick={()=> setVerifyMode('approve')}
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${verifyMode==='approve' ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500 text-emerald-700 dark:text-emerald-400' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500'}`}>
+                  <span className="material-symbols-outlined align-middle mr-1 text-base">check_circle</span>อนุมัติ
+                </button>
+                <button onClick={()=> setVerifyMode('reject')}
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${verifyMode==='reject' ? 'bg-red-50 dark:bg-red-900/20 border-red-500 text-red-700 dark:text-red-400' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-500'}`}>
+                  <span className="material-symbols-outlined align-middle mr-1 text-base">cancel</span>ไม่อนุมัติ
                 </button>
               </div>
 
@@ -641,24 +683,35 @@ export default function VerifyStepsPage() {
                   </div>
                 )}
 
-                <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 p-3">
-                  <p className="text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-sm">edit_note</span>แก้ไขจำนวนก้าวก่อนอนุมัติ (ถ้าต้องการ)
-                  </p>
-                  <input type="number" min="0" value={verifyEditedSteps} onChange={e => setVerifyEditedSteps(e.target.value)}
-                    placeholder={`เดิม ${Number(v.Steps_Count).toLocaleString()} ก้าว`}
-                    className="w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-lg font-bold text-center outline-none focus:ring-2 focus:ring-emerald-500" />
-                  <p className="text-[11px] text-gray-400 mt-1 text-center">เว้นว่างไว้เพื่อใช้ค่าต้นฉบับ · กรอกตัวเลขใหม่เพื่อยืนยันค่านั้นแทน</p>
-                </div>
+                {verifyMode==='approve' ? (
+                  <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 p-3">
+                    <p className="text-xs font-bold text-gray-600 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-sm">edit_note</span>แก้ไขจำนวนก้าวก่อนอนุมัติ (ถ้าต้องการ)
+                    </p>
+                    <input type="number" min="0" value={verifyEditedSteps} onChange={e => setVerifyEditedSteps(e.target.value)}
+                      placeholder={`เดิม ${Number(v.Steps_Count).toLocaleString()} ก้าว`}
+                      className="w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-lg font-bold text-center outline-none focus:ring-2 focus:ring-emerald-500" />
+                    <p className="text-[11px] text-gray-400 mt-1 text-center">เว้นว่างไว้เพื่อใช้ค่าต้นฉบับ · กรอกตัวเลขใหม่เพื่อยืนยันค่านั้นแทน</p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-3">
+                    <p className="text-xs font-bold text-red-700 dark:text-red-400 mb-1.5 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-sm">feedback</span>เหตุผลที่ไม่อนุมัติ <span className="text-red-500">*</span> <span className="font-normal text-gray-400">(จำเป็นต้องตอบ — จะแสดงที่ประวัติของผู้ใช้)</span>
+                    </p>
+                    <textarea value={verifyRejectReason} onChange={e=> setVerifyRejectReason(e.target.value)} rows={3}
+                      placeholder="เช่น ภาพไม่ชัดเจน / วันที่ในภาพไม่ตรงกับวันที่บันทึก / จำนวนก้าวไม่สมเหตุสมผล"
+                      className="w-full p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm outline-none focus:ring-2 focus:ring-red-500" />
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <button onClick={() => setVerifyItem(null)} disabled={vBusy}
                     className="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-sm">
                     ยกเลิก
                   </button>
-                  <button onClick={handleVerifyApprove} disabled={vBusy}
-                    className="flex-[1.5] py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
-                    {vBusy ? <><span className="loading loading-spinner loading-xs"></span>กำลังบันทึก...</> : <><span className="material-symbols-outlined text-lg">check_circle</span>ยืนยันอนุมัติ</>}
+                  <button onClick={handleVerifyApprove} disabled={vBusy || (verifyMode==='reject' && !verifyRejectReason.trim())}
+                    className={`flex-[1.5] py-2.5 rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5 ${verifyMode==='reject' ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}>
+                    {vBusy ? <><span className="loading loading-spinner loading-xs"></span>กำลังบันทึก...</> : verifyMode==='reject' ? <><span className="material-symbols-outlined text-lg">block</span>ยืนยันไม่อนุมัติ</> : <><span className="material-symbols-outlined text-lg">check_circle</span>ยืนยันอนุมัติ</>}
                   </button>
                 </div>
               </div>

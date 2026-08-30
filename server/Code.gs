@@ -1214,9 +1214,34 @@ function updatePersonnel_(data) {
   if (data.Department !== undefined) set('Department', data.Department);
   if (data.Gender !== undefined) set('Gender', data.Gender);
   if (data.Birth_Date !== undefined) set('Birth_Date', data.Birth_Date);
+  var adminWeightChanged = (data.Weight_kg !== undefined || data.Height_cm !== undefined);
+  var adminNewW = Number(data.Weight_kg);
+  var adminNewH = Number(data.Height_cm);
   if (data.Weight_kg !== undefined) set('Weight_kg', data.Weight_kg);
   if (data.Height_cm !== undefined) set('Height_cm', data.Height_cm);
-  set('BMI_Value', computeBmi_(data.Weight_kg, data.Height_cm));
+  var adminBmi = computeBmi_(data.Weight_kg, data.Height_cm);
+  set('BMI_Value', adminBmi);
+  // ถ้าแก้ น้ำหนัก/ส่วนสูง ผ่านการจัดการบุคลากร ให้ถือเป็นค่าล่าสุด — บันทึกลง Weight_After ด้วย
+  if (adminWeightChanged) {
+    try {
+      var targetUidForWA = String(data.User_ID || '').trim() || String((function(){ var u=getData_('Users').find(function(x){return String(x.Personnel_ID)===String(data.Personnel_ID);}); return u?u.User_ID:''; })() || '');
+      // ถ้ายังไม่มี User_ID (ยัง Pending) ให้ข้าม (ไม่มีประวัติชั่ง)
+      if (targetUidForWA && /^\d{13}$/.test(targetUidForWA) && !isNaN(adminNewW) && adminNewW > 0) {
+        ensureHeaders_('Weight_After', WEIGHT_AFTER_HEADERS);
+        var waSheet2 = getSheet_('Weight_After');
+        var waHeaders2 = waSheet2.getDataRange().getValues()[0] || [];
+        var effH = !isNaN(adminNewH) && adminNewH>0 ? adminNewH : Number((getData_('Users').find(function(x){return String(x.User_ID)===targetUidForWA;})||{}).Height_cm || 0);
+        waSheet2.appendRow(rowFromHeader_(waHeaders2, {
+          Record_ID: generateSequentialId_('Weight_After', 'W'),
+          User_ID: targetUidForWA,
+          Weight_kg: adminNewW,
+          Height_cm: effH,
+          BMI_Value: adminBmi,
+          Recorded_At: getTimestamp_()
+        }));
+      }
+    } catch (e) { console.error('append Weight_After from updatePersonnel failed', e); }
+  }
   if (data.Profile_Image !== undefined) set('Profile_Image', data.Profile_Image);
   if (data.Activities !== undefined) set('Activities', data.Activities || 'sweet_free');
   if (data.Role !== undefined) set('Role', data.Role);
@@ -1387,6 +1412,24 @@ function updateMyProfile_(data) {
     if (uploaded && uploaded.id) set('Profile_Image', uploaded.id);
   }
 
+  // ถ้ามีการแก้ น้ำหนัก/ส่วนสูง ให้ถือเป็นค่าล่าสุด — บันทึกลง Weight_After เพื่อให้ประวัติ/เปรียบเทียบตรงกัน
+  var weightChanged = (!isNaN(weightRaw) || !isNaN(heightRaw));
+  if (weightChanged && !isNaN(newWeight) && newWeight > 0) {
+    try {
+      ensureHeaders_('Weight_After', WEIGHT_AFTER_HEADERS);
+      var waSheet = getSheet_('Weight_After');
+      var waHeaders = waSheet.getDataRange().getValues()[0] || [];
+      waSheet.appendRow(rowFromHeader_(waHeaders, {
+        Record_ID: generateSequentialId_('Weight_After', 'W'),
+        User_ID: uid,
+        Weight_kg: newWeight,
+        Height_cm: newHeight,
+        BMI_Value: bmi,
+        Recorded_At: getTimestamp_()
+      }));
+    } catch (e) { console.error('append Weight_After from updateMyProfile failed', e); }
+  }
+
   // ส่งข้อมูลผู้ใช้ (ไม่รวมรหัสผ่าน) กลับไปเพื่อให้หน้าเว็บอัปเดตได้ทันที
   const updated = getData_('Users').find(function (u) { return String(u.User_ID) === uid; });
   if (updated && updated.Password) delete updated.Password;
@@ -1422,15 +1465,34 @@ function saveWeightAfter_(data) {
 
   const sheet = getSheet_('Weight_After');
   const headers = sheet.getDataRange().getValues()[0] || [];
+  const bmiVal = computeBmi_(weight, height);
   const record = {
     Record_ID: generateSequentialId_('Weight_After', 'W'),
     User_ID: uid,
     Weight_kg: weight,
     Height_cm: height,
-    BMI_Value: computeBmi_(weight, height),
+    BMI_Value: bmiVal,
     Recorded_At: getTimestamp_()
   };
   sheet.appendRow(rowFromHeader_(headers, record));
+  // ซิงค์ค่าล่าสุดไป Users / โปรไฟล์ ด้วย — ให้ทุกช่องทางถือเป็นค่าล่าสุดเดียวกัน
+  try {
+    var uSheet = getSheet_('Users');
+    var uRows = uSheet.getDataRange().getValues();
+    var uHeaders = uRows[0] || [];
+    var uUidCol = uHeaders.indexOf('User_ID') + 1;
+    var wCol = uHeaders.indexOf('Weight_kg') + 1;
+    var bmiCol = uHeaders.indexOf('BMI_Value') + 1;
+    if (uUidCol > 0) {
+      for (var ui = 1; ui < uRows.length; ui++) {
+        if (String(uRows[ui][uUidCol - 1]) === uid) {
+          if (wCol > 0) uSheet.getRange(ui + 1, wCol).setValue(weight);
+          if (bmiCol > 0) uSheet.getRange(ui + 1, bmiCol).setValue(bmiVal);
+          break;
+        }
+      }
+    }
+  } catch (e) { console.error('sync Users weight from saveWeightAfter failed', e); }
   return { success: true, open: true, message: 'บันทึกน้ำหนักหลังโครงการสำเร็จ', record: record };
 }
 
@@ -1495,12 +1557,18 @@ function getWeightComparison_(e) {
     const uid = String(u.User_ID || '');
     const b = baseMap[uid] || null;
     const l = latestMap[uid] || null;
-    const baseW = b && Number(b.Weight_kg) ? Number(b.Weight_kg) : (Number(u.Weight_kg) || 0);
-    const baseBmi = (b && Number(b.BMI_Value)) ? Number(b.BMI_Value) : (Number(u.BMI_Value) || null);
-    const baseH = (b && Number(b.Height_cm)) ? Number(b.Height_cm) : (Number(u.Height_cm) || 0);
-    const latestW = l && Number(l.Weight_kg) ? Number(l.Weight_kg) : (Number(u.Weight_kg) || 0);
-    const latestBmi = l && Number(l.BMI_Value) ? Number(l.BMI_Value) : (Number(u.BMI_Value) || null);
-    const latestDate = l ? String(l.Recorded_At || '') : '';
+    // Baseline: ค่าแรกที่ได้รับ — จาก Baseline เท่านั้น (ไม่ใช้ Users ปัจจุบันเป็น fallback เพื่อไม่ให้ baseline กลายเป็นค่าล่าสุด)
+    var baseW = b ? Number(b.Weight_kg) : 0;
+    var baseBmi = b ? Number(b.BMI_Value) : null;
+    var baseH = b ? Number(b.Height_cm) : Number(u.Height_cm) || 0;
+    // ถ้าไม่มี baseline ให้ถือว่าไม่มีข้อมูลครั้งแรก (null) — ตามสเปคตารางแรกคือข้อมูลครั้งแรกที่ได้รับ
+    // Latest: ค่าล่าสุดจากทุกช่องทาง — Users.Weight_kg เป็นค่าซิงค์ล่าสุดเสมอ (saveWeightAfter/โปรไฟล์/จัดการบุคลากร ซิงค์แล้ว)
+    var latestW = Number(u.Weight_kg) || (l ? Number(l.Weight_kg) : 0);
+    var latestBmi = Number(u.BMI_Value) != 0 && u.BMI_Value !== '' ? Number(u.BMI_Value) : (l ? Number(l.BMI_Value) : null);
+    // ถ้า Users น้ำหนักเท่ากับ Weight_After ล่าสุด ให้ใช้วันที่จาก Weight_After, ไม่งั้นถือว่าโปรไฟล์ล่าสุดไม่ระบุวัน
+    var latestDate = l ? String(l.Recorded_At || '') : '';
+    // ถ้า Users น้ำหนัก !== Weight_After ล่าสุด แต่มีการแก้โปรไฟล์ล่าสุดที่ไม่มี record ให้ถือว่ามีการเปลี่ยนแปลงล่าสุดแต่ไม่มีวันที่ชัดเจน
+    var fromWA = !!l && String(l.Weight_kg) === String(u.Weight_kg);
     return {
       User_ID: uid,
       Full_Name: String(u.Full_Name || ''),
@@ -1511,8 +1579,8 @@ function getWeightComparison_(e) {
         Weight_kg: Math.round(latestW * 10) / 10,
         BMI_Value: latestBmi,
         Recorded_At: latestDate,
-        fromWeightAfter: !!l,
-        fromProfile: !l
+        fromWeightAfter: fromWA,
+        fromProfile: !fromWA
       },
       deltaWeight: (baseW > 0 && latestW > 0) ? Math.round((latestW - baseW) * 10) / 10 : null,
       deltaBmi: (baseBmi != null && latestBmi != null) ? Math.round((latestBmi - baseBmi) * 10) / 10 : null

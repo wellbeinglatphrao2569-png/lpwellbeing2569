@@ -18,6 +18,7 @@ import {
   formatThaiShort,
   formatRecordedAt,
   isTrue,
+  projectWeeks,
   type RankTab,
   type DeptRow,
   type IndRow,
@@ -31,6 +32,29 @@ export default function DashboardPage() {
 
   const [tab, setTab] = useState<RankTab>('weekly');
   const [weekOffset, setWeekOffset] = useState(0);
+  const weeks = useMemo(() => projectWeeks(), []);
+  const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => {
+    const todayKey = (() => {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const m = new Date(d);
+      m.setDate(diff);
+      m.setHours(0, 0, 0, 0);
+      const y = m.getFullYear();
+      const mo = String(m.getMonth() + 1).padStart(2, '0');
+      const da = String(m.getDate()).padStart(2, '0');
+      return `${y}-${mo}-${da}`;
+    })();
+    // หาสัปดาห์ที่มีวันนี้อยู่ ถ้าเลยโครงการให้ใช้สัปดาห์สุดท้าย
+    const ws = projectWeeks();
+    const found = ws.find(w => todayKey >= w.startKey && todayKey <= w.endKey);
+    if (found) return found.startKey;
+    // ถ้าวันนี้ก่อนโครงการ ใช้สัปดาห์แรก, หลังโครงการใช้สัปดาห์สุดท้าย
+    if (ws.length === 0) return todayKey;
+    if (todayKey < ws[0].startKey) return ws[0].startKey;
+    return ws[ws.length - 1].startKey;
+  });
   const [monthFrom, setMonthFrom] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -47,7 +71,7 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const period = periodRangeFor(tab, weekOffset, monthFrom, monthTo);
+  const period = periodRangeFor(tab, weekOffset, monthFrom, monthTo, tab === 'weekly' ? selectedWeekStart : undefined);
   const activeRange = { startKey: period.startKey, endKey: period.endKey, periodLabel: period.periodLabel };
 
   // นับเฉพาะก้าวที่อนุมัติแล้วเท่านั้น — ใช้ข้อมูลล่าสุดของแต่ละวัน (ไม่นับซ้ำ)
@@ -127,7 +151,7 @@ export default function DashboardPage() {
   const shownIndividual = individualRanking.slice(0, INDIVIDUAL_LIMIT);
   const shownDept = deptRanking.slice(0, INDIVIDUAL_LIMIT);
   const shownBag = bagRanking.slice(0, INDIVIDUAL_LIMIT);
-  const viewAllHref = `/dashboard/ranking?tab=${tab}&week=${weekOffset}&from=${monthFrom}&to=${monthTo}`;
+  const viewAllHref = `/dashboard/ranking?tab=${tab}&week=${weekOffset}&weekStart=${selectedWeekStart}&from=${monthFrom}&to=${monthTo}`;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -193,16 +217,57 @@ export default function DashboardPage() {
           </span>
 
           {tab === 'weekly' && (
-            <div className="flex gap-1">
-              <button onClick={() => setWeekOffset(w => w + 1)}
-                className="w-9 h-9 rounded-lg bg-white/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
-                title="สัปดาห์ก่อนหน้า">
-                <span className="material-symbols-outlined text-lg text-gray-600 dark:text-gray-300">chevron_left</span>
-              </button>
-              <button onClick={() => setWeekOffset(0)} disabled={weekOffset === 0}
-                className="px-3 h-9 rounded-lg text-xs font-semibold bg-white/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-emerald-700 dark:text-emerald-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
-                สัปดาห์นี้
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={selectedWeekStart} onChange={e => { setSelectedWeekStart(e.target.value); setWeekOffset(0); }}
+                className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium text-gray-900 dark:text-white min-w-[240px]">
+                {weeks.map(w => <option key={w.startKey} value={w.startKey}>{w.label} (จ–อา)</option>)}
+              </select>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => {
+                    const idx = weeks.findIndex(w => w.startKey === selectedWeekStart);
+                    if (idx > 0) setSelectedWeekStart(weeks[idx - 1].startKey);
+                  }}
+                  disabled={weeks.findIndex(w => w.startKey === selectedWeekStart) <= 0}
+                  className="w-9 h-9 rounded-lg bg-white/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="สัปดาห์ก่อนหน้า">
+                  <span className="material-symbols-outlined text-lg text-gray-600 dark:text-gray-300">chevron_left</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const idx = weeks.findIndex(w => w.startKey === selectedWeekStart);
+                    if (idx >= 0 && idx < weeks.length - 1) setSelectedWeekStart(weeks[idx + 1].startKey);
+                  }}
+                  disabled={weeks.findIndex(w => w.startKey === selectedWeekStart) >= weeks.length - 1}
+                  className="w-9 h-9 rounded-lg bg-white/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="สัปดาห์ถัดไป">
+                  <span className="material-symbols-outlined text-lg text-gray-600 dark:text-gray-300">chevron_right</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const todayKey = (() => {
+                      const d = new Date();
+                      const day = d.getDay();
+                      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                      const m = new Date(d);
+                      m.setDate(diff);
+                      m.setHours(0, 0, 0, 0);
+                      const y = m.getFullYear();
+                      const mo = String(m.getMonth() + 1).padStart(2, '0');
+                      const da = String(m.getDate()).padStart(2, '0');
+                      return `${y}-${mo}-${da}`;
+                    })();
+                    const ws = weeks;
+                    const found = ws.find(w => todayKey >= w.startKey && todayKey <= w.endKey);
+                    if (found) setSelectedWeekStart(found.startKey);
+                    else if (todayKey < ws[0].startKey) setSelectedWeekStart(ws[0].startKey);
+                    else setSelectedWeekStart(ws[ws.length - 1].startKey);
+                    setWeekOffset(0);
+                  }}
+                  className="px-3 h-9 rounded-lg text-xs font-semibold bg-white/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-emerald-700 dark:text-emerald-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all">
+                  สัปดาห์นี้
+                </button>
+              </div>
             </div>
           )}
 

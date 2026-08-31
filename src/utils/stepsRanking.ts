@@ -153,23 +153,62 @@ export function monthRangeOf(monthFrom: string, monthTo: string): DateRange {
   return { startKey, endKey };
 }
 
+/** รายการสัปดาห์ทั้งหมดในโครงการ (จันทร์–อาทิตย์) สำหรับ dropdown เลือกสัปดาห์ */
+export function projectWeeks(): { startKey: string; endKey: string; label: string; weekLabel: string }[] {
+  const weeks: { startKey: string; endKey: string; label: string; weekLabel: string }[] = [];
+  // เริ่มจากจันทร์ของสัปดาห์แรกที่มี PROJECT_START_DATE
+  const cur = mondayOf(new Date(PROJECT_START_DATE + 'T12:00:00'));
+  let idx = 1;
+  while (true) {
+    const startKey = toIsoLocal(cur);
+    if (startKey > PROJECT_END_DATE) break;
+    let endKey = shiftDays(cur, 6);
+    if (endKey > PROJECT_END_DATE) endKey = PROJECT_END_DATE;
+    const label = `สัปดาห์ที่ ${idx} · ${formatThaiShort(startKey)} – ${formatThaiShort(endKey)}`;
+    const weekLabel = `สัปดาห์ ${formatThaiShort(startKey)} – ${formatThaiShort(endKey)}`;
+    weeks.push({ startKey, endKey, label, weekLabel });
+    idx++;
+    cur.setDate(cur.getDate() + 7);
+    // กันลูปไม่สิ้นสุด
+    if (idx > 20) break;
+  }
+  return weeks;
+}
+
 /**
  * คำนวณช่วงวันที่ + ป้ายกำกับช่วงเวลาของการ์ดจัดอันดับ
- * (สัปดาห์อ้างอิงจากวันนี้ + weekOffset · รายเดือนจาก [monthFrom, monthTo] · ตลอดโครงการจากค่าคงที่)
+ * (สัปดาห์อ้างอิงจากวันนี้ + weekOffset หรือเลือกสัปดาห์ตรงๆ ผ่าน selectedWeekStart · รายเดือนจาก [monthFrom, monthTo] · ตลอดโครงการจากค่าคงที่)
+ * แต่ละ tab ใช้ช่วงแยกกันชัด ไม่ทับซ้อน: weekly=7วัน จ-อา, monthly=ตามเดือนที่เลือก, project=24สค63-13พย69
  */
-export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: string, monthTo: string): {
+export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: string, monthTo: string, selectedWeekStart?: string): {
   startKey: string;
   endKey: string;
   periodLabel: string;
   weekStartKey: string;
   weekEndKey: string;
 } {
-  const wm = mondayOf(new Date());
-  wm.setDate(wm.getDate() + weekOffset * 7);
-  const weekStartKey = toIsoLocal(wm);
-  const weekEndKey = shiftDays(wm, 6);
+  // หา weekStart/weekEnd — ถ้ามี selectedWeekStart (จาก dropdown) ให้ใช้ตรงๆ
+  let weekStartKey: string;
+  let weekEndKey: string;
+  if (selectedWeekStart && /^\d{4}-\d{2}-\d{2}$/.test(selectedWeekStart)) {
+    weekStartKey = selectedWeekStart;
+    weekEndKey = shiftDays(new Date(weekStartKey + 'T12:00:00'), 6);
+    if (weekEndKey > PROJECT_END_DATE) weekEndKey = PROJECT_END_DATE;
+    if (weekStartKey < PROJECT_START_DATE) weekStartKey = PROJECT_START_DATE;
+  } else {
+    const wm = mondayOf(new Date());
+    wm.setDate(wm.getDate() + weekOffset * 7);
+    weekStartKey = toIsoLocal(wm);
+    weekEndKey = shiftDays(wm, 6);
+    // clamp ให้อยู่ในขอบโครงการเมื่อแสดงผล (กันสัปดาห์ที่เลยโครงการ)
+    if (weekEndKey > PROJECT_END_DATE && weekStartKey <= PROJECT_END_DATE) {
+      // ถ้าสัปดาห์เลยขอบ ให้ clamp ปลาย
+      if (weekEndKey > PROJECT_END_DATE) weekEndKey = PROJECT_END_DATE;
+    }
+  }
 
   if (tab === 'weekly') {
+    // สัปดาห์แยกชัด 7 วัน จ-อา ไม่รวมเดือน/โครงการ
     return {
       startKey: weekStartKey,
       endKey: weekEndKey,

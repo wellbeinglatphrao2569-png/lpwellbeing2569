@@ -634,6 +634,9 @@ function cleanupOutOfWindowData_(targets) {
 }
 
 function generateSequentialId_(sheetName, prefix) {
+  // กัน race จากการเรียกพร้อมกัน (batch / add-step หลายคนพร้อมกัน) — ใช้ LockService + ตรวจซ้ำ candidate
+  var lock = null;
+  try { lock = LockService.getScriptLock(); lock.tryLock(10000); } catch(e) {}
   const sheet = getSheet_(sheetName);
   const data = sheet.getDataRange().getValues();
   let maxNum = 0;
@@ -644,7 +647,16 @@ function generateSequentialId_(sheetName, prefix) {
       if (!isNaN(num) && num > maxNum) maxNum = num;
     }
   }
-  return prefix + (maxNum + 1).toString().padStart(3, '0');
+  // สร้าง candidate แล้ววนจนไม่ชน ID ที่มีอยู่แล้ว (กันกรณีซ้ำที่มีอยู่ในชีท เช่น ST178 ซ้ำ)
+  var existing = {};
+  for (let i = 1; i < data.length; i++) existing[String(data[i][0]||'').trim()] = true;
+  var candidate = prefix + (maxNum + 1).toString().padStart(3, '0');
+  while (existing[candidate]) {
+    maxNum++;
+    candidate = prefix + (maxNum + 1).toString().padStart(3, '0');
+  }
+  try { if (lock) lock.releaseLock(); } catch(e) {}
+  return candidate;
 }
 
 // ===== CORE BUSINESS LOGIC =====
@@ -2403,16 +2415,31 @@ function updateStepStatus_(data) {
   const userCol = col('User_ID');
   if (recordCol < 1 || userCol < 1) return { success: false, message: 'Steps_Log ยังไม่มีข้อมูล' };
 
+  // หาแถวด้วย Record_ID — กันกรณี ID ซ้ำในชีท (เช่น ST178 ซ้ำจาก race) ให้เลือกแถว Pending ก่อน
   let rowIndex = -1;
   let submitterId = '';
+  let candidates = [];
   for (let i = 1; i < rows.length; i++) {
-    if (String(rows[i][recordCol - 1]) === String(data.Record_ID)) {
-      rowIndex = i;
-      submitterId = rows[i][userCol - 1];
-      break;
+    if (String(rows[i][recordCol - 1]).trim() === String(data.Record_ID).trim()) {
+      candidates.push(i);
     }
   }
-  if (rowIndex < 1) return { success: false, message: 'ไม่พบ Record_ID' };
+  if (candidates.length === 0) return { success: false, message: 'ไม่พบ Record_ID' };
+  if (candidates.length === 1) {
+    rowIndex = candidates[0];
+    submitterId = rows[rowIndex][userCol - 1];
+  } else {
+    // มีซ้ำ — เลือกแถวที่ยัง Pending ก่อน (ตรงกับพฤติกรรม verify ที่ควรอนุมัติรายการรอตรวจ)
+    const statusCol = col('Status');
+    let pendingIdx = -1;
+    for (let k = 0; k < candidates.length; k++) {
+      const st = statusCol > 0 ? String(rows[candidates[k]][statusCol-1]||'').trim() : '';
+      if (st === 'Pending') { pendingIdx = candidates[k]; break; }
+    }
+    rowIndex = pendingIdx >= 0 ? pendingIdx : candidates[candidates.length - 1];
+    submitterId = rows[rowIndex][userCol - 1];
+    console.warn('updateStepStatus_: duplicate Record_ID ' + data.Record_ID + ' found ' + candidates.length + ' rows, picking row ' + (rowIndex+1));
+  }
 
   // ⚠️ ตรวจสอบ "บุคคลต่างฝ่าย" — ผู้ตรวจต้องอยู่คนละฝ่ายกับผู้บันทึกก้าว
   const users = getData_('Users');

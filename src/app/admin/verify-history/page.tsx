@@ -1,13 +1,13 @@
 'use client';
 import Link from 'next/link';
-import { useState, useEffect, useMemo } from 'react';
+import { Fragment, useState, useEffect, useMemo } from 'react';
 import GlassCard from '@/components/ui/GlassCard';
 import ProofImage from '@/components/ProofImage';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postDataJson } from '@/services/api';
 import type { StepsLog, User } from '@/types';
-import { toThaiDateShort } from '@/utils/thaiDate';
+import { toThaiDateShort, toThaiDateFull, toDateKey } from '@/utils/thaiDate';
 import { profileImageUrl, displayName } from '@/utils/personnel';
 
 type HistoryItem = StepsLog & { userName: string; userDept: string; userNickname: string; userProfileImage?: string };
@@ -24,7 +24,6 @@ function formatThaiTime(v: unknown): string {
     if (!s) return '';
     const d = new Date(s);
     if (isNaN(d.getTime())) return '';
-    // แปลงเป็นเวลาไทย (+7) แบบ HH:mm น.
     const thai = new Date(d.getTime() + 7 * 60 * 60 * 1000);
     return `${String(thai.getUTCHours()).padStart(2, '0')}:${String(thai.getUTCMinutes()).padStart(2, '0')} น.`;
   } catch { return ''; }
@@ -49,6 +48,15 @@ function AlertBadge() {
   );
 }
 
+function AiBadge() {
+  return (
+    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400">
+      <span className="material-symbols-outlined text-xs">smart_toy</span>
+      AI
+    </span>
+  );
+}
+
 export default function VerifyHistoryPage() {
   const { isLoggedIn, isAdmin, user } = useAuth() as any;
   const [steps, setSteps] = useState<StepsLog[]>([]);
@@ -57,6 +65,8 @@ export default function VerifyHistoryPage() {
   const [submitter, setSubmitter] = useState('');
   const [status, setStatus] = useState<'all' | 'Approved' | 'Rejected'>('all');
   const [reviewer, setReviewer] = useState('');
+  const [filterDept, setFilterDept] = useState('');
+  const [filterDate, setFilterDate] = useState(''); // YYYY-MM-DD (Date_Thai)
   const [selected, setSelected] = useState<HistoryItem | null>(null);
 
   const userMap = useMemo(() => {
@@ -97,39 +107,30 @@ export default function VerifyHistoryPage() {
           userProfileImage: profileImageUrl(u?.Profile_Image) || undefined,
         };
       })
-      .sort((a, b) => String(b.Recorded_At || b.Date_Thai || '').localeCompare(String(a.Recorded_At || a.Date_Thai || '')));
+      .sort((a, b) => {
+        // เรียงตามวันที่นับก้าว (Date_Thai) ล่าสุดก่อน เป็นหลัก
+        const ka = toDateKey(a.Date_Thai) || '';
+        const kb = toDateKey(b.Date_Thai) || '';
+        if (ka !== kb) return kb.localeCompare(ka);
+        // ภายในวันเดียวกัน เรียงตามเวลาตรวจสอบ Reviewed_At ล่าสุดก่อน (fallback Recorded_At)
+        const ra = String(b.Reviewed_At || b.Recorded_At || '').localeCompare(String(a.Reviewed_At || a.Recorded_At || ''));
+        if (ra !== 0) return ra;
+        return String(b.Record_ID).localeCompare(String(a.Record_ID));
+      });
   }, [steps, userMap]);
 
-  const submitterOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const opts: { id: string; name: string }[] = [];
-    for (const item of historyItems) {
-      const key = String(item.User_ID);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const u = userMap.get(item.User_ID);
-      opts.push({ id: key, name: u?.Full_Name || String(item.User_ID) });
-    }
-    return opts;
-  }, [historyItems, userMap]);
-
-  const reviewerOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const opts: { id: string; name: string }[] = [];
-    for (const item of historyItems) {
-      if (!item.Auditor_ID) continue;
-      const key = String(item.Auditor_ID);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const u = userMap.get(item.Auditor_ID);
-      opts.push({ id: key, name: u?.Full_Name || item.Auditor_ID });
-    }
-    return opts;
-  }, [historyItems, userMap]);
+  const deptOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const u of users) if (u.Department) set.add(String(u.Department));
+    for (const item of historyItems) if (item.userDept) set.add(String(item.userDept));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'th'));
+  }, [users, historyItems]);
 
   const filtered = useMemo(() => {
     const sq = submitter.trim().toLowerCase();
     const rq = reviewer.trim().toLowerCase();
+    const dq = filterDept.trim();
+    const dateKey = filterDate.trim(); // YYYY-MM-DD
     return historyItems.filter(i => {
       const submitMatch = !sq ||
         String(i.userName || '').toLowerCase().includes(sq) ||
@@ -137,25 +138,56 @@ export default function VerifyHistoryPage() {
         String(i.User_ID || '').toLowerCase().includes(sq);
       if (!submitMatch) return false;
       if (status !== 'all' && i.Status !== status) return false;
+      if (dq && String(i.userDept) !== dq) return false;
+      if (dateKey) {
+        const itemKey = toDateKey(i.Date_Thai);
+        if (itemKey !== dateKey) return false;
+      }
       if (rq) {
+        // รองรับ AI: ถ้า Auditor ว่าง ให้ค้นคำว่า ai ได้
+        const isAi = !i.Auditor_ID || String(i.Auditor_ID).trim() === '';
         const auditor = i.Auditor_ID ? (userMap.get(String(i.Auditor_ID)) || null) : null;
-        const auditorName = auditor ? displayName(auditor) : String(i.Auditor_ID || '');
+        const auditorName = auditor ? displayName(auditor) : (isAi ? 'AI ระบบอัตโนมัติ' : String(i.Auditor_ID || ''));
         const auditorDept = auditor?.Department || '';
-        const reviewMatch = auditorName.toLowerCase().includes(rq) ||
-          auditorDept.toLowerCase().includes(rq) ||
-          String(i.Auditor_ID || '').toLowerCase().includes(rq);
-        if (!reviewMatch) return false;
+        const hay = `${auditorName} ${auditorDept} ${String(i.Auditor_ID || '')}`.toLowerCase();
+        if (!hay.includes(rq)) return false;
       }
       return true;
     });
-  }, [historyItems, submitter, status, reviewer, userMap]);
+  }, [historyItems, submitter, status, reviewer, filterDept, filterDate, userMap]);
 
-  const hasActiveFilter = !!submitter.trim() || status !== 'all' || !!reviewer.trim();
+  // จัดกลุ่ม: วัน (Date_Thai) → ฝ่าย
+  const grouped = useMemo(() => {
+    const byDate = new Map<string, HistoryItem[]>();
+    for (const item of filtered) {
+      const key = toDateKey(item.Date_Thai) || 'unknown';
+      if (!byDate.has(key)) byDate.set(key, []);
+      byDate.get(key)!.push(item);
+    }
+    const sortedDates = Array.from(byDate.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+    return sortedDates.map(([dateKey, items]) => {
+      const byDept = new Map<string, HistoryItem[]>();
+      for (const it of items) {
+        const deptKey = String(it.userDept || 'ไม่ระบุฝ่าย');
+        if (!byDept.has(deptKey)) byDept.set(deptKey, []);
+        byDept.get(deptKey)!.push(it);
+      }
+      const deptGroups = Array.from(byDept.entries())
+        .sort((a, b) => a[0].localeCompare(b[0], 'th'))
+        .map(([dept, deptItems]) => ({ dept, items: deptItems }));
+      const totalSteps = items.reduce((s, it) => s + (Number(it.Steps_Count) || 0), 0);
+      return { dateKey, items, deptGroups, totalSteps };
+    });
+  }, [filtered]);
+
+  const hasActiveFilter = !!submitter.trim() || status !== 'all' || !!reviewer.trim() || !!filterDept.trim() || !!filterDate.trim();
 
   function clearFilters() {
     setSubmitter('');
     setStatus('all');
     setReviewer('');
+    setFilterDept('');
+    setFilterDate('');
   }
 
   const sel = selected;
@@ -164,6 +196,7 @@ export default function VerifyHistoryPage() {
   const selConfidence = sel && sel.AI_Confidence != null && sel.AI_Confidence !== '' ? Number(sel.AI_Confidence) : null;
   const selAiSteps = sel && sel.AI_Steps != null && sel.AI_Steps !== '' ? Number(sel.AI_Steps) : null;
   const selAuditor = sel?.Auditor_ID ? (userMap.get(String(sel.Auditor_ID)) || users.find(u=> String(u.User_ID)===String(sel.Auditor_ID) || String(u.Personnel_ID)===String(sel.Auditor_ID)) || null) : null;
+  const selIsAiAuditor = !!sel && (!sel.Auditor_ID || String(sel.Auditor_ID).trim() === '');
   const [confirmDelete, setConfirmDelete] = useState<HistoryItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -211,7 +244,7 @@ export default function VerifyHistoryPage() {
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">ประวัติการตรวจสอบก้าวเดิน</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">รายการที่อนุมัติ / ไม่อนุมัติแล้ว เรียงจากล่าสุดไปเก่าสุด — คลิกเพื่อดูรายละเอียดและภาพหลักฐาน</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">จัดหมวด <b>รายวัน</b> ตามวันที่นับก้าว · แยกย่อย <b>รายฝ่าย</b> — คลิกการ์ดเพื่อดูรายละเอียดและภาพหลักฐาน</p>
         </div>
         <Link href="/admin/verify-steps"
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 font-semibold text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors shrink-0">
@@ -220,15 +253,29 @@ export default function VerifyHistoryPage() {
         </Link>
       </div>
 
-      {/* ตัวกรอง — ค้นหาชื่อแทนการเลือก */}
+      {/* ตัวกรอง — ครบชุด */}
       <div className="flex flex-wrap gap-3 items-end">
         <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
           ค้นหาชื่อผู้ใช้งาน (ผู้บันทึก)
           <div className="relative">
             <span className="material-symbols-outlined text-base text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2">search</span>
             <input value={submitter} onChange={e => setSubmitter(e.target.value)} placeholder="พิมพ์ชื่อ-สกุล หรือฝ่าย"
-              className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-[200px]" />
+              className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-[190px]" />
           </div>
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+          ฝ่าย
+          <select value={filterDept} onChange={e => setFilterDept(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-[160px]">
+            <option value="">ทุกฝ่าย</option>
+            {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            <option value="ไม่ระบุฝ่าย">ไม่ระบุฝ่าย</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+          วันที่นับก้าว
+          <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
         </label>
         <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
           สถานะ
@@ -243,8 +290,8 @@ export default function VerifyHistoryPage() {
           ค้นหาชื่อผู้ตรวจสอบ
           <div className="relative">
             <span className="material-symbols-outlined text-base text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2">search</span>
-            <input value={reviewer} onChange={e => setReviewer(e.target.value)} placeholder="พิมพ์ชื่อผู้ตรวจสอบ"
-              className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-[200px]" />
+            <input value={reviewer} onChange={e => setReviewer(e.target.value)} placeholder="พิมพ์ชื่อผู้ตรวจสอบ / AI"
+              className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 w-[190px]" />
           </div>
         </label>
         {hasActiveFilter && (
@@ -254,7 +301,7 @@ export default function VerifyHistoryPage() {
             ล้างตัวกรอง
           </button>
         )}
-        <span className="text-sm text-gray-500 dark:text-gray-400 ml-auto">พบ {filtered.length} รายการ</span>
+        <span className="text-sm text-gray-500 dark:text-gray-400 ml-auto">พบ {filtered.length} รายการ · {grouped.length} วัน</span>
       </div>
 
       {loading ? (
@@ -265,73 +312,97 @@ export default function VerifyHistoryPage() {
           ไม่พบรายการตามเงื่อนไขที่เลือก
         </GlassCard>
       ) : (
-        <div className="relative">
-          <div className="absolute left-[11px] top-3 bottom-3 w-0.5 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
-          {filtered.map(item => {
-            const isAlert = item.Alert_Flag === 'TRUE' || item.Alert_Flag === true;
-            const dateMatch = item.Date_Match === 'TRUE' || item.Date_Match === true ? true : item.Date_Match === 'FALSE' || item.Date_Match === false ? false : null;
-            const confidence = item.AI_Confidence != null && item.AI_Confidence !== '' ? Number(item.AI_Confidence) : null;
-            const aiSteps = item.AI_Steps != null && item.AI_Steps !== '' ? Number(item.AI_Steps) : null;
-            const auditor = item.Auditor_ID ? (userMap.get(String(item.Auditor_ID)) || users.find(u => String(u.User_ID) === String(item.Auditor_ID) || String(u.Personnel_ID) === String(item.Auditor_ID)) || null) : null;
-            const isApproved = item.Status === 'Approved';
-
-            return (
-              <div key={item.Record_ID} className="relative pl-9 pb-5 last:pb-0">
-                <span className={`absolute left-0 top-2 w-[23px] h-[23px] rounded-full border-4 border-white dark:border-gray-800 shadow-sm flex items-center justify-center ${isApproved ? 'bg-emerald-500' : 'bg-red-500'}`}>
-                  <span className="material-symbols-outlined text-white text-[11px]">{isApproved ? 'check' : 'close'}</span>
-                </span>
-                <div onClick={() => setSelected(item)}
-                  className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 cursor-pointer hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700 transition-all">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {item.userProfileImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.userProfileImage} alt="" className="w-9 h-9 rounded-full object-cover ring-2 ring-emerald-200 dark:ring-emerald-800 shrink-0" />
-                      ) : (
-                        <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold shrink-0">{String(item.userName || '?').charAt(0)}</div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="font-bold text-gray-900 dark:text-white truncate">{item.userName}</p>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                          {item.userNickname ? `ชื่อเล่น: ${item.userNickname} · ` : ''}{item.userDept || 'ไม่ระบุฝ่าย'} · วันที่บันทึก {safeThaiDate(item.Date_Thai)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {isAlert && <AlertBadge />}
-                      <StatusBadge status={item.Status} />
-                    </div>
-                  </div>
-                  {(() => {
-                    const submitted = item.Submitted_Steps != null && String(item.Submitted_Steps).trim() !== '' ? Number(item.Submitted_Steps) : Number(item.Steps_Count);
-                    const finalSteps = Number(item.Steps_Count);
-                    const isEdited = !isNaN(submitted) && !isNaN(finalSteps) && submitted !== finalSteps;
-                    return (
-                      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
-                        <span>ส่งครั้งแรก <b className="text-gray-700 dark:text-gray-200">{submitted.toLocaleString()}</b> ก้าว</span>
-                        <span className={isEdited ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>ตรวจสอบแล้ว <b>{finalSteps.toLocaleString()}</b> ก้าว {isEdited && <span className="text-xs font-normal">({finalSteps > submitted ? `+${(finalSteps - submitted).toLocaleString()}` : `${(finalSteps - submitted).toLocaleString()}`})</span>}</span>
-                        {isEdited && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${finalSteps === submitted ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700'}`}>{finalSteps === submitted ? 'ตรงกัน' : 'ต่างกัน'}</span>}
-                        <span>AI อ่านได้ <b className="text-purple-600 dark:text-purple-400">{aiSteps != null ? aiSteps.toLocaleString() : '—'}</b> ({confidence != null ? Math.round(confidence * 100) : '—'}%)</span>
-                        <span>วันที่ในภาพ: {dateMatch === true ? <b className="text-emerald-600 dark:text-emerald-400">ตรงกัน</b> : dateMatch === false ? <b className="text-red-600 dark:text-red-400">ไม่ตรง</b> : <b className="text-amber-600 dark:text-amber-400">ไม่พบ/ไม่ชัด</b>}</span>
-                      </div>
-                    );
-                  })()}
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
-                    <div>
-                      ตรวจสอบโดย <span className="font-bold">{auditor ? `${displayName(auditor)}${auditor.Department ? ` (${auditor.Department})` : ''}` : (item.Auditor_ID || '—')}</span>
-                      {item.Reviewed_At && <span> เมื่อวันที่ {safeThaiDate(item.Reviewed_At)} เวลา {formatThaiTime(item.Reviewed_At)}</span>}
-                      {item.Status === 'Rejected' && item.Reject_Reason && (
-                        <span className="text-red-500"> · เหตุผล: {item.Reject_Reason}</span>
-                      )}
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(item); }} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
-                      <span className="material-symbols-outlined text-sm">delete</span> ลบ
-                    </button>
-                  </div>
-                </div>
+        <div className="space-y-5">
+          {grouped.map(group => (
+            <div key={group.dateKey} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+              {/* หัวข้อวัน */}
+              <div className="px-4 py-3 bg-emerald-50/70 dark:bg-emerald-900/20 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400">calendar_month</span>
+                <span className="font-bold text-emerald-700 dark:text-emerald-400">{group.dateKey === 'unknown' ? 'วันที่ไม่ระบุ' : toThaiDateFull(group.dateKey)}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{group.items.length} รายการ</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">รวม {group.totalSteps.toLocaleString()} ก้าว</span>
+                <span className="text-xs text-gray-400">· {group.deptGroups.length} ฝ่าย</span>
               </div>
-            );
-          })}
+              {/* รายฝ่าย */}
+              <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                {group.deptGroups.map(dg => (
+                  <div key={dg.dept} className="">
+                    <div className="px-4 py-2 bg-gray-50 dark:bg-gray-700/30 flex flex-wrap items-center gap-2">
+                      <span className="material-symbols-outlined text-gray-400 text-base">group</span>
+                      <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{dg.dept}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-500">{dg.items.length} คน</span>
+                      <span className="text-xs text-gray-400">รวม {dg.items.reduce((s,it)=>s+(Number(it.Steps_Count)||0),0).toLocaleString()} ก้าว</span>
+                    </div>
+                    <div className="p-3 space-y-3">
+                      {dg.items.map(item => {
+                        const isAlert = item.Alert_Flag === 'TRUE' || item.Alert_Flag === true;
+                        const dateMatch = item.Date_Match === 'TRUE' || item.Date_Match === true ? true : item.Date_Match === 'FALSE' || item.Date_Match === false ? false : null;
+                        const confidence = item.AI_Confidence != null && item.AI_Confidence !== '' ? Number(item.AI_Confidence) : null;
+                        const aiSteps = item.AI_Steps != null && item.AI_Steps !== '' ? Number(item.AI_Steps) : null;
+                        const isAiAuditor = !item.Auditor_ID || String(item.Auditor_ID).trim() === '';
+                        const auditor = !isAiAuditor ? (userMap.get(String(item.Auditor_ID)) || users.find(u => String(u.User_ID) === String(item.Auditor_ID) || String(u.Personnel_ID) === String(item.Auditor_ID)) || null) : null;
+                        const isApproved = item.Status === 'Approved';
+                        // เวลาตรวจ: ใช้ Reviewed_At ก่อน ถ้าว่างและเป็น AI ให้ fallback Recorded_At
+                        const reviewedAtRaw = item.Reviewed_At && String(item.Reviewed_At).trim() !== '' ? item.Reviewed_At : (isAiAuditor ? (item.Recorded_At || '') : '');
+                        return (
+                          <div key={item.Record_ID} onClick={() => setSelected(item)}
+                            className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 cursor-pointer hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700 transition-all">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {item.userProfileImage ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={item.userProfileImage} alt="" className="w-9 h-9 rounded-full object-cover ring-2 ring-emerald-200 dark:ring-emerald-800 shrink-0" />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold shrink-0">{String(item.userName || '?').charAt(0)}</div>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="font-bold text-gray-900 dark:text-white truncate">{item.userName}</p>
+                                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                                    {item.userNickname ? `ชื่อเล่น: ${item.userNickname} · ` : ''}{item.userDept || 'ไม่ระบุฝ่าย'} · วันที่นับก้าว {safeThaiDate(item.Date_Thai)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {isAlert && <AlertBadge />}
+                                <StatusBadge status={item.Status} />
+                              </div>
+                            </div>
+                            {(() => {
+                              const submitted = item.Submitted_Steps != null && String(item.Submitted_Steps).trim() !== '' ? Number(item.Submitted_Steps) : Number(item.Steps_Count);
+                              const finalSteps = Number(item.Steps_Count);
+                              const isEdited = !isNaN(submitted) && !isNaN(finalSteps) && submitted !== finalSteps;
+                              return (
+                                <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
+                                  <span>ส่งครั้งแรก <b className="text-gray-700 dark:text-gray-200">{submitted.toLocaleString()}</b> ก้าว</span>
+                                  <span className={isEdited ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>ตรวจสอบแล้ว <b>{finalSteps.toLocaleString()}</b> ก้าว {isEdited && <span className="text-xs font-normal">({finalSteps > submitted ? `+${(finalSteps - submitted).toLocaleString()}` : `${(finalSteps - submitted).toLocaleString()}`})</span>}</span>
+                                  {isEdited && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${finalSteps === submitted ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700'}`}>{finalSteps === submitted ? 'ตรงกัน' : 'ต่างกัน'}</span>}
+                                  <span>AI อ่านได้ <b className="text-purple-600 dark:text-purple-400">{aiSteps != null ? aiSteps.toLocaleString() : '—'}</b> ({confidence != null ? Math.round(confidence * 100) : '—'}%)</span>
+                                  <span>วันที่ในภาพ: {dateMatch === true ? <b className="text-emerald-600 dark:text-emerald-400">ตรงกัน</b> : dateMatch === false ? <b className="text-red-600 dark:text-red-400">ไม่ตรง</b> : <b className="text-amber-600 dark:text-amber-400">ไม่พบ/ไม่ชัด</b>}</span>
+                                </div>
+                              );
+                            })()}
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
+                              <div>
+                                ตรวจสอบโดย <span className="font-bold inline-flex items-center gap-1">{isAiAuditor ? <><AiBadge /> <span>AI (ระบบอัตโนมัติ)</span></> : (auditor ? `${displayName(auditor)}${auditor.Department ? ` (${auditor.Department})` : ''}` : (item.Auditor_ID || '—'))}</span>
+                                {reviewedAtRaw && <span> เมื่อวันที่ {safeThaiDate(reviewedAtRaw)} เวลา {formatThaiTime(reviewedAtRaw)}</span>}
+                                {!reviewedAtRaw && !isAiAuditor && <span> — ยังไม่มีเวลาตรวจ</span>}
+                                {item.Status === 'Rejected' && item.Reject_Reason && (
+                                  <span className="text-red-500"> · เหตุผล: {item.Reject_Reason}</span>
+                                )}
+                              </div>
+                              <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(item); }} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
+                                <span className="material-symbols-outlined text-sm">delete</span> ลบ
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -355,6 +426,7 @@ export default function VerifyHistoryPage() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {selIsAlert && <AlertBadge />}
+                {selIsAiAuditor && <AiBadge />}
                 <StatusBadge status={sel.Status} />
                 <button onClick={() => setSelected(null)} aria-label="ปิด"
                   className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -386,8 +458,9 @@ export default function VerifyHistoryPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
-                  <p className="text-xs text-gray-400 mb-0.5">วันที่บันทึก</p>
+                  <p className="text-xs text-gray-400 mb-0.5">วันที่นับก้าว</p>
                   <p className="text-lg font-bold text-gray-900 dark:text-white">{safeThaiDate(sel.Date_Thai)}</p>
+                  <p className="text-[11px] text-gray-400">วันที่ต้องการบันทึกก้าว</p>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3">
                   <p className="text-xs text-gray-400 mb-0.5">ส่งครั้งแรก (ผู้ใช้งานพิมพ์)</p>
@@ -424,7 +497,13 @@ export default function VerifyHistoryPage() {
 
               <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-300">
                 <p><span className="text-gray-400">ผลการตรวจสอบ:</span> {sel.Status === 'Approved' ? <span className="font-bold text-emerald-600 dark:text-emerald-400">อนุมัติ</span> : <span className="font-bold text-red-600 dark:text-red-400">ไม่อนุมัติ</span>}</p>
-                <p className="mt-1"><span className="text-gray-400">ตรวจสอบโดย:</span> <span className="font-bold">{selAuditor ? `${displayName(selAuditor)}${selAuditor.Department ? ` (${selAuditor.Department})` : ''}` : (sel.Auditor_ID || '—')}</span>{sel.Reviewed_At && <span> เมื่อวันที่ {safeThaiDate(sel.Reviewed_At)} เวลา {formatThaiTime(sel.Reviewed_At)}</span>}</p>
+                <p className="mt-1"><span className="text-gray-400">วันที่นับก้าว:</span> <span className="font-bold">{safeThaiDate(sel.Date_Thai)}</span></p>
+                <p className="mt-1"><span className="text-gray-400">ตรวจสอบโดย:</span> <span className="font-bold inline-flex items-center gap-1">{selIsAiAuditor ? <><AiBadge /> AI (ระบบอัตโนมัติ)</> : (selAuditor ? `${displayName(selAuditor)}${selAuditor.Department ? ` (${selAuditor.Department})` : ''}` : (sel.Auditor_ID || '—'))}</span>
+                  {(() => {
+                    const raw = sel.Reviewed_At && String(sel.Reviewed_At).trim() !== '' ? sel.Reviewed_At : (selIsAiAuditor ? (sel.Recorded_At || '') : '');
+                    return raw ? <span> เมื่อวันที่ {safeThaiDate(raw)} เวลา {formatThaiTime(raw)}</span> : null;
+                  })()}
+                </p>
                 {sel.Status === 'Rejected' && sel.Reject_Reason && (
                   <p className="mt-1 text-red-500"><span className="text-gray-400">เหตุผลที่ไม่อนุมัติ:</span> <span className="font-bold">{sel.Reject_Reason}</span></p>
                 )}

@@ -399,6 +399,7 @@ export default function StepsPage() {
   const userDept = user?.Department ?? '';
   const deptMembers: DepartmentMember[] = useMemo(() => {
     // ใช้ User_ID แบบ trim เปรียบเทียบ + นับตาม Date_Thai (วันของก้าว) ไม่ใช่วันที่บันทึก — เฉพาะ Approved เท่านั้นเหมือน dashboard
+    // แสดงเฉพาะผู้ที่มีก้าวแล้ว (>0) เท่านั้น
     return deptUsers.map((u) => {
       if (String(u.Department ?? '').trim() !== String(userDept ?? '').trim()) return null;
       const uid = String(u.User_ID ?? '').trim();
@@ -417,7 +418,7 @@ export default function StepsPage() {
         userId: uid,
         isCurrentUser: uid === String(user?.User_ID ?? '').trim(),
       };
-    }).filter((m): m is DepartmentMember => m !== null)
+    }).filter((m): m is DepartmentMember => m !== null && m.steps > 0)
       .sort((a, b) => b.steps - a.steps);
   }, [stepsData, deptUsers, deptPeriod, user, monday, sunday, viewMonthFirst, viewMonthLast, userDept]);
 

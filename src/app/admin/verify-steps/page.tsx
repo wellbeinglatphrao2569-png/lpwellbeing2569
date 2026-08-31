@@ -192,6 +192,7 @@ export default function VerifyStepsPage() {
   const [verifyEditedSteps, setVerifyEditedSteps] = useState('');
   const [verifyMode, setVerifyMode] = useState<'approve' | 'reject'>('approve');
   const [verifyRejectReason, setVerifyRejectReason] = useState('');
+  const [resultPopup, setResultPopup] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const openVerifyApprove = (item: VerifyItem) => {
     setVerifyEditedSteps('');
@@ -229,10 +230,12 @@ export default function VerifyStepsPage() {
     const newSteps = parseInt(stepsValue, 10);
     if (status === 'Approved' && stepsValue.trim() !== '' && (isNaN(newSteps) || newSteps <= 0)) {
       setNotice({ type: 'error', text: 'จำนวนก้าวที่แก้ไขต้องเป็นตัวเลขที่มากกว่า 0' });
+      setResultPopup({ type: 'error', text: 'จำนวนก้าวที่แก้ไขต้องเป็นตัวเลขที่มากกว่า 0' });
       return;
     }
     setBusyId(item.Record_ID);
     setNotice(null);
+    setResultPopup(null);
     const res = await postData('update-step-status', {
       Record_ID: item.Record_ID,
       Status: status,
@@ -242,7 +245,10 @@ export default function VerifyStepsPage() {
     });
     setBusyId(null);
     if (res?.success) {
-      setNotice({ type: 'success', text: res.message || 'บันทึกสำเร็จ' });
+      const msg = res.message || 'บันทึกสำเร็จ';
+      setNotice({ type: 'success', text: msg });
+      setResultPopup({ type: 'success', text: msg });
+      setTimeout(() => setResultPopup(null), 2500);
       setSelected(null);
       setRejectFor(null);
       setRejectReason('');
@@ -251,7 +257,9 @@ export default function VerifyStepsPage() {
       setVerifyItem(null);
       load();
     } else {
-      setNotice({ type: 'error', text: res?.message || 'ดำเนินการไม่สำเร็จ' });
+      const msg = res?.message || 'ดำเนินการไม่สำเร็จ';
+      setNotice({ type: 'error', text: msg });
+      setResultPopup({ type: 'error', text: msg });
     }
   }
 
@@ -261,10 +269,12 @@ export default function VerifyStepsPage() {
     if (mode === 'reject') {
       if (!verifyRejectReason.trim()) {
         setNotice({ type: 'error', text: 'กรุณาระบุเหตุผลที่ไม่อนุมัติ (จำเป็นต้องตอบ)' });
+        setResultPopup({ type: 'error', text: 'กรุณาระบุเหตุผลที่ไม่อนุมัติ' });
         return;
       }
       setBusyId(verifyItem.Record_ID);
       setNotice(null);
+      setResultPopup(null);
       const res = await postData('update-step-status', {
         Record_ID: verifyItem.Record_ID,
         Status: 'Rejected',
@@ -274,14 +284,19 @@ export default function VerifyStepsPage() {
       });
       setBusyId(null);
       if (res?.success) {
-        setNotice({ type: 'success', text: res.message || 'ไม่อนุมัติสำเร็จ — เหตุผลจะแสดงที่ประวัติของผู้ใช้และกลุ่มฝ่าย' });
+        const msg = res.message || 'ไม่อนุมัติสำเร็จ — เหตุผลจะแสดงที่ประวัติของผู้ใช้และกลุ่มฝ่าย';
+        setNotice({ type: 'success', text: msg });
+        setResultPopup({ type: 'success', text: msg });
+        setTimeout(() => setResultPopup(null), 2500);
         setVerifyItem(null);
         setVerifyEditedSteps('');
         setVerifyRejectReason('');
         setVerifyMode('approve');
         load();
       } else {
-        setNotice({ type: 'error', text: res?.message || 'ดำเนินการไม่สำเร็จ' });
+        const msg = res?.message || 'ดำเนินการไม่สำเร็จ';
+        setNotice({ type: 'error', text: msg });
+        setResultPopup({ type: 'error', text: msg });
       }
       return;
     }
@@ -289,10 +304,12 @@ export default function VerifyStepsPage() {
     const newSteps = parseInt(stepsValue, 10);
     if (stepsValue.trim() !== '' && (isNaN(newSteps) || newSteps <= 0)) {
       setNotice({ type: 'error', text: 'จำนวนก้าวที่แก้ไขต้องเป็นตัวเลขที่มากกว่า 0' });
+      setResultPopup({ type: 'error', text: 'จำนวนก้าวที่แก้ไขต้องเป็นตัวเลขที่มากกว่า 0' });
       return;
     }
     setBusyId(verifyItem.Record_ID);
     setNotice(null);
+    setResultPopup(null);
     const res = await postData('update-step-status', {
       Record_ID: verifyItem.Record_ID,
       Status: 'Approved',
@@ -301,14 +318,19 @@ export default function VerifyStepsPage() {
     });
     setBusyId(null);
     if (res?.success) {
-      setNotice({ type: 'success', text: res.message || 'อนุมัติสำเร็จ' });
+      const msg = res.message || 'อนุมัติสำเร็จ';
+      setNotice({ type: 'success', text: msg });
+      setResultPopup({ type: 'success', text: msg });
+      setTimeout(() => setResultPopup(null), 2500);
       setVerifyItem(null);
       setVerifyEditedSteps('');
       setVerifyRejectReason('');
       setVerifyMode('approve');
       load();
     } else {
-      setNotice({ type: 'error', text: res?.message || 'ดำเนินการไม่สำเร็จ' });
+      const msg = res?.message || 'ดำเนินการไม่สำเร็จ';
+      setNotice({ type: 'error', text: msg });
+      setResultPopup({ type: 'error', text: msg });
     }
   }
 
@@ -616,6 +638,31 @@ export default function VerifyStepsPage() {
         onConfirm={() => confirm?.onConfirm()}
         onClose={() => setConfirm(null)}
       />
+
+      {/* Popup ระหว่างรอประมวลผล — โปร่งใส เบา กันสับสน */}
+      {busyId && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/15 backdrop-blur-[1px] p-4">
+          <div className="bg-white/95 dark:bg-gray-800/95 rounded-2xl shadow-xl px-8 py-6 flex flex-col items-center gap-3 border border-gray-200 dark:border-gray-700">
+            <span className="loading loading-spinner loading-lg text-emerald-600"></span>
+            <p className="text-sm font-bold text-gray-700 dark:text-gray-200">กำลังบันทึก...</p>
+            <p className="text-xs text-gray-400">กรุณารอสักครู่ ระบบกำลังประมวลผล</p>
+          </div>
+        </div>
+      )}
+
+      {/* สรุปผลหลังบันทึก — หายแล้วเด้งสรุป */}
+      {resultPopup && !busyId && (
+        <div className="fixed inset-0 z-[81] flex items-center justify-center bg-black/15 backdrop-blur-[1px] p-4" onClick={() => setResultPopup(null)}>
+          <div
+            className={`bg-white dark:bg-gray-800 rounded-2xl shadow-xl px-6 py-5 flex flex-col items-center gap-2 border ${resultPopup.type === 'success' ? 'border-emerald-200 dark:border-emerald-800' : 'border-red-200 dark:border-red-800'}`}
+            onClick={e => e.stopPropagation()}
+          >
+            <span className={`material-symbols-outlined text-3xl ${resultPopup.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>{resultPopup.type === 'success' ? 'check_circle' : 'error'}</span>
+            <p className={`text-sm font-bold text-center ${resultPopup.type === 'success' ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>{resultPopup.text}</p>
+            <button onClick={() => setResultPopup(null)} className="mt-1 px-4 py-1.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">ปิด</button>
+          </div>
+        </div>
+      )}
 
       {/* หน้าต่างตรวจสอบก่อนอนุมัติ — แทน ConfirmPopup เดิม */}
       {verifyItem && (() => {

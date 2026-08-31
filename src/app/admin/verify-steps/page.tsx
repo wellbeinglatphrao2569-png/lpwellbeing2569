@@ -203,13 +203,20 @@ export default function VerifyStepsPage() {
   const requestVerify = (item: VerifyItem, status: 'Approved' | 'Rejected', reason = '', stepsValue = editedSteps) => {
     if (!user) return;
     if (status === 'Approved') {
-      // แทน Popup เดิมด้วยหน้าต่างตรวจสอบก่อนยืนยัน
-      openVerifyApprove(item);
+      const displaySteps = stepsValue.trim() !== '' ? parseInt(stepsValue, 10) : Number(item.Steps_Count);
+      const editedNote = stepsValue.trim() !== '' ? ` (แก้ไขจาก ${Number(item.Steps_Count).toLocaleString()} → ${displaySteps.toLocaleString()} ก้าว)` : '';
+      const alertNote = (item.Alert_Flag === 'TRUE' || item.Alert_Flag === true) && item.Alert_Reason ? `\n⚠️ ${item.Alert_Reason}` : '';
+      setConfirm({
+        title: 'ยืนยันการอนุมัติ',
+        message: `ยืนยันอนุมัติ ${displaySteps.toLocaleString()} ก้าว${editedNote}\nผู้ส่ง: ${item.userName} (${item.userDept || 'ไม่ระบุฝ่าย'}) · วันที่บันทึก ${toThaiDateShort(item.Date_Thai)}${alertNote}\n\nโปรดตรวจสอบภาพหลักฐานให้ครบถ้วนก่อนยืนยัน`,
+        variant: 'primary',
+        onConfirm: () => handleVerify(item, 'Approved', '', stepsValue),
+      });
       return;
     }
     setConfirm({
       title: 'ยืนยันการไม่อนุมัติ',
-      message: `คุณกำลังจะไม่อนุมัติจำนวนก้าว ${Number(item.Steps_Count).toLocaleString()} ก้าวของ "${item.userName}" วันที่ ${toThaiDateShort(item.Date_Thai)} เหตุผล: "${reason}" แน่ใจหรือไม่?`,
+      message: `ยืนยันไม่อนุมัติ ${Number(item.Steps_Count).toLocaleString()} ก้าว\nผู้ส่ง: ${item.userName} (${item.userDept || 'ไม่ระบุฝ่าย'}) · วันที่ ${toThaiDateShort(item.Date_Thai)}\nเหตุผล: ${reason || '—'}\n\nเหตุผลนี้จะแสดงที่ประวัติของผู้ใช้และกลุ่มฝ่าย`,
       variant: 'danger',
       onConfirm: () => handleVerify(item, 'Rejected', reason),
     });
@@ -439,16 +446,16 @@ export default function VerifyStepsPage() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               disabled={!canVerify || busy}
-                              onClick={(e) => { e.stopPropagation(); openVerifyApprove(item); }}
-                              title={canVerify ? 'เปิดหน้าต่างตรวจสอบก่อนอนุมัติ' : 'ฝ่ายเดียวกันกับผู้ส่งก้าว — ไม่สามารถอนุมัติได้'}
+                              onClick={(e) => { e.stopPropagation(); openDetail(item); }}
+                              title={canVerify ? 'เปิดหน้าต่างตรวจสอบ (อนุมัติ/ไม่อนุมัติ)' : 'ฝ่ายเดียวกันกับผู้ส่งก้าว — ไม่สามารถตรวจสอบได้'}
                               className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 font-bold text-xs hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1">
-                              {busy ? <span className="loading loading-spinner loading-xs"></span> : <span className="material-symbols-outlined text-sm">verified</span>}
+                              {busy ? <span className="loading loading-spinner loading-xs"></span> : <span className="material-symbols-outlined text-sm">fact_check</span>}
                               อนุมัติ
                             </button>
                             <button
                               disabled={!canVerify || busy}
-                              onClick={(e) => { e.stopPropagation(); openReject(item); }}
-                              title={canVerify ? 'ไม่อนุมัติ (ระบุเหตุผล)' : 'ฝ่ายเดียวกันกับผู้ส่งก้าว — ไม่สามารถตรวจสอบได้'}
+                              onClick={(e) => { e.stopPropagation(); openDetail(item); }}
+                              title={canVerify ? 'เปิดหน้าต่างตรวจสอบ (อนุมัติ/ไม่อนุมัติ)' : 'ฝ่ายเดียวกันกับผู้ส่งก้าว — ไม่สามารถตรวจสอบได้'}
                               className="px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 font-bold text-xs hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1">
                               <span className="material-symbols-outlined text-sm">cancel</span>
                               ไม่อนุมัติ
@@ -584,9 +591,13 @@ export default function VerifyStepsPage() {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <button onClick={() => { openVerifyApprove(sel); setVerifyEditedSteps(editedSteps); setSelected(null); }} disabled={selBusy}
-                      className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
-                      <span className="material-symbols-outlined text-lg">fact_check</span>ตรวจสอบ (อนุมัติ/ไม่อนุมัติ)
+                    <button onClick={() => requestVerify(sel, 'Approved', '', editedSteps)} disabled={selBusy}
+                      className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      <span className="material-symbols-outlined text-lg">check_circle</span>อนุมัติ
+                    </button>
+                    <button onClick={() => setRejectFor(sel.Record_ID)} disabled={selBusy}
+                      className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      <span className="material-symbols-outlined text-lg">cancel</span>ไม่อนุมัติ
                     </button>
                   </div>
                 )}

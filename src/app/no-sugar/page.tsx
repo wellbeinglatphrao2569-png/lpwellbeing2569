@@ -9,6 +9,7 @@ import { profileImageUrl } from '@/utils/personnel';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postData } from '@/services/api';
 import type { SweetFree, User } from '@/types';
+import { useProjectWindow } from '@/hooks/useProjectWindow';
 
 function isTrue(val: boolean | string | unknown): boolean {
   if (val === true) return true;
@@ -138,22 +139,53 @@ export default function NoSugarPage() {
   const currentWedStr = getCurrentWednesdayDate();
   const isWedHoliday = holidayDates.includes(currentWedStr);
   const windowState = getWindowState();
+  const { window: projectWindow, isInWindow } = useProjectWindow();
   // เลือกวันพุธที่จะบันทึก — ปกติเป็นสัปดาห์ปัจจุบัน แต่ย้อนหลังได้
   const [selectedWedStr, setSelectedWedStr] = useState<string>(currentWedStr);
   const isCurrentWeek = selectedWedStr === currentWedStr;
   const isPastWeek = selectedWedStr < currentWedStr;
   const isFutureWeek = selectedWedStr > currentWedStr;
-  // สร้างรายการวันพุธย้อนหลัง 8 สัปดาห์ + สัปดาห์ปัจจุบัน
+  const isOutOfWindow = projectWindow ? !isInWindow(selectedWedStr) : false;
+  // สร้างรายการวันพุธย้อนหลัง 8 สัปดาห์ + สัปดาห์ปัจจุบัน — ซ่อนวันนอกห้วง
   const wedOptions = (() => {
     const opts: string[] = [];
     const base = parseThaiDate(currentWedStr);
     for (let i = 0; i < 8; i++) {
       const d = new Date(base);
       d.setDate(d.getDate() - i * 7);
-      opts.push(toDateKey(d));
+      const key = toDateKey(d);
+      if (projectWindow && !isInWindow(key)) continue;
+      opts.push(key);
+    }
+    // ถ้ากรองแล้วไม่เหลือ (ห้วงสั้นมาก) ให้แสดงสัปดาห์ปัจจุบันที่อยู่ในห้วงอย่างน้อย 1 รายการ
+    if (opts.length === 0 && projectWindow) {
+      const fallback = projectWindow.start;
+      // หาวันพุธใกล้ fallback ที่อยู่ในห้วง
+      const d = parseThaiDate(fallback);
+      // ขยับหาวันพุธถัดไป
+      const day = d.getDay();
+      const diff = (3 - day + 7) % 7;
+      d.setDate(d.getDate() + diff);
+      const k = toDateKey(d);
+      if (isInWindow(k)) opts.push(k);
     }
     return opts;
   })();
+  // เมื่อห้วงเปลี่ยนแล้ววันที่เลือกหลุดห้วง ให้รีเซ็ตไปสัปดาห์ปัจจุบันในห้วง
+  useEffect(() => {
+    if (!projectWindow) return;
+    if (!isInWindow(selectedWedStr)) {
+      // หาสัปดาห์ปัจจุบันที่อยู่ในห้วง ถ้าไม่มีให้ใช้วันแรกในห้วงที่เป็นวันพุธ
+      if (isInWindow(currentWedStr)) {
+        setSelectedWedStr(currentWedStr); // eslint-disable-line react-hooks/set-state-in-effect
+      } else if (wedOptions.length > 0) {
+        setSelectedWedStr(wedOptions[0]); // eslint-disable-line react-hooks/set-state-in-effect
+      }
+      setSelections({}); // eslint-disable-line react-hooks/set-state-in-effect
+      setSaved(false); // eslint-disable-line react-hooks/set-state-in-effect
+      setNotice(null); // eslint-disable-line react-hooks/set-state-in-effect
+    }
+  }, [projectWindow?.start, projectWindow?.end]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!canAccess) {
@@ -246,6 +278,7 @@ export default function NoSugarPage() {
 
   // ตรวจว่าสัปดาห์ที่เลือกสามารถบันทึก/แก้ไขได้หรือไม่ (ต่อคน)
   const canEditFor = (u: User, recorded?: SweetFree | null) => {
+    if (projectWindow && !isInWindow(selectedWedStr)) return false;
     if (isFutureWeek) return false;
     if (isCurrentWeek && windowState.open) return true; // ในช่วง พ.14:00-ศ.23:59 แก้ได้ตลอด
     // นอกช่วง หรือสัปดาห์ย้อนหลัง: ถ้ามีบันทึกแล้ว ห้ามแก้ (บันทึกได้ครั้งเดียวแล้วล็อก)
@@ -255,6 +288,10 @@ export default function NoSugarPage() {
 
   const requestSaveAll = () => {
     if (!user) return;
+    if (isOutOfWindow && projectWindow) {
+      setNotice({ type: 'error', text: `วันพุธที่เลือกอยู่นอกห้วงเวลาที่ตั้งค่าไว้ (${projectWindow.start} ถึง ${projectWindow.end}) — กรุณาเลือกวันพุธในห้วง` });
+      return;
+    }
     if (isFutureWeek) {
       setNotice({ type: 'error', text: 'ไม่สามารถบันทึกสำหรับสัปดาห์ในอนาคตได้' });
       return;
@@ -396,7 +433,12 @@ export default function NoSugarPage() {
           </select>
         </div>
 
-        {!isCurrentWeek && (
+        {isOutOfWindow && projectWindow && (
+          <div className="mb-4 text-sm rounded-xl p-2.5 border bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800">
+            ⛔ วันพุธที่เลือกอยู่นอกห้วงเวลาที่ตั้งค่าไว้ ({projectWindow.start} ถึง {projectWindow.end}) — กรุณาเลือกวันพุธในห้วงเท่านั้น (ตั้งค่าได้ที่ Admin → ตั้งค่าห้วงเวลา)
+          </div>
+        )}
+        {!isCurrentWeek && !isOutOfWindow && (
           <div className={`mb-4 text-sm rounded-xl p-2.5 border ${isFutureWeek ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200' : isPastWeek ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border-blue-200' : 'bg-gray-50'}`}>
             {isFutureWeek ? '⛔ ไม่สามารถบันทึกสำหรับสัปดาห์ในอนาคตได้' : `ℹ️ กำลังดูสัปดาห์ย้อนหลัง ${toThaiWednesdayDisplay(selectedWedStr)} — บันทึกย้อนหลังได้เพียงครั้งเดียวต่อคน (บันทึกแล้วจะแก้ไขไม่ได้)`}
           </div>
@@ -519,9 +561,9 @@ export default function NoSugarPage() {
                   <span className="material-symbols-outlined text-lg">check_circle</span> บันทึกผลงดหวานสำเร็จ
                 </div>
               )}
-              <button onClick={requestSaveAll} disabled={saving || isFutureWeek}
+              <button onClick={requestSaveAll} disabled={saving || isFutureWeek || (isOutOfWindow && !!projectWindow)}
                 className="btn-primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed">
-                {saving ? <><span className="loading loading-spinner loading-sm"></span> กำลังบันทึก...</> : isFutureWeek ? 'ไม่สามารถบันทึกสัปดาห์ในอนาคตได้' : isCurrentWeek && windowState.open ? 'บันทึกผลทั้งหมด' : 'บันทึกย้อนหลัง (ครั้งเดียว · แก้ไขไม่ได้)'}
+                {saving ? <><span className="loading loading-spinner loading-sm"></span> กำลังบันทึก...</> : isOutOfWindow && projectWindow ? 'นอกห้วงเวลา — บันทึกไม่ได้' : isFutureWeek ? 'ไม่สามารถบันทึกสัปดาห์ในอนาคตได้' : isCurrentWeek && windowState.open ? 'บันทึกผลทั้งหมด' : 'บันทึกย้อนหลัง (ครั้งเดียว · แก้ไขไม่ได้)'}
               </button>
               <p className="text-center text-xs text-gray-400 mt-2">
                 {isCurrentWeek && windowState.open ? 'บันทึกผลให้เฉพาะบุคลากรที่เลือกสถานะไว้แล้ว · หากบันทึกซ้ำจะเป็นการแก้ไขผลเดิม (แก้ไขได้ถึงศุกร์ 23:59 น.)' : 'บันทึกย้อนหลังได้เพียงครั้งเดียวต่อคน · บันทึกแล้วจะล็อกไม่ให้แก้ไข'}

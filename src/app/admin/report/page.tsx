@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { fetchData } from '@/services/api';
 import type { User, StepsLog, SweetFree } from '@/types';
 import { toDateKey } from '@/utils/thaiDate';
-import { totalsInRange, totalsInRangeCapped, PROJECT_START_DATE, PROJECT_END_DATE, DAILY_CAP, RANKING_CRITERIA_TEXT } from '@/utils/stepsRanking';
+import { totalsInRange, totalsInRangeCapped, PROJECT_START_DATE, PROJECT_END_DATE, DAILY_CAP, RANKING_CRITERIA_TEXT, projectWeeks } from '@/utils/stepsRanking';
 import { DEPARTMENTS } from '@/utils/personnel';
 import WeeklyReportDocument, { WeeklyComputed } from '@/components/report/WeeklyReportDocument';
 
@@ -49,7 +49,24 @@ export default function AdminReportPage() {
   const [steps, setSteps] = useState<StepsLog[]>([]);
   const [sweet, setSweet] = useState<SweetFree[]>([]);
   const [loading, setLoading] = useState(true);
-  const [weekOffset, setWeekOffset] = useState(0); // 0 = สัปดาห์ปัจจุบัน
+  const weeks = useMemo(() => projectWeeks(), []);
+  const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => {
+    const todayKey = (() => {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const m = new Date(d);
+      m.setDate(diff);
+      m.setHours(0,0,0,0);
+      return `${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,'0')}-${String(m.getDate()).padStart(2,'0')}`;
+    })();
+    const ws = projectWeeks();
+    const found = ws.find(w => todayKey >= w.startKey && todayKey <= w.endKey);
+    if (found) return found.startKey;
+    if (ws.length===0) return todayKey;
+    if (todayKey < ws[0].startKey) return ws[0].startKey;
+    return ws[ws.length-1].startKey;
+  });
   const [programStart] = useState(PROJECT_START_DATE);
   const [programEnd] = useState(PROJECT_END_DATE);
 
@@ -73,13 +90,8 @@ export default function AdminReportPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const nowMonday = useMemo(() => mondayOf(new Date()), []);
-  const targetMonday = useMemo(() => {
-    const d = new Date(nowMonday);
-    d.setDate(d.getDate() + weekOffset * 7);
-    return d;
-  }, [nowMonday, weekOffset]);
-  const weekStartKey = useMemo(() => toIsoLocal(targetMonday), [targetMonday]);
+  const targetMonday = useMemo(() => new Date(selectedWeekStart + 'T12:00:00'), [selectedWeekStart]);
+  const weekStartKey = selectedWeekStart;
   const weekEndKey = useMemo(() => shift(targetMonday, 6), [targetMonday]);
   const wedKey = useMemo(() => shift(targetMonday, 2), [targetMonday]);
   const weekNumber = useMemo(() => getWeekNumber(targetMonday), [targetMonday]);
@@ -286,16 +298,16 @@ export default function AdminReportPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => setWeekOffset(v => v + 1)} className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm flex items-center gap-1">
-            <span className="material-symbols-outlined text-base">chevron_left</span> สัปดาห์ก่อน
+          <select value={selectedWeekStart} onChange={e => setSelectedWeekStart(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium min-w-[260px]">
+            {weeks.map(w => <option key={w.startKey} value={w.startKey}>{w.label} (จ–อา)</option>)}
+          </select>
+          <button onClick={() => { const idx = weeks.findIndex(w => w.startKey === selectedWeekStart); if (idx>0) setSelectedWeekStart(weeks[idx-1].startKey); }} disabled={weeks.findIndex(w=>w.startKey===selectedWeekStart)<=0} className="w-9 h-9 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center disabled:opacity-40">
+            <span className="material-symbols-outlined text-base">chevron_left</span>
           </button>
-          <div className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-            สัปดาห์ที่ {weekNumber} &nbsp;|&nbsp; {weekStartKey} - {weekEndKey} &nbsp;(พุธ {wedKey})
-          </div>
-          <button onClick={() => setWeekOffset(v => Math.min(0, v - 1))} disabled={weekOffset >= 0} className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed">
-            สัปดาห์ถัดไป <span className="material-symbols-outlined text-base">chevron_right</span>
+          <button onClick={() => { const idx = weeks.findIndex(w => w.startKey === selectedWeekStart); if (idx>=0 && idx<weeks.length-1) setSelectedWeekStart(weeks[idx+1].startKey); }} disabled={weeks.findIndex(w=>w.startKey===selectedWeekStart)>=weeks.length-1} className="w-9 h-9 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center disabled:opacity-40">
+            <span className="material-symbols-outlined text-base">chevron_right</span>
           </button>
-          <button onClick={() => setWeekOffset(0)} disabled={weekOffset === 0} className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 dark:border-gray-700 disabled:opacity-40">กลับสัปดาห์นี้</button>
+          <button onClick={() => { const todayKey = (()=>{ const d=new Date(); const day=d.getDay(); const diff=d.getDate()-day+(day===0?-6:1); const m=new Date(d); m.setDate(diff); m.setHours(0,0,0,0); return `${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,'0')}-${String(m.getDate()).padStart(2,'0')}`;})(); const f=weeks.find(w=>todayKey>=w.startKey && todayKey<=w.endKey); if(f) setSelectedWeekStart(f.startKey); }} className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 dark:border-gray-700">กลับสัปดาห์นี้</button>
           <span className="text-xs text-gray-400 ml-2">{loading ? 'กำลังโหลด...' : computed ? `ก้าวรวม ${computed.totalStepsWeek.toLocaleString()} | ผู้ส่ง ${computed.participantsWeek} คน` : ''}</span>
         </div>
       </div>

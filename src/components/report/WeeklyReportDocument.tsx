@@ -91,15 +91,20 @@ export default function WeeklyReportDocument({
   const sumDeptWeek = c.deptWeek.reduce((s, d) => s + d.steps, 0);
 
   return (
-    <div id="weekly-report-print" className="report-root bg-[#f0f2f5] p-4 md:p-6 print:p-0 print:bg-white">
+    <div id="weekly-report-print" className="report-root bg-[#f0f2f5] p-4 md:p-6 print:p-0 print:bg-white" style={{ fontFamily: "'Sarabun','TH Sarabun PSK',system-ui,sans-serif" }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
+        .report-root, .report-page { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; }
         @media print {
-          @page { size: A4 portrait; margin: 12mm 12mm 10mm 12mm; }
+          @page { size: A4 portrait; margin: 15mm; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .no-print { display: none !important; }
           .report-root { background: white !important; padding: 0 !important; }
           .report-page { box-shadow: none !important; border: none !important; margin: 0 !important; page-break-after: always; }
           .report-page:last-child { page-break-after: auto; }
+          table { page-break-inside: auto; }
+          tr, thead, tbody { break-inside: avoid; page-break-inside: avoid; }
+          .report-card, .rounded-xl, .rounded-lg { break-inside: avoid; page-break-inside: avoid; }
         }
       `}</style>
 

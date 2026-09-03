@@ -38,9 +38,10 @@ export default function DashboardPage() {
   const [sweetData, setSweetData] = useState<SweetFree[]>([]);
 
   const [tab, setTab] = useState<RankTab>('weekly');
-  const [weekOffset, setWeekOffset] = useState(0);
+  // แยก state ต่อ Tab ป้องกันซ้อนกัน (Bug 1.3 Option B)
   const weeks = useMemo(() => projectWeeks(), []);
-  const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => {
+  const [weeklyWeekOffset, setWeeklyWeekOffset] = useState(0);
+  const [weeklySelectedWeekStart, setWeeklySelectedWeekStart] = useState<string>(() => {
     const todayKey = (() => {
       const d = new Date();
       const day = d.getDay();
@@ -78,7 +79,8 @@ export default function DashboardPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const period = periodRangeFor(tab, weekOffset, monthFrom, monthTo, tab === 'weekly' ? selectedWeekStart : undefined);
+  // ใช้ state แยกต่อ Tab: weekly ใช้ weeklySelectedWeekStart/weeklyWeekOffset, monthly ใช้ monthFrom/monthTo
+  const period = periodRangeFor(tab, tab === 'weekly' ? weeklyWeekOffset : 0, monthFrom, monthTo, tab === 'weekly' ? weeklySelectedWeekStart : undefined);
   const activeRange = { startKey: period.startKey, endKey: period.endKey, periodLabel: period.periodLabel };
 
   // นับเฉพาะก้าวที่อนุมัติแล้ว — รายบุคคลใช้ uncapped, ส่วนราชการใช้ capped 6000/วัน
@@ -168,7 +170,7 @@ export default function DashboardPage() {
   const shownIndividual = individualRanking.slice(0, INDIVIDUAL_LIMIT);
   const shownDept = deptRanking.slice(0, INDIVIDUAL_LIMIT);
   const shownBag = bagRanking.slice(0, INDIVIDUAL_LIMIT);
-  const viewAllHref = `/dashboard/ranking?tab=${tab}&week=${weekOffset}&weekStart=${selectedWeekStart}&from=${monthFrom}&to=${monthTo}`;
+  const viewAllHref = `/dashboard/ranking?tab=${tab}&week=${weeklyWeekOffset}&weekStart=${weeklySelectedWeekStart}&from=${monthFrom}&to=${monthTo}`;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -251,27 +253,27 @@ export default function DashboardPage() {
 
           {tab === 'weekly' && (
             <div className="flex flex-wrap items-center gap-2">
-              <select value={selectedWeekStart} onChange={e => { setSelectedWeekStart(e.target.value); setWeekOffset(0); }}
+              <select value={weeklySelectedWeekStart} onChange={e => { setWeeklySelectedWeekStart(e.target.value); setWeeklyWeekOffset(0); }}
                 className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-medium text-gray-900 dark:text-white min-w-[240px]">
                 {weeks.map(w => <option key={w.startKey} value={w.startKey}>{w.label} (จ–อา)</option>)}
               </select>
               <div className="flex gap-1">
                 <button
                   onClick={() => {
-                    const idx = weeks.findIndex(w => w.startKey === selectedWeekStart);
-                    if (idx > 0) setSelectedWeekStart(weeks[idx - 1].startKey);
+                    const idx = weeks.findIndex(w => w.startKey === weeklySelectedWeekStart);
+                    if (idx > 0) setWeeklySelectedWeekStart(weeks[idx - 1].startKey);
                   }}
-                  disabled={weeks.findIndex(w => w.startKey === selectedWeekStart) <= 0}
+                  disabled={weeks.findIndex(w => w.startKey === weeklySelectedWeekStart) <= 0}
                   className="w-9 h-9 rounded-lg bg-white/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   title="สัปดาห์ก่อนหน้า">
                   <span className="material-symbols-outlined text-lg text-gray-600 dark:text-gray-300">chevron_left</span>
                 </button>
                 <button
                   onClick={() => {
-                    const idx = weeks.findIndex(w => w.startKey === selectedWeekStart);
-                    if (idx >= 0 && idx < weeks.length - 1) setSelectedWeekStart(weeks[idx + 1].startKey);
+                    const idx = weeks.findIndex(w => w.startKey === weeklySelectedWeekStart);
+                    if (idx >= 0 && idx < weeks.length - 1) setWeeklySelectedWeekStart(weeks[idx + 1].startKey);
                   }}
-                  disabled={weeks.findIndex(w => w.startKey === selectedWeekStart) >= weeks.length - 1}
+                  disabled={weeks.findIndex(w => w.startKey === weeklySelectedWeekStart) >= weeks.length - 1}
                   className="w-9 h-9 rounded-lg bg-white/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   title="สัปดาห์ถัดไป">
                   <span className="material-symbols-outlined text-lg text-gray-600 dark:text-gray-300">chevron_right</span>
@@ -292,10 +294,10 @@ export default function DashboardPage() {
                     })();
                     const ws = weeks;
                     const found = ws.find(w => todayKey >= w.startKey && todayKey <= w.endKey);
-                    if (found) setSelectedWeekStart(found.startKey);
-                    else if (todayKey < ws[0].startKey) setSelectedWeekStart(ws[0].startKey);
-                    else setSelectedWeekStart(ws[ws.length - 1].startKey);
-                    setWeekOffset(0);
+                    if (found) setWeeklySelectedWeekStart(found.startKey);
+                    else if (todayKey < ws[0].startKey) setWeeklySelectedWeekStart(ws[0].startKey);
+                    else setWeeklySelectedWeekStart(ws[ws.length - 1].startKey);
+                    setWeeklyWeekOffset(0);
                   }}
                   className="px-3 h-9 rounded-lg text-xs font-semibold bg-white/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-emerald-700 dark:text-emerald-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all">
                   สัปดาห์นี้
@@ -322,7 +324,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div key={`ranking-${tab}-${activeRange.startKey}-${activeRange.endKey}`} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2">
               <div>

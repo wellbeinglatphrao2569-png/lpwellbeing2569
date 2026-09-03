@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import GlassCard from '@/components/ui/GlassCard';
 import ProfileAvatar from '@/components/ui/ProfileAvatar';
@@ -72,16 +72,29 @@ export default function DashboardPage() {
   const [sweetDeptFilter, setSweetDeptFilter] = useState<string>('');
 
   useEffect(() => {
+    const ac = new AbortController();
     let cancelled = false;
-    fetchData<User[]>('users').then(us => { if (!cancelled && us) setUsers(us); });
-    fetchData<StepsLog[]>('steps').then(steps => { if (!cancelled && steps) setStepsData(steps); });
-    fetchData<SweetFree[]>('sweet-free').then(sweet => { if (!cancelled && sweet) setSweetData(sweet); });
-    return () => { cancelled = true; };
+    // ใช้ cancelled flag + AbortController ป้องกัน race เมื่อ Tab สลับเร็ว
+    fetchData<User[]>('users').then(us => { if (!cancelled && !ac.signal.aborted && us) setUsers(us); });
+    fetchData<StepsLog[]>('steps').then(steps => { if (!cancelled && !ac.signal.aborted && steps) setStepsData(steps); });
+    fetchData<SweetFree[]>('sweet-free').then(sweet => { if (!cancelled && !ac.signal.aborted && sweet) setSweetData(sweet); });
+    return () => { cancelled = true; ac.abort(); };
   }, []);
 
   // ใช้ state แยกต่อ Tab: weekly ใช้ weeklySelectedWeekStart/weeklyWeekOffset, monthly ใช้ monthFrom/monthTo
   const period = periodRangeFor(tab, tab === 'weekly' ? weeklyWeekOffset : 0, monthFrom, monthTo, tab === 'weekly' ? weeklySelectedWeekStart : undefined);
   const activeRange = { startKey: period.startKey, endKey: period.endKey, periodLabel: period.periodLabel };
+
+  // Strict State Isolation (Choice A): Tab สลับ → reset loading + tabId check ป้องกัน stale
+  const [indLoading, setIndLoading] = useState(false);
+  const tabSeqRef = useRef(0);
+  useEffect(() => {
+    tabSeqRef.current += 1;
+    const myId = tabSeqRef.current;
+    setIndLoading(true);
+    const t = setTimeout(() => { if (tabSeqRef.current === myId) setIndLoading(false); }, 60);
+    return () => clearTimeout(t);
+  }, [tab, activeRange.startKey, activeRange.endKey]);
 
   // นับเฉพาะก้าวที่อนุมัติแล้ว — รายบุคคลใช้ uncapped, ส่วนราชการใช้ capped 6000/วัน
   const perUserStepsActual = useMemo(
@@ -325,18 +338,25 @@ export default function DashboardPage() {
         </div>
 
         <div key={`ranking-${tab}-${activeRange.startKey}-${activeRange.endKey}`} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div key={`individual-card-${tab}-${activeRange.startKey}-${activeRange.endKey}`} className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2">
               <div>
                 <h4 className="font-bold text-gray-900 dark:text-white">อันดับรายบุคคล</h4>
-                <p className="text-xs text-gray-500 mt-0.5">Top 10 · โปรไฟล์ · ชื่อ-สกุล · ตำแหน่ง · ส่วนราชการ</p>
+                <p className="text-xs text-gray-500 mt-0.5">Top 10 · โปรไฟล์ · ชื่อ-สกุล · ตำแหน่ง · ส่วนราชการ {indLoading ? '· กำลังรีเฟรช...' : ''}</p>
               </div>
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
-                {individualRanking.length} คน
+                {indLoading ? '...' : `${individualRanking.length} คน`}
               </span>
             </div>
             <div className="max-h-[480px] overflow-y-auto">
-              {shownIndividual.map((r, idx) => {
+              {indLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2"><span className="loading loading-spinner loading-md text-emerald-600"></span><p className="text-sm">กำลังโหลดอันดับใหม่...</p></div>
+              ) : shownIndividual.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+                  <span className="material-symbols-outlined text-3xl">footprint</span>
+                  <p className="text-sm">ยังไม่มีข้อมูลก้าวที่อนุมัติในรอบนี้</p>
+                </div>
+              ) : shownIndividual.map((r, idx) => {
                 const rank = idx + 1;
                 const badge = rankBadge(rank);
                 return (
@@ -362,12 +382,6 @@ export default function DashboardPage() {
                   </div>
                 );
               })}
-              {shownIndividual.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
-                  <span className="material-symbols-outlined text-3xl">footprint</span>
-                  <p className="text-sm">ยังไม่มีข้อมูลก้าวที่อนุมัติในรอบนี้</p>
-                </div>
-              )}
             </div>
             {individualRanking.length > INDIVIDUAL_LIMIT && (
               <Link href={viewAllHref}

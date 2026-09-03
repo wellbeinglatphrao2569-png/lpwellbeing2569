@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import GlassCard from '@/components/ui/GlassCard';
@@ -59,10 +59,11 @@ export default function RankingContent() {
   }, [tab, weekOffset, selectedWeekStart, monthFrom, monthTo, bagDept, router, searchParams]);
 
   useEffect(() => {
+    const ac = new AbortController();
     let cancelled = false;
-    fetchData<User[]>('users').then(us => { if (!cancelled && us) setUsers(us); });
-    fetchData<StepsLog[]>('steps').then(steps => { if (!cancelled && steps) setStepsData(steps); });
-    return () => { cancelled = true; };
+    fetchData<User[]>('users').then(us => { if (!cancelled && !ac.signal.aborted && us) setUsers(us); });
+    fetchData<StepsLog[]>('steps').then(steps => { if (!cancelled && !ac.signal.aborted && steps) setStepsData(steps); });
+    return () => { cancelled = true; ac.abort(); };
   }, []);
 
   // ── ช่วงเวลา ── (weekly ใช้ selectedWeekStart จาก dropdown ไม่ทับ monthly/project)
@@ -77,7 +78,18 @@ export default function RankingContent() {
     }
   }, [tab, selectedWeekStart, weeks, period.weekStartKey]);
 
-  // ── อันดับ ── รายบุคคล uncapped / ส่วนราชการ capped 6000/วัน (ตามสเปคใหม่)
+  // Strict Isolation (Choice A): Tab สลับ → reset loading + tabId
+  const [indLoading, setIndLoading] = useState(false);
+  const tabSeqRef = useRef(0);
+  useEffect(() => {
+    tabSeqRef.current += 1;
+    const myId = tabSeqRef.current;
+    setIndLoading(true);
+    const t = setTimeout(() => { if (tabSeqRef.current === myId) setIndLoading(false); }, 60);
+    return () => clearTimeout(t);
+  }, [tab, activeRange.startKey, activeRange.endKey]);
+
+  // ── อันดับ ── รายบุคคล uncapped / ส่วนราชการ capped 6000/วัน (ตามสเปคใหม่) — clean replace ไม่ concat
   const perUserStepsActual = useMemo(
     () => totalsInRange(stepsData, activeRange.startKey, activeRange.endKey),
     [stepsData, activeRange.startKey, activeRange.endKey]
@@ -312,19 +324,32 @@ export default function RankingContent() {
           </div>
         </div>
 
-        {/* ── รายการอันดับรายบุคคล (เต็ม) ── */}
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-6">
+        {/* ── รายการอันดับรายบุคคล (เต็ม) — Card-Level Isolated (Choice A) */}
+        <div key={`individual-full-${tab}-${activeRange.startKey}-${activeRange.endKey}`} className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-6">
           <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2">
             <div>
               <h4 className="font-bold text-gray-900 dark:text-white">อันดับรายบุคคล ทุกคน</h4>
-              <p className="text-xs text-gray-500 mt-0.5">เรียงลำดับตามก้าวรวมที่อนุมัติ · แถวของคุณไฮไลต์เขียวพร้อมป้าย “คุณ”</p>
+              <p className="text-xs text-gray-500 mt-0.5">เรียงลำดับตามก้าวรวมที่อนุมัติ · แถวของคุณไฮไลต์เขียวพร้อมป้าย “คุณ” {indLoading ? '· กำลังรีเฟรช...' : ''}</p>
             </div>
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
-              {q ? `${visibleRows.length} / ${allRows.length} คน` : `${allRows.length} คน`}
+              {indLoading ? '...' : (q ? `${visibleRows.length} / ${allRows.length} คน` : `${allRows.length} คน`)}
             </span>
           </div>
           <div className="max-h-[70vh] overflow-y-auto">
-            {visibleRows.map((r, idx) => {
+            {indLoading ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3"><span className="loading loading-spinner loading-md text-emerald-600"></span><p className="text-sm">กำลังโหลดอันดับใหม่...</p></div>
+            ) : visibleRows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+                <span className="material-symbols-outlined text-4xl">{q ? 'search_off' : 'footprint'}</span>
+                <p className="text-sm">{q ? `ไม่พบผู้ที่ตรงกับ “${search.trim()}” ในรอบนี้` : 'ยังไม่มีข้อมูลก้าวที่อนุมัติในรอบนี้'}</p>
+                {q && (
+                  <button onClick={() => setSearch('')}
+                    className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
+                    ล้างการค้นหา
+                  </button>
+                )}
+              </div>
+            ) : visibleRows.map((r, idx) => {
               const rank = idx + 1;
               const badge = rankBadge(rank);
               const inTop3 = rank <= 3;
@@ -353,18 +378,6 @@ export default function RankingContent() {
                 </div>
               );
             })}
-            {visibleRows.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
-                <span className="material-symbols-outlined text-4xl">{q ? 'search_off' : 'footprint'}</span>
-                <p className="text-sm">{q ? `ไม่พบผู้ที่ตรงกับ “${search.trim()}” ในรอบนี้` : 'ยังไม่มีข้อมูลก้าวที่อนุมัติในรอบนี้'}</p>
-                {q && (
-                  <button onClick={() => setSearch('')}
-                    className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
-                    ล้างการค้นหา
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         </div>
 

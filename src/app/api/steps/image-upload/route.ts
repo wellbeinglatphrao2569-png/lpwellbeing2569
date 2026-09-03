@@ -46,12 +46,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
     }
 
-    // ห้วงเวลาบันทึก: ตรวจว่าอยู่ในห้วงโครงการ (กันยิง API ตรง)
+    // ห้วงเวลาบันทึก + Data Freeze: ตรวจว่าอยู่ในห้วงและยังไม่เกินวันสิ้นสุด (กันยิง API ตรง)
     try {
       const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
       if (winRes.ok) {
         const win = await winRes.json();
         if (win && win.start && win.end) {
+          const today = new Date().toISOString().slice(0,10);
+          // Data Freeze: ถ้าวันนี้เกิน end ให้ล็อคทันที
+          if (today > String(win.end).slice(0,10)) {
+            return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร` }, { status: 403 });
+          }
           const d = String(dateThai).trim().slice(0,10);
           if (d < String(win.start).slice(0,10) || d > String(win.end).slice(0,10)) {
             return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถบันทึกวันที่ ${d} ได้` }, { status: 400 });

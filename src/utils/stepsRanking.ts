@@ -5,8 +5,24 @@ import { toDateKey, thaiMonths, thaiShortMonths } from './thaiDate';
 export const PROJECT_START_DATE = '2026-08-24';
 export const PROJECT_END_DATE = '2026-11-13';
 
+// เพดานรายวันสำหรับอันดับส่วนราชการ (ตามสเปคใหม่ 2.1)
+export const DAILY_CAP = 6000;
+export const RANKING_CRITERIA_TEXT =
+  'ℹ️ เกณฑ์การจัดอันดับส่วนราชการ: คิดคำนวณจากค่าเฉลี่ยก้าวสะสมต่อคนของแต่ละส่วนราชการ โดยจำกัดเพดานคะแนนสูงสุดไม่เกิน 6,000 ก้าว/คน/วัน เพื่อความยุติธรรมและลดความเหลื่อมล้ำจากขนาดทีม รวมถึงขจัดผลกระทบจากกรณีผู้เข้าร่วมรายบุคคลเดินได้ก้าวสูงผิดปกติ (การคิดอันดับรายบุคคลยังคงคิดจากจำนวนก้าวจริงทั้งหมดตามปกติ)';
+
 export type RankTab = 'weekly' | 'monthly' | 'project';
 export type DeptRow = { name: string; total: number; participants: number; avg: number; isMine: boolean };
+// แบบ capped สำหรับอันดับส่วนราชการ (ใช้ 6000/วัน)
+export type DeptCappedRow = {
+  name: string;
+  totalCapped: number;
+  totalActual: number;
+  participants: number; // จำนวนทั้งหมดในฝ่าย (รวม Pending, ไม่นับ Inactive — ตาม Q1=C)
+  activeParticipants: number; // คนที่มีก้าว >0 ในช่วง
+  avg: number; // = totalCapped / participants (ปัดเศษ)
+  avgActual: number; // สำหรับวงเล็บโปร่งใส
+  isMine: boolean;
+};
 export type IndRow = { user: User; steps: number; isCurrent: boolean };
 export type DateRange = { startKey: string; endKey: string };
 export type RankBadgeStyle = { emoji: string | null; badge: string };
@@ -59,6 +75,7 @@ function compareLog(a: StepsLog, b: StepsLog): number {
 /**
  * คำนวณจำนวนก้าวรวม (เฉพาะที่อนุมัติแล้ว) ของแต่ละคน ภายในช่วงวันที่ [startKey, endKey]
  * ใช้ "ข้อมูลล่าสุดของวัน" (1 วันต่อ 1 รายการ) กันการนับซ้ำ
+ * — uncapped (สำหรับรายบุคคล)
  */
 export function totalsInRange(stepsData: StepsLog[], startKey: string, endKey: string): Map<string, number> {
   const byUser = new Map<string, Map<string, StepsLog>>();
@@ -77,6 +94,35 @@ export function totalsInRange(stepsData: StepsLog[], startKey: string, endKey: s
   for (const [uid, byDay] of byUser) {
     let sum = 0;
     for (const log of byDay.values()) sum += Number(log.Steps_Count) || 0;
+    totals.set(uid, sum);
+  }
+  return totals;
+}
+
+/**
+ * คำนวณจำนวนก้าวรวมแบบ capped (สูงสุด DAILY_CAP/วัน) สำหรับอันดับส่วนราชการ
+ * ใช้ Approved เท่านั้น + dedup รายวัน + min(steps, DAILY_CAP)
+ */
+export function totalsInRangeCapped(stepsData: StepsLog[], startKey: string, endKey: string, cap: number = DAILY_CAP): Map<string, number> {
+  const byUser = new Map<string, Map<string, StepsLog>>();
+  for (const s of stepsData) {
+    if (s.Status !== 'Approved') continue;
+    const day = toDateKey(s.Date_Thai);
+    if (!day || day < startKey || day > endKey) continue;
+    const uid = String(s.User_ID ?? '').trim();
+    if (!uid) continue;
+    let byDay = byUser.get(uid);
+    if (!byDay) { byDay = new Map(); byUser.set(uid, byDay); }
+    const cur = byDay.get(day);
+    if (!cur || compareLog(s, cur) > 0) byDay.set(day, s);
+  }
+  const totals = new Map<string, number>();
+  for (const [uid, byDay] of byUser) {
+    let sum = 0;
+    for (const log of byDay.values()) {
+      const raw = Number(log.Steps_Count) || 0;
+      sum += Math.min(raw, cap);
+    }
     totals.set(uid, sum);
   }
   return totals;
@@ -249,7 +295,7 @@ function stepsForUser(u: User, totals: Map<string, number>): number {
   if (uid) return totals.get(uid) || 0;
   return totals.get(pid) || 0;
 }
-/** จัดอันดับรายบุคคล ตามจำนวนก้าวรวม (มาก→น้อย) เฉพาะคนที่บันทึกก้าวจริงในรอบ */
+/** จัดอันดับรายบุคคล ตามจำนวนก้าวรวม (มาก→น้อย) เฉพาะคนที่บันทึกก้าวจริงในรอบ — ใช้ uncapped */
 export function individualRankingOf(users: User[], totals: Map<string, number>, currentUserId?: string | number | null): IndRow[] {
   const curKey = String(currentUserId ?? '').trim();
   return users
@@ -262,7 +308,71 @@ export function individualRankingOf(users: User[], totals: Map<string, number>, 
     .sort((a, b) => b.steps - a.steps);
 }
 
-/** จัดอันดับรายส่วนราชการ จาก ก้าวรวม ÷ คนที่บันทึกก้าวจริงในฝ่าย (มาก→น้อย) */
+// helper: นับจำนวนคนทั้งหมดในแต่ละฝ่าย (รวม Pending, ไม่นับ Inactive) — ตาม Q1=C
+function deptAllCounts(users: User[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const u of users) {
+    const dept = String(u.Department || '').trim();
+    if (!dept) continue;
+    const st = String((u as any).Registration_Status || '').trim();
+    if (st === 'Inactive') continue;
+    const hasName = String((u as any).Full_Name || '').trim() !== '' || String((u as any).User_ID || '').trim() !== '' || String((u as any).Personnel_ID || '').trim() !== '';
+    if (!hasName) continue;
+    m.set(dept, (m.get(dept) || 0) + 1);
+  }
+  return m;
+}
+
+/** จัดอันดับรายส่วนราชการ แบบ capped (6000/วัน) หารด้วยจำนวนคนทั้งหมดในฝ่าย — ตามสเปค 2.1 */
+export function deptRankingCapped(
+  users: User[],
+  totalsCapped: Map<string, number>,
+  totalsActual: Map<string, number>,
+  currentDept?: string | null
+): DeptCappedRow[] {
+  const allCounts = deptAllCounts(users);
+  const sumCapped = new Map<string, number>();
+  const sumActual = new Map<string, number>();
+  const active = new Map<string, number>();
+  for (const u of users) {
+    const dept = String(u.Department || '').trim();
+    if (!dept) continue;
+    const capped = stepsForUser(u, totalsCapped);
+    const actual = stepsForUser(u, totalsActual);
+    if (capped > 0 || actual > 0) {
+      active.set(dept, (active.get(dept) || 0) + 1);
+    }
+    if (capped > 0) sumCapped.set(dept, (sumCapped.get(dept) || 0) + capped);
+    if (actual > 0) sumActual.set(dept, (sumActual.get(dept) || 0) + actual);
+  }
+  const rows: DeptCappedRow[] = [];
+  for (const [name, totalMembers] of allCounts) {
+    const tc = sumCapped.get(name) || 0;
+    const ta = sumActual.get(name) || 0;
+    const act = active.get(name) || 0;
+    // แสดงทุกฝ่ายแม้ยังไม่มีก้าว (avg=0) เพื่อความโปร่งใส
+    rows.push({
+      name,
+      totalCapped: tc,
+      totalActual: ta,
+      participants: totalMembers,
+      activeParticipants: act,
+      avg: totalMembers ? Math.round(tc / totalMembers) : 0,
+      avgActual: totalMembers ? Math.round(ta / totalMembers) : 0,
+      isMine: name === currentDept,
+    });
+  }
+  // ถ้ามีฝ่ายที่มีก้าวแต่ไม่อยู่ใน allCounts (เช่น Dept แปลกๆ) ก็เติม
+  for (const [name, tc] of sumCapped) {
+    if (!allCounts.has(name)) {
+      const ta = sumActual.get(name) || 0;
+      rows.push({ name, totalCapped: tc, totalActual: ta, participants: active.get(name) || 0, activeParticipants: active.get(name) || 0, avg: tc, avgActual: ta, isMine: name === currentDept });
+    }
+  }
+  return rows.sort((a, b) => b.avg - a.avg || b.totalCapped - a.totalCapped || b.activeParticipants - a.activeParticipants);
+}
+
+/** legacy: จัดอันดับรายส่วนราชการ จาก ก้าวรวม ÷ คนที่บันทึกก้าวจริงในฝ่าย (มาก→น้อย) — เก็บไว้เผื่อ backward compat */
 export function deptRankingOf(users: User[], totals: Map<string, number>, currentDept?: string | null): DeptRow[] {
   const byDept = new Map<string, { total: number; participants: number }>();
   for (const u of users) {
@@ -282,6 +392,37 @@ export function deptRankingOf(users: User[], totals: Map<string, number>, curren
       isMine: name === currentDept,
     }))
     .sort((a, b) => b.avg - a.avg || b.total - a.total);
+}
+
+// ── Dynamic Elapsed Days & Data Freeze ──
+/** จำนวนวันแบบ inclusive ระหว่าง [startKey, endKey] */
+export function inclusiveDays(startKey: string, endKey: string): number {
+  if (!startKey || !endKey || startKey > endKey) return 0;
+  const a = new Date(startKey + 'T12:00:00');
+  const b = new Date(endKey + 'T12:00:00');
+  const diff = Math.round((b.getTime() - a.getTime()) / 86400000);
+  return diff + 1;
+}
+/** d = จำนวนวันที่เปิดสะสมจริงตั้งแต่ PROJECT_START ถึงวันนี้ (clamp ที่ PROJECT_END) */
+export function elapsedDays(todayKey?: string, start: string = PROJECT_START_DATE, end: string = PROJECT_END_DATE): number {
+  const nowKey = todayKey || toIsoLocal(new Date());
+  const clamped = nowKey > end ? end : nowKey < start ? start : nowKey;
+  return inclusiveDays(start, clamped);
+}
+/** เพดานสะสมสูงสุด ณ วันปัจจุบัน = DAILY_CAP * d */
+export function maxCumulativeCap(todayKey?: string): number {
+  return elapsedDays(todayKey) * DAILY_CAP;
+}
+/** โครงการสิ้นสุดแล้วหรือยัง (วันนี้ > END) */
+export function isProjectFrozen(todayKey?: string): boolean {
+  const nowKey = todayKey || toIsoLocal(new Date());
+  return nowKey > PROJECT_END_DATE;
+}
+/** วันที่อยู่ในห้วงโครงการหรือไม่ */
+export function isInProjectWindow(dateKey: string, start: string = PROJECT_START_DATE, end: string = PROJECT_END_DATE): boolean {
+  const k = String(dateKey || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) return false;
+  return k >= start && k <= end;
 }
 
 /** ก้าวรวม + จำนวนผู้เข้าร่วม ทั้งโครงการ (ภาพใหญ่) — นับเฉพาะข้อมูลล่าสุดของแต่ละวัน */

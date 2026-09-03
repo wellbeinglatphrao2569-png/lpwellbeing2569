@@ -25,12 +25,16 @@ export async function POST(request: NextRequest) {
     if (!Steps || !Array.isArray(Steps) || Steps.length === 0) return NextResponse.json({ error: 'Steps array is required' }, { status: 400 });
     if (!GAS_API_URL) return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
 
-    // ห้วงเวลาบันทึก: ตรวจว่าทุกวันที่ส่งมาอยู่ในห้วง (กันยิง API ตรง)
+    // ห้วงเวลาบันทึก + Data Freeze
     try {
       const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
       if (winRes.ok) {
         const win = await winRes.json();
         if (win && win.start && win.end) {
+          const today = new Date().toISOString().slice(0,10);
+          if (today > String(win.end).slice(0,10)) {
+            return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
+          }
           const out: string[] = [];
           for (const s of Steps as any[]) {
             const d = String(s.Day || '').trim().slice(0,10);

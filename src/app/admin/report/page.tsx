@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { fetchData } from '@/services/api';
 import type { User, StepsLog, SweetFree } from '@/types';
 import { toDateKey } from '@/utils/thaiDate';
-import { totalsInRange, PROJECT_START_DATE, PROJECT_END_DATE } from '@/utils/stepsRanking';
+import { totalsInRange, totalsInRangeCapped, PROJECT_START_DATE, PROJECT_END_DATE, DAILY_CAP, RANKING_CRITERIA_TEXT } from '@/utils/stepsRanking';
 import { DEPARTMENTS } from '@/utils/personnel';
 import WeeklyReportDocument, { WeeklyComputed } from '@/components/report/WeeklyReportDocument';
 
@@ -89,12 +89,16 @@ export default function AdminReportPage() {
     // participant totals = จำนวน Users ที่ไม่ Inactive
     const participantsTotal = users.filter(u => String((u as any).Registration_Status) !== 'Inactive' && String(u.Full_Name || '').trim()).length || users.length;
 
-    // weekly totals
+    // weekly totals: uncapped for totals & individual, capped for dept ranking (6000/วัน)
     const weekMap = totalsInRange(steps, weekStartKey, weekEndKey);
+    const weekMapCapped = totalsInRangeCapped(steps, weekStartKey, weekEndKey, DAILY_CAP);
     const cumMap = totalsInRange(steps, programStart, weekEndKey);
+    const cumMapCapped = totalsInRangeCapped(steps, programStart, weekEndKey, DAILY_CAP);
 
     let totalWeek = 0;
     for (const v of weekMap.values()) totalWeek += v;
+    let totalWeekCapped = 0;
+    for (const v of weekMapCapped.values()) totalWeekCapped += v;
 
     // helpers to get steps for user (support Personnel_ID fallback)
     function stepsFor(u: User, map: Map<string, number>): number {
@@ -105,43 +109,57 @@ export default function AdminReportPage() {
       return 0;
     }
 
-    // dept week
-    const deptWeekMap = new Map<string, { steps: number; participants: number }>();
-    for (const u of users) {
-      if (!u.Department) continue;
-      const s = stepsFor(u, weekMap);
-      if (s <= 0) continue;
-      const cur = deptWeekMap.get(u.Department) || { steps: 0, participants: 0 };
-      cur.steps += s;
-      cur.participants += 1;
-      deptWeekMap.set(u.Department, cur);
+    // dept week — capped avg หารด้วยคนทั้งหมดในฝ่าย (รวม Pending, ไม่นับ Inactive) + เก็บ actual วงเล็บ
+    function buildDeptCapped(cappedMap: Map<string, number>, actualMap: Map<string, number>) {
+      // นับคนทั้งหมดต่อฝ่าย
+      const allCounts = new Map<string, number>();
+      for (const u of users) {
+        const dept = String(u.Department || '').trim();
+        if (!dept) continue;
+        const st = String((u as any).Registration_Status || '').trim();
+        if (st === 'Inactive') continue;
+        const hasName = String((u as any).Full_Name || '').trim() !== '' || String((u as any).User_ID || '').trim() !== '' || String((u as any).Personnel_ID || '').trim() !== '';
+        if (!hasName) continue;
+        allCounts.set(dept, (allCounts.get(dept) || 0) + 1);
+      }
+      const sumCapped = new Map<string, number>();
+      const sumActual = new Map<string, number>();
+      const active = new Map<string, number>();
+      for (const u of users) {
+        const dept = String(u.Department || '').trim();
+        if (!dept) continue;
+        const c = stepsFor(u, cappedMap);
+        const a = stepsFor(u, actualMap);
+        if (c > 0 || a > 0) active.set(dept, (active.get(dept) || 0) + 1);
+        if (c > 0) sumCapped.set(dept, (sumCapped.get(dept) || 0) + c);
+        if (a > 0) sumActual.set(dept, (sumActual.get(dept) || 0) + a);
+      }
+      const rows: { name: string; steps: number; stepsActual: number; participants: number; active: number; avg: number; avgActual: number }[] = [];
+      for (const [name, totalMembers] of allCounts) {
+        const tc = sumCapped.get(name) || 0;
+        const ta = sumActual.get(name) || 0;
+        const act = active.get(name) || 0;
+        rows.push({
+          name,
+          steps: tc,
+          stepsActual: ta,
+          participants: totalMembers,
+          active: act,
+          avg: totalMembers ? Math.round(tc / totalMembers) : 0,
+          avgActual: totalMembers ? Math.round(ta / totalMembers) : 0,
+        });
+      }
+      for (const [name, tc] of sumCapped) {
+        if (!allCounts.has(name)) {
+          const ta = sumActual.get(name) || 0;
+          rows.push({ name, steps: tc, stepsActual: ta, participants: active.get(name) || 0, active: active.get(name) || 0, avg: tc, avgActual: ta });
+        }
+      }
+      return rows.sort((a, b) => b.avg - a.avg || b.steps - a.steps);
     }
-    const deptWeek = [...deptWeekMap.entries()].map(([name, v]) => ({
-      name,
-      steps: v.steps,
-      participants: v.participants,
-      avg: Math.round(v.steps / v.participants),
-    })).sort((a, b) => b.steps - a.steps);
-    // ensure all departments appear? show only those with data; but spec says all - we keep only with data to avoid empty rows. If want all, uncomment below:
-    // DEPARTMENTS.forEach(d => { if (!deptWeekMap.has(d)) deptWeek.push({ name: d, steps: 0, participants: 0, avg: 0 }); });
 
-    // dept cumulative
-    const deptCumMap = new Map<string, { steps: number; participants: number }>();
-    for (const u of users) {
-      if (!u.Department) continue;
-      const s = stepsFor(u, cumMap);
-      if (s <= 0) continue;
-      const cur = deptCumMap.get(u.Department) || { steps: 0, participants: 0 };
-      cur.steps += s;
-      cur.participants += 1;
-      deptCumMap.set(u.Department, cur);
-    }
-    const deptCumulative = [...deptCumMap.entries()].map(([name, v]) => ({
-      name,
-      steps: v.steps,
-      participants: v.participants,
-      avg: Math.round(v.steps / v.participants),
-    })).sort((a, b) => b.steps - a.steps);
+    const deptWeek = buildDeptCapped(weekMapCapped, weekMap);
+    const deptCumulative = buildDeptCapped(cumMapCapped, cumMap);
 
     // top 5 week
     const allWeekRows = users.map(u => ({ user: u, steps: stepsFor(u, weekMap) })).filter(r => r.steps > 0).sort((a, b) => b.steps - a.steps);
@@ -222,6 +240,7 @@ export default function AdminReportPage() {
       wednesdayKey: wedKey,
       weekNumber,
       totalStepsWeek: totalWeek,
+      totalStepsWeekCapped: totalWeekCapped,
       participantsWeek: weekMap.size,
       participantsTotal,
       deptWeek,
@@ -233,6 +252,7 @@ export default function AdminReportPage() {
       sweetWeekByDept,
       sweetCumulativeOverall,
       sweetCumulativeByWeek,
+      rankingCriteria: RANKING_CRITERIA_TEXT,
     };
   }, [users, steps, sweet, weekStartKey, weekEndKey, wedKey, weekNumber, programStart]);
 

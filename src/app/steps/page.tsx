@@ -11,6 +11,7 @@ import { fetchData, postData } from '@/services/api';
 import type { StepsLog, User, AiImageAnalysis } from '@/types';
 import * as GF from '@/lib/google-fitness';
 import { useProjectWindow } from '@/hooks/useProjectWindow';
+import { DAILY_CAP, RANKING_CRITERIA_TEXT, isProjectFrozen } from '@/utils/stepsRanking';
 
 type DepartmentMember = {
   name: string;
@@ -324,28 +325,35 @@ export default function StepsPage() {
   // ข้อมูลล่าสุดของแต่ละวันแบบไม่กรองสถานะ — ใช้สำหรับแสดงยอดของวันนั้นๆ ทันที (แม้ยังรอตรวจสอบ)
   const latestAnyAll = useMemo(() => latestStepsByDate(userSteps), [userSteps]);
 
-  // แสดงยอดที่เป็นจำนวนก้าวของวันนั้นๆ (ตาม Date_Thai) ไม่ใช่วันที่บันทึก
-  const todaySteps = stepsOfDay(latestAnyAll, viewDateStr);
+  // แสดงยอดที่เป็นจำนวนก้าวของวันนั้นๆ (ตาม Date_Thai) — นับเฉพาะ Approved ตามสเปค Q6=A
+  const todaySteps = stepsOfDay(latestApproved, viewDateStr);
 
   const weeklySteps = useMemo(() => {
     const mondayStr = toIsoLocal(monday);
     const sundayStr = toIsoLocal(sunday);
     let total = 0;
-    for (const [ds, log] of latestAnyAll) {
+    for (const [ds, log] of latestApproved) {
       if (ds >= mondayStr && ds <= sundayStr) total += Number(log.Steps_Count) || 0;
     }
     return total;
-  }, [latestAnyAll, monday, sunday]);
+  }, [latestApproved, monday, sunday]);
 
   const monthlySteps = useMemo(() => {
     const firstStr = toIsoLocal(viewMonthFirst);
     const lastStr = toIsoLocal(viewMonthLast);
     let total = 0;
-    for (const [ds, log] of latestAnyAll) {
+    for (const [ds, log] of latestApproved) {
       if (ds >= firstStr && ds <= lastStr) total += Number(log.Steps_Count) || 0;
     }
     return total;
-  }, [latestAnyAll, viewMonthFirst, viewMonthLast]);
+  }, [latestApproved, viewMonthFirst, viewMonthLast]);
+  // สำหรับ Pending ที่ยังรอ ให้แจ้งผู้ใช้แยก (ไม่นับรวม)
+  const hasPending = useMemo(() => {
+    for (const [ds, log] of latestAnyAll) {
+      if (!latestApproved.has(ds) && (String(log.Status).toUpperCase() === 'PENDING')) return true;
+    }
+    return false;
+  }, [latestAnyAll, latestApproved]);
 
   const monthlyGoal = DAILY_GOAL * daysInMonth;
 
@@ -369,7 +377,7 @@ export default function StepsPage() {
   // ข้อมูลล่าสุดของแต่ละวัน (ไม่กรองสถานะ) เพื่อตรวจว่ายังมีรายการรอตรวจสอบที่ใหม่กว่ารายการที่อนุมัติหรือไม่
   const latestAnyUserSteps = useMemo(() => latestStepsByDate(userSteps), [userSteps]);
 
-  // รวมก้าวสะสมของสัปดาห์ที่กำลังดู — แสดงยอดที่บันทึกไปแล้วของบุคคลนั้น (อนุมัติแล้ว + รอตรวจสอบ) ไม่นับซ้ำ
+  // รวมก้าวสะสมของสัปดาห์ที่กำลังดู — นับเฉพาะ Approved ตามสเปค Q6=A (รอตรวจสอบไม่นับ)
   const historyWeekTotal = useMemo(() => {
     const days = new Set<string>();
     for (let i = 0; i < 7; i++) {
@@ -379,11 +387,11 @@ export default function StepsPage() {
     }
     let total = 0;
     for (const ds of days) {
-      const log = latestApproved.get(ds) || latestAnyUserSteps.get(ds);
+      const log = latestApproved.get(ds);
       if (log) total += Number(log.Steps_Count) || 0;
     }
     return total;
-  }, [latestApproved, latestAnyUserSteps, historyMonday]);
+  }, [latestApproved, historyMonday]);
 
   const resultCards = useMemo(() => ({
     daily: { label: 'วันนี้', date: formatThaiDateShort(viewDate) },
@@ -550,6 +558,7 @@ export default function StepsPage() {
   const requestSave = () => {
     if (!user) return;
     if (isMode2) { setAiError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
+    if (isProjectFrozen(toIsoLocal(new Date()))) { setAiError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร'); return; }
     if (projectWindow && !isInWindow(logDate)) { setAiError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || aiExtractedSteps);
     if (!steps || steps <= 0) return;
@@ -564,6 +573,7 @@ export default function StepsPage() {
     setConfirmSave(false);
     if (!user) return;
     if (isMode2) { setAiError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
+    if (isProjectFrozen(toIsoLocal(new Date()))) { setAiError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze)'); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || aiExtractedSteps);
     if (!steps || steps <= 0) return;
     if (projectWindow && !isInWindow(logDate)) {
@@ -672,14 +682,34 @@ export default function StepsPage() {
   const activeSteps = logMethod === 'google-fit' ? googleFitSteps : (stepInput ? parseInt(stepInput) : aiExtractedSteps);
   const isCurrentDate = logDate === todayStr;
   const isMode2 = String(user?.Step_Record_Mode || '1') === '2';
+  const frozen = isProjectFrozen(toIsoLocal(new Date()));
+  const isFrozen = frozen || (projectWindow ? !isInWindow(logDate) && logDate > (projectWindow.end || '') : false);
 
   return (
     <div className="space-y-6">
+      {frozen && (
+        <div className="rounded-2xl border-2 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 px-4 py-3 flex items-start gap-2.5">
+          <span className="material-symbols-outlined text-red-600 dark:text-red-400 text-xl shrink-0 mt-0.5">lock</span>
+          <div>
+            <p className="text-sm font-bold text-red-700 dark:text-red-400">โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูลก้าว (Data Freeze)</p>
+            <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-0.5">ขณะนี้เกินวันสิ้นสุดโครงการ อันดับสุดท้ายถูกยึดเป็นผลสรุปถาวร ไม่สามารถบันทึกย้อนหลังได้</p>
+          </div>
+        </div>
+      )}
+      <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/15 px-4 py-3 flex gap-2.5 items-start">
+        <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-xl shrink-0 mt-0.5">info</span>
+        <p className="text-xs md:text-sm leading-relaxed text-amber-900 dark:text-amber-300">{RANKING_CRITERIA_TEXT}</p>
+      </div>
+      {hasPending && (
+        <div className="rounded-xl border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/15 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+          ℹ️ มีรายการที่รอตรวจสอบ (Pending) — จะถูกนับเข้าอันดับหลัง AI/ต่างฝ่ายอนุมัติเท่านั้น (Google Fit นับทันที)
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">ก้าวสร้างสุข</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">บันทึกก้าวประจำวัน — เป้าหมาย 6,000 ก้าว/วัน</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">บันทึกก้าวประจำวัน — เป้าหมาย {DAILY_CAP.toLocaleString()} ก้าว/วัน · อันดับฝ่าย capped {DAILY_CAP.toLocaleString()}/วัน · รายบุคคล = ก้าวจริง</p>
         </div>
         <span className="text-gray-500 dark:text-gray-400 text-sm hidden sm:block">
           {new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}

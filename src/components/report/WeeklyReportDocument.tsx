@@ -52,10 +52,11 @@ export interface WeeklyComputed {
   wednesdayKey: string;
   weekNumber: number;
   totalStepsWeek: number;
+  totalStepsWeekCapped?: number;
   participantsWeek: number;
   participantsTotal: number;
-  deptWeek: { name: string; steps: number; participants: number; avg: number }[];
-  deptCumulative: { name: string; steps: number; participants: number; avg: number }[];
+  deptWeek: { name: string; steps: number; stepsActual?: number; participants: number; active?: number; avg: number; avgActual?: number }[];
+  deptCumulative: { name: string; steps: number; stepsActual?: number; participants: number; active?: number; avg: number; avgActual?: number }[];
   top5Week: { user: User; steps: number }[];
   top3ByDeptWeek: { dept: string; rows: { user: User; steps: number }[] }[];
   top10Cumulative: { user: User; steps: number; weekSteps: number }[];
@@ -63,6 +64,7 @@ export interface WeeklyComputed {
   sweetWeekByDept: { dept: string; kept: number; failed: number; other: number; total: number; rate: number }[];
   sweetCumulativeOverall: { kept: number; failed: number; other: number; total: number };
   sweetCumulativeByWeek: { wedKey: string; kept: number; failed: number; other: number }[];
+  rankingCriteria?: string;
 }
 
 export default function WeeklyReportDocument({
@@ -123,81 +125,99 @@ export default function WeeklyReportDocument({
         </div>
 
         <div className="px-6 py-4 space-y-4">
+          {/* เกณฑ์ - banner */}
+          {c.rankingCriteria && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[8.5px] leading-snug text-amber-900">
+              <span className="font-bold">เกณฑ์การจัดอันดับส่วนราชการ:</span> {c.rankingCriteria.replace('ℹ️ ', '')} <span className="text-amber-700">(ส่วนราชการ capped 6,000/วัน · รายบุคคล/เดอะแบก = ก้าวจริง)</span>
+            </div>
+          )}
           {/* 1 */}
           <div className="rounded-xl border-2 border-emerald-600 overflow-hidden">
             <div className="bg-emerald-600 text-white text-[11px] font-bold px-3 py-1.5">1. จำนวนก้าวรวมทั้งสำนักงานเขตลาดพร้าว (สัปดาห์นี้)</div>
             <div className="text-center py-4 bg-emerald-50/50">
-              <div className="text-[32px] font-black text-emerald-700 leading-none tabular-nums">{c.totalStepsWeek.toLocaleString()} <span className="text-[14px] font-bold">ก้าว</span></div>
-              <div className="text-[10px] text-gray-600 mt-1">จากบุคลากรที่ส่งข้อมูล {c.participantsWeek} / {c.participantsTotal} คน ({c.participantsTotal ? ((c.participantsWeek / c.participantsTotal) * 100).toFixed(1) : '0'}%) &nbsp;|&nbsp; เฉลี่ย {c.participantsWeek ? Math.round(c.totalStepsWeek / c.participantsWeek).toLocaleString() : '0'} ก้าว/คน/สัปดาห์</div>
+              <div className="text-[32px] font-black text-emerald-700 leading-none tabular-nums">{c.totalStepsWeek.toLocaleString()} <span className="text-[14px] font-bold">ก้าว</span> <span className="text-[11px] font-normal text-emerald-700/70">(capped {(c.totalStepsWeekCapped ?? c.totalStepsWeek).toLocaleString()})</span></div>
+              <div className="text-[10px] text-gray-600 mt-1">จากบุคลากรที่ส่งข้อมูล {c.participantsWeek} / {c.participantsTotal} คน ({c.participantsTotal ? ((c.participantsWeek / c.participantsTotal) * 100).toFixed(1) : '0'}%) &nbsp;|&nbsp; เฉลี่ย {c.participantsWeek ? Math.round(c.totalStepsWeek / c.participantsWeek).toLocaleString() : '0'} ก้าว/คน/สัปดาห์ · capped เฉลี่ย {c.participantsWeek ? Math.round((c.totalStepsWeekCapped ?? c.totalStepsWeek) / c.participantsWeek).toLocaleString() : '0'}</div>
             </div>
           </div>
 
           {/* 2 */}
           <div>
-            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">2. ตารางจำนวนก้าวรายฝ่าย ประจำสัปดาห์นี้ (เรียงมาก → น้อย)</div>
+            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">2. ตารางจำนวนก้าวรายฝ่าย ประจำสัปดาห์นี้ — ค่าเฉลี่ย capped 6,000/คน/วัน (เรียงมาก → น้อย)</div>
             <table className="w-full text-[9px] border-collapse border border-gray-300">
               <thead>
                 <tr className="bg-gray-100 text-gray-700">
                   <th className="border border-gray-300 px-1.5 py-1 w-[36px]">ลำดับ</th>
                   <th className="border border-gray-300 px-1.5 py-1 text-left">ส่วนราชการ/ฝ่าย</th>
-                  <th className="border border-gray-300 px-1.5 py-1 w-[64px]">คนส่ง</th>
-                  <th className="border border-gray-300 px-1.5 py-1 w-[78px]">ก้าวรวม</th>
+                  <th className="border border-gray-300 px-1.5 py-1 w-[50px]">ทั้งหมด</th>
+                  <th className="border border-gray-300 px-1.5 py-1 w-[50px]">ส่งแล้ว</th>
+                  <th className="border border-gray-300 px-1.5 py-1 w-[78px]">ก้าวรวม capped</th>
                   <th className="border border-gray-300 px-1.5 py-1 w-[68px]">เฉลี่ย/คน</th>
                 </tr>
               </thead>
               <tbody>
                 {c.deptWeek.length === 0 ? (
-                  <tr><td colSpan={5} className="border border-gray-300 px-2 py-4 text-center text-gray-400">ไม่มีข้อมูลก้าวที่อนุมัติในสัปดาห์นี้</td></tr>
-                ) : c.deptWeek.map((d, i) => (
-                  <tr key={d.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="border border-gray-300 px-1 py-1 text-center font-bold">{i + 1}</td>
-                    <td className="border border-gray-300 px-1.5 py-1">{d.name}</td>
-                    <td className="border border-gray-300 px-1 py-1 text-center">{d.participants}</td>
-                    <td className="border border-gray-300 px-1 py-1 text-right tabular-nums font-semibold">{d.steps.toLocaleString()}</td>
-                    <td className="border border-gray-300 px-1 py-1 text-right tabular-nums">{d.avg.toLocaleString()}</td>
-                  </tr>
-                ))}
+                  <tr><td colSpan={6} className="border border-gray-300 px-2 py-4 text-center text-gray-400">ไม่มีข้อมูลก้าวที่อนุมัติในสัปดาห์นี้</td></tr>
+                ) : c.deptWeek.map((d, i) => {
+                  const safeAvg = Number.isFinite(d.avg) ? d.avg : 0;
+                  return (
+                    <tr key={d.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="border border-gray-300 px-1 py-1 text-center font-bold">{i + 1}</td>
+                      <td className="border border-gray-300 px-1.5 py-1">{d.name}</td>
+                      <td className="border border-gray-300 px-1 py-1 text-center">{d.participants ?? 0}</td>
+                      <td className="border border-gray-300 px-1 py-1 text-center">{(d as any).active ?? '-'}</td>
+                      <td className="border border-gray-300 px-1 py-1 text-right tabular-nums font-semibold">{d.steps.toLocaleString()} <span className="text-gray-400 font-normal">({(d.stepsActual ?? d.steps).toLocaleString()})</span></td>
+                      <td className="border border-gray-300 px-1 py-1 text-right tabular-nums">{safeAvg.toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
                 {c.deptWeek.length > 0 && (
                   <tr className="bg-amber-50 font-bold">
-                    <td colSpan={3} className="border border-gray-300 px-1.5 py-1 text-right">รวม  {c.deptWeek.length} ฝ่าย</td>
+                    <td colSpan={4} className="border border-gray-300 px-1.5 py-1 text-right">รวม  {c.deptWeek.length} ฝ่าย</td>
                     <td className="border border-gray-300 px-1 py-1 text-right tabular-nums">{sumDeptWeek.toLocaleString()}</td>
                     <td className="border border-gray-300 px-1 py-1"></td>
                   </tr>
                 )}
               </tbody>
             </table>
+            <div className="text-[7px] text-gray-500 mt-1">ทั้งหมด = คนทั้งหมดในฝ่าย (รวม Pending ไม่นับ Inactive) · ส่งแล้ว = คนที่มีก้าว &gt;0 · ก้าวรวม capped = min(ก้าวจริง,6000)/วัน · วงเล็บ = ก้าวจริง</div>
           </div>
 
           {/* 3 */}
           <div>
-            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">3. ตารางจำนวนก้าวสะสมรายฝ่าย ตั้งแต่เริ่มโครงการ ถึงสัปดาห์ล่าสุด (เรียงมาก → น้อย)</div>
+            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">3. ตารางจำนวนก้าวสะสมรายฝ่าย — capped 6,000/คน/วัน ตั้งแต่เริ่มโครงการ ถึงสัปดาห์ล่าสุด (เรียงมาก → น้อย)</div>
             <table className="w-full text-[9px] border-collapse border border-gray-300">
               <thead>
                 <tr className="bg-gray-100 text-gray-700">
                   <th className="border border-gray-300 px-1.5 py-1 w-[36px]">ลำดับ</th>
                   <th className="border border-gray-300 px-1.5 py-1 text-left">ส่วนราชการ/ฝ่าย</th>
-                  <th className="border border-gray-300 px-1.5 py-1 w-[78px]">ก้าวสะสมรวม</th>
+                  <th className="border border-gray-300 px-1.5 py-1 w-[78px]">ก้าวสะสม capped</th>
                   <th className="border border-gray-300 px-1.5 py-1 w-[56px]">สัดส่วน</th>
-                  <th className="border border-gray-300 px-1.5 py-1 w-[64px]">คนสะสม</th>
+                  <th className="border border-gray-300 px-1.5 py-1 w-[64px]">ทั้งหมด</th>
+                  <th className="border border-gray-300 px-1.5 py-1 w-[56px]">เฉลี่ย/คน</th>
                 </tr>
               </thead>
               <tbody>
                 {c.deptCumulative.length === 0 ? (
-                  <tr><td colSpan={5} className="border border-gray-300 px-2 py-4 text-center text-gray-400">ไม่มีข้อมูลสะสม</td></tr>
+                  <tr><td colSpan={6} className="border border-gray-300 px-2 py-4 text-center text-gray-400">ไม่มีข้อมูลสะสม</td></tr>
                 ) : (() => {
                   const totalCum = c.deptCumulative.reduce((s, d) => s + d.steps, 0);
-                  return c.deptCumulative.map((d, i) => (
-                    <tr key={d.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="border border-gray-300 px-1 py-1 text-center font-bold">{i + 1}</td>
-                      <td className="border border-gray-300 px-1.5 py-1">{d.name}</td>
-                      <td className="border border-gray-300 px-1 py-1 text-right tabular-nums font-semibold">{d.steps.toLocaleString()}</td>
-                      <td className="border border-gray-300 px-1 py-1 text-center tabular-nums">{totalCum ? ((d.steps / totalCum) * 100).toFixed(1) : '0'}%</td>
-                      <td className="border border-gray-300 px-1 py-1 text-center">{d.participants}</td>
-                    </tr>
-                  ));
+                  return c.deptCumulative.map((d, i) => {
+                    const safeAvg = Number.isFinite(d.avg) ? d.avg : 0;
+                    return (
+                      <tr key={d.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="border border-gray-300 px-1 py-1 text-center font-bold">{i + 1}</td>
+                        <td className="border border-gray-300 px-1.5 py-1">{d.name}</td>
+                        <td className="border border-gray-300 px-1 py-1 text-right tabular-nums font-semibold">{d.steps.toLocaleString()} <span className="text-gray-400 font-normal">({(d.stepsActual ?? d.steps).toLocaleString()})</span></td>
+                        <td className="border border-gray-300 px-1 py-1 text-center tabular-nums">{totalCum ? ((d.steps / totalCum) * 100).toFixed(1) : '0'}%</td>
+                        <td className="border border-gray-300 px-1 py-1 text-center">{d.participants ?? 0}</td>
+                        <td className="border border-gray-300 px-1 py-1 text-right tabular-nums">{safeAvg.toLocaleString()}</td>
+                      </tr>
+                    );
+                  });
                 })()}
               </tbody>
             </table>
+            <div className="text-[7px] text-gray-500 mt-1">ก้าวสะสม capped = ผลรวม capped รายวันทุกวันตั้งแต่วันเริ่มโครงการ · วงเล็บ = ก้าวจริง</div>
           </div>
 
           {/* 4 */}
@@ -449,7 +469,7 @@ export default function WeeklyReportDocument({
           </div>
 
           <div className="text-[7px] text-gray-400 border-t border-gray-200 pt-2 flex justify-between">
-            <span>หมายเหตุ: ข้อมูลก้าวนับเฉพาะสถานะ Approved | สัปดาห์ จ.-อา. | อื่นๆ = ลา/อบรม (Reason)</span>
+            <span>หมายเหตุ: ข้อมูลก้าวนับเฉพาะ Approved | ส่วนราชการ capped 6,000/วัน หารด้วยคนทั้งหมด (รวม Pending) · รายบุคคล/เดอะแบก = ก้าวจริง 100% | สัปดาห์ จ.-อา.</span>
             <span>พิมพ์เมื่อ {formatPrintDate()}</span>
           </div>
         </div>

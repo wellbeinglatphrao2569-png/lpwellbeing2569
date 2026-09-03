@@ -95,6 +95,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'date is required' }, { status: 400 });
     }
 
+    // Data Freeze + ห้วงเวลา: ล็อคถ้าเกินวันสิ้นสุดโครงการ
+    try {
+      const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+      if (GAS_API_URL) {
+        const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
+        if (winRes.ok) {
+          const win = await winRes.json();
+          if (win && win.start && win.end) {
+            const today = new Date().toISOString().slice(0,10);
+            if (today > String(win.end).slice(0,10)) {
+              return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
+            }
+            const d = String(date).trim().slice(0,10);
+            if (d < String(win.start).slice(0,10) || d > String(win.end).slice(0,10)) {
+              return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end})` }, { status: 400 });
+            }
+          }
+        }
+      }
+    } catch (e) { console.warn('google-fit window check failed', e); }
+
     // ⚡ ตรวจ 1 Gmail = 1 คน: ถ้า Gmail นี้ถูกผูกกับบัญชีระบบอื่น ไม่อนุญาตให้ดึงข้อมูล
     if (email && user_id) {
       try {

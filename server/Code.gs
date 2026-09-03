@@ -1660,6 +1660,12 @@ function loginUser_(data) {
 }
 
 function addStepLog_(data) {
+  // Data Freeze: เมื่อเกินวันสิ้นสุดโครงการ ให้ล็อคการรับข้อมูลทั้งหมด (ยึดอันดับถาวร)
+  var todayKey = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  var winFreeze = getProjectWindow_();
+  if (todayKey > winFreeze.end) {
+    return { success: false, message: 'โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร (' + winFreeze.start + ' ถึง ' + winFreeze.end + ') — ไม่สามารถบันทึกย้อนหลังได้' };
+  }
   // ห้วงเวลาบันทึก: ต้องอยู่ในช่วงโครงการเท่านั้น (24 ส.ค. 2569 – 13 พ.ย. 2569)
   var dateThaiCheck = String(data.Date_Thai||'').trim() || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
   if (!isDateInWindow_(dateThaiCheck)) {

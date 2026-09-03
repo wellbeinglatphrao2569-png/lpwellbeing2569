@@ -11,13 +11,16 @@ import { DEPARTMENTS } from '@/utils/personnel';
 import {
   periodRangeFor,
   totalsInRange,
+  totalsInRangeCapped,
   individualRankingOf,
-  deptRankingOf,
+  deptRankingCapped,
   rankBadge,
   projectWeeks,
+  DAILY_CAP,
+  RANKING_CRITERIA_TEXT,
   type RankTab,
   type IndRow,
-  type DeptRow,
+  type DeptCappedRow,
 } from '@/utils/stepsRanking';
 
 function currentMonth(): string {
@@ -74,18 +77,22 @@ export default function RankingContent() {
     }
   }, [tab, selectedWeekStart, weeks, period.weekStartKey]);
 
-  // ── อันดับ ── นับเฉพาะที่อนุมัติแล้วเท่านั้น (ข้อมูลล่าสุดของวัน)
-  const perUserSteps = useMemo(
+  // ── อันดับ ── รายบุคคล uncapped / ส่วนราชการ capped 6000/วัน (ตามสเปคใหม่)
+  const perUserStepsActual = useMemo(
     () => totalsInRange(stepsData, activeRange.startKey, activeRange.endKey),
     [stepsData, activeRange.startKey, activeRange.endKey]
   );
-  const allRows = useMemo<IndRow[]>(
-    () => individualRankingOf(users, perUserSteps, user?.User_ID),
-    [users, perUserSteps, user]
+  const perUserStepsCapped = useMemo(
+    () => totalsInRangeCapped(stepsData, activeRange.startKey, activeRange.endKey, DAILY_CAP),
+    [stepsData, activeRange.startKey, activeRange.endKey]
   );
-  const deptRows = useMemo<DeptRow[]>(
-    () => deptRankingOf(users, perUserSteps, user?.Department),
-    [users, perUserSteps, user]
+  const allRows = useMemo<IndRow[]>(
+    () => individualRankingOf(users, perUserStepsActual, user?.User_ID),
+    [users, perUserStepsActual, user]
+  );
+  const deptRows = useMemo<DeptCappedRow[]>(
+    () => deptRankingCapped(users, perUserStepsCapped, perUserStepsActual, user?.Department),
+    [users, perUserStepsCapped, perUserStepsActual, user]
   );
 
   const myRow = allRows.find(r => r.isCurrent);
@@ -93,8 +100,8 @@ export default function RankingContent() {
   const bagRows = useMemo<IndRow[]>(() => {
     if (!bagDept) return [];
     const filteredUsers = users.filter(u => u.Department === bagDept);
-    return individualRankingOf(filteredUsers, perUserSteps, user?.User_ID);
-  }, [users, perUserSteps, bagDept, user]);
+    return individualRankingOf(filteredUsers, perUserStepsActual, user?.User_ID);
+  }, [users, perUserStepsActual, bagDept, user]);
 
   // ── ค้นหา ──
   const q = search.trim().toLowerCase();
@@ -131,6 +138,11 @@ export default function RankingContent() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* เกณฑ์ */}
+      <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/15 px-4 py-3 flex gap-2.5 items-start">
+        <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-xl shrink-0 mt-0.5">info</span>
+        <p className="text-xs md:text-sm leading-relaxed text-amber-900 dark:text-amber-300">{RANKING_CRITERIA_TEXT}</p>
+      </div>
       {/* ── Header ── */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
@@ -139,7 +151,7 @@ export default function RankingContent() {
             กลับไปแดชบอร์ด
           </Link>
           <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">การจัดอันดับทั้งหมด</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">ค้นหาตำแหน่งของตนเอง หรือดูอันดับรายบุคคล/รายส่วนราชการฉบับเต็ม</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">ค้นหาตำแหน่งของตนเอง หรือดูอันดับรายบุคคล/รายส่วนราชการฉบับเต็ม · รายบุคคล/เดอะแบก = ก้าวจริง 100% · ส่วนราชการ = capped {DAILY_CAP.toLocaleString()}/วัน</p>
         </div>
       </div>
 
@@ -356,16 +368,17 @@ export default function RankingContent() {
           </div>
         </div>
 
-        {/* ── อันดับรายส่วนราชการ (เต็ม) ── */}
+        {/* ── อันดับรายส่วนราชการ (เต็ม) — capped */}
         <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-6">
           <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
             <h4 className="font-bold text-gray-900 dark:text-white">อันดับภาพรวมรายส่วนราชการ</h4>
-            <p className="text-xs text-gray-500 mt-0.5">จัดอันดับจากก้าวรวม ÷ จำนวนคนที่เข้าร่วมในฝ่าย</p>
+            <p className="text-xs text-gray-500 mt-0.5">ค่าเฉลี่ยแบบ capped {DAILY_CAP.toLocaleString()} ก้าว/คน/วัน · หารด้วยจำนวนคนทั้งหมดในฝ่าย (รวม Pending)</p>
           </div>
           <div className="overflow-x-auto">
             {deptRows.map((d, idx) => {
               const rank = idx + 1;
               const badge = rankBadge(rank);
+              const safeAvg = Number.isFinite(d.avg) ? d.avg : 0;
               return (
                 <div key={d.name}
                   className={`flex items-center gap-3 px-5 py-3 border-b border-gray-100 dark:border-gray-800/60 ${
@@ -376,11 +389,11 @@ export default function RankingContent() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-sm text-gray-900 dark:text-white truncate">{d.name}</p>
-                    <p className="text-xs text-gray-500">ผู้เข้าร่วม {d.participants} คน · ก้าวรวม {d.total.toLocaleString()}</p>
+                    <p className="text-xs text-gray-500">ทั้งหมด {d.participants} คน · ส่งแล้ว {d.activeParticipants} คน · ก้าวรวม capped {d.totalCapped.toLocaleString()} <span className="text-gray-400">(จริง {d.totalActual.toLocaleString()})</span></p>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="font-black text-blue-600 dark:text-blue-400 tabular-nums">{d.avg.toLocaleString()}</p>
-                    <p className="text-[10px] text-gray-400">ก้าว/คน</p>
+                  <div className="shrink-0 text-right" title={`จริงเฉลี่ย ${d.avgActual.toLocaleString()}`}>
+                    <p className="font-black text-blue-600 dark:text-blue-400 tabular-nums">{safeAvg.toLocaleString()}</p>
+                    <p className="text-[10px] text-gray-400">ก้าว/คน (capped)</p>
                   </div>
                 </div>
               );

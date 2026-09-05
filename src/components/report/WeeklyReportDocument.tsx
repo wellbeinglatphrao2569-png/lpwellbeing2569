@@ -95,14 +95,14 @@ export default function WeeklyReportDocument({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
         .report-root, .report-page { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; }
-        /* ยึด A4 แนวตั้ง 210×297 mm — แถบล่าง 18mm เป็นพื้นที่ Footer เฉพาะ เนื้อหาไม่ล้ำ */
+        /* ยึด A4 แนวตั้ง 210×297 mm — แถบล่าง 25mm เป็นพื้นที่ Footer เฉพาะ เนื้อหาไม่ล้ำ */
         @page {
           size: A4 portrait;
           size: 210mm 297mm;
-          margin: 12mm 15mm 18mm 15mm;
+          margin: 10mm 15mm 25mm 15mm;
         }
         @media print {
-          html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0 !important; padding: 0 !important; background: white !important; }
+          html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0 !important; padding: 0 !important; background: white !important; orphans: 3; widows: 3; }
           .no-print { display: none !important; }
           .report-root { background: white !important; padding: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
           .report-page { box-shadow: none !important; border: none !important; margin: 0 auto !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; break-after: auto !important; page-break-after: auto !important; break-inside: auto; box-sizing: border-box; }
@@ -115,8 +115,8 @@ export default function WeeklyReportDocument({
           .section-title { break-inside: auto !important; page-break-inside: auto !important; break-after: auto !important; page-break-after: auto !important; }
           .keep-together { break-inside: auto !important; page-break-inside: auto !important; }
           .rounded-xl, .rounded-lg, .report-card { break-inside: auto !important; page-break-inside: auto !important; }
-          /* Footer แถบล่างเฉพาะ — ไม่ทับเนื้อหา (อยู่ใน margin 18mm) */
-          .print-footer { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; height: 12mm !important; background: white !important; border-top: 0.4pt solid #e5e7eb !important; display: flex !important; align-items: center !important; justify-content: flex-end !important; padding-right: 15mm !important; font-size: 7.5pt !important; color: #6b7280 !important; font-family: 'Sarabun', sans-serif !important; z-index: 9999 !important; }
+          /* Footer แถบล่างเฉพาะ — ไม่ทับเนื้อหา (อยู่ใน margin 25mm) + ตัดเนื้อหาก่อนถึง */
+          .print-footer { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; height: 15mm !important; background: white !important; border-top: 0.6pt solid #e5e7eb !important; display: flex !important; align-items: center !important; justify-content: flex-end !important; padding-right: 15mm !important; padding-bottom: 3mm !important; font-size: 7.5pt !important; color: #6b7280 !important; font-family: 'Sarabun', sans-serif !important; z-index: 9999 !important; }
           .print-footer::after { content: "หน้า " counter(page); }
         }
         @media screen {

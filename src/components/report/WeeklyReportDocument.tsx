@@ -100,11 +100,20 @@ export default function WeeklyReportDocument({
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .no-print { display: none !important; }
           .report-root { background: white !important; padding: 0 !important; }
-          .report-page { box-shadow: none !important; border: none !important; margin: 0 !important; page-break-after: always; }
-          .report-page:last-child { page-break-after: auto; }
-          table { page-break-inside: auto; }
-          tr, thead, tbody { break-inside: avoid; page-break-inside: avoid; }
-          .report-card, .rounded-xl, .rounded-lg { break-inside: avoid; page-break-inside: avoid; }
+          .report-page { box-shadow: none !important; border: none !important; margin: 0 !important; break-after: page; page-break-after: always; break-inside: auto; }
+          .report-page:last-child { break-after: auto; page-break-after: auto; }
+          /* จัดหน้า: ตารางยาวให้ตัดหน้าได้ แต่แถวห้ามขาดครึ่ง + หัวตารางซ้ำทุกหน้า */
+          table { break-inside: auto; page-break-inside: auto; border-collapse: collapse !important; }
+          thead { display: table-header-group !important; break-inside: avoid; }
+          tfoot { display: table-footer-group !important; }
+          tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+          tbody { break-inside: auto; }
+          /* หัวข้อแต่ละหมวด (เช่น 2. ตาราง...) ให้ติดกับตาราง ไม่ให้หลุดเดี่ยวท้ายหน้า */
+          .section-block { break-inside: auto; page-break-inside: auto; }
+          .section-title { break-after: avoid !important; page-break-after: avoid !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+          /* การ์ดสรุป/ลายเซ็น ควรอยู่หน้าเดียวกันถ้าเป็นไปได้ */
+          .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
+          .rounded-xl, .rounded-lg, .report-card { break-inside: avoid; }
         }
       `}</style>
 
@@ -137,7 +146,7 @@ export default function WeeklyReportDocument({
             </div>
           )}
           {/* 1 */}
-          <div className="rounded-xl border-2 border-emerald-600 overflow-hidden">
+          <div className="rounded-xl border-2 border-emerald-600 overflow-hidden keep-together">
             <div className="bg-emerald-600 text-white text-[11px] font-bold px-3 py-1.5">1. จำนวนก้าวรวมทั้งสำนักงานเขตลาดพร้าว (สัปดาห์นี้)</div>
             <div className="text-center py-4 bg-emerald-50/50">
               <div className="text-[32px] font-black text-emerald-700 leading-none tabular-nums">{c.totalStepsWeek.toLocaleString()} <span className="text-[14px] font-bold">ก้าว</span> <span className="text-[11px] font-normal text-emerald-700/70">(Uncapped 100%)</span></div>
@@ -146,8 +155,8 @@ export default function WeeklyReportDocument({
           </div>
 
           {/* 2 - uncapped */}
-          <div>
-            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">2. ตารางจำนวนก้าวรายฝ่าย ประจำสัปดาห์นี้ — ค่าเฉลี่ย = ผลรวมจริง ÷ จำนวนคนทั้งหมด (Uncapped · เรียงมาก → น้อย)</div>
+          <div className="section-block">
+            <div className="section-title bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">2. ตารางจำนวนก้าวรายฝ่าย ประจำสัปดาห์นี้ — ค่าเฉลี่ย = ผลรวมจริง ÷ จำนวนคนทั้งหมด (Uncapped · เรียงมาก → น้อย)</div>
             <table className="w-full text-[9px] border-collapse border border-gray-300">
               <thead>
                 <tr className="bg-gray-100 text-gray-700">
@@ -188,8 +197,8 @@ export default function WeeklyReportDocument({
           </div>
 
           {/* 3 */}
-          <div>
-            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">3. ตารางจำนวนก้าวสะสมรายฝ่าย — ผลรวมจริง ÷ จำนวนคนทั้งหมด (Uncapped) ตั้งแต่เริ่มโครงการ ถึงสัปดาห์ล่าสุด (เรียงมาก → น้อย)</div>
+          <div className="section-block">
+            <div className="section-title bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">3. ตารางจำนวนก้าวสะสมรายฝ่าย — ผลรวมจริง ÷ จำนวนคนทั้งหมด (Uncapped) ตั้งแต่เริ่มโครงการ ถึงสัปดาห์ล่าสุด (เรียงมาก → น้อย)</div>
             <table className="w-full text-[9px] border-collapse border border-gray-300">
               <thead>
                 <tr className="bg-gray-100 text-gray-700">
@@ -226,8 +235,8 @@ export default function WeeklyReportDocument({
           </div>
 
           {/* 4 */}
-          <div>
-            <div className="bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">4. อันดับบุคลากร Top 5 ประจำสัปดาห์นี้ (ก้าวสูงสุด)</div>
+          <div className="section-block">
+            <div className="section-title bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">4. อันดับบุคลากร Top 5 ประจำสัปดาห์นี้ (ก้าวสูงสุด)</div>
             <table className="w-full text-[9px] border-collapse border border-gray-300">
               <thead>
                 <tr className="bg-emerald-50 text-emerald-800">
@@ -260,8 +269,8 @@ export default function WeeklyReportDocument({
       <div className="report-page bg-white mx-auto max-w-[210mm] shadow-lg border border-gray-200 print:shadow-none print:border-none mb-6 print:mb-0">
         <div className="px-6 py-4 space-y-4">
           {/* 5 */}
-          <div>
-            <div className="bg-amber-600 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">5. อันดับบุคลากร Top 3 ประจำส่วนราชการ ประจำสัปดาห์นี้</div>
+          <div className="section-block">
+            <div className="section-title bg-amber-600 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">5. อันดับบุคลากร Top 3 ประจำส่วนราชการ ประจำสัปดาห์นี้</div>
             <div className="border border-gray-300 border-t-0">
               {c.top3ByDeptWeek.length === 0 ? (
                 <div className="px-3 py-6 text-center text-[10px] text-gray-400">ไม่มีข้อมูล</div>
@@ -313,8 +322,8 @@ export default function WeeklyReportDocument({
           </div>
 
           {/* 6 */}
-          <div>
-            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">6. อันดับบุคลากร Top 10 ก้าวสะสมสูงสุด ตั้งแต่เริ่มโครงการ ถึงสัปดาห์ล่าสุด</div>
+          <div className="section-block">
+            <div className="section-title bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">6. อันดับบุคลากร Top 10 ก้าวสะสมสูงสุด ตั้งแต่เริ่มโครงการ ถึงสัปดาห์ล่าสุด</div>
             <table className="w-full text-[9px] border-collapse border border-gray-300">
               <thead>
                 <tr className="bg-gray-100 text-gray-700">
@@ -346,8 +355,8 @@ export default function WeeklyReportDocument({
       <div className="report-page bg-white mx-auto max-w-[210mm] shadow-lg border border-gray-200 print:shadow-none print:border-none">
         <div className="px-6 py-4 space-y-4">
           {/* 7 */}
-          <div>
-            <div className="bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">7. สถิติกิจกรรม “พุธนี้ไม่มีเชื่อม” (งดหวานวันพุธ) ประจำสัปดาห์นี้</div>
+          <div className="section-block">
+            <div className="section-title bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">7. สถิติกิจกรรม “พุธนี้ไม่มีเชื่อม” (งดหวานวันพุธ) ประจำสัปดาห์นี้</div>
             <div className="border border-gray-300 border-t-0 p-3 space-y-3">
               <div>
                 <div className="text-[9.5px] font-bold text-gray-800 mb-1.5">7.1 ภาพรวมสำนักงานเขตลาดพร้าว — วันพุธที่ {wedLabel}</div>
@@ -404,8 +413,8 @@ export default function WeeklyReportDocument({
           </div>
 
           {/* 8 */}
-          <div>
-            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">8. สถิติสะสม “พุธนี้ไม่มีเชื่อม” ตั้งแต่สัปดาห์แรก ถึงสัปดาห์ล่าสุด (ภาพรวมสำนักงาน)</div>
+          <div className="section-block">
+            <div className="section-title bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">8. สถิติสะสม “พุธนี้ไม่มีเชื่อม” ตั้งแต่สัปดาห์แรก ถึงสัปดาห์ล่าสุด (ภาพรวมสำนักงาน)</div>
             <div className="border border-gray-300 border-t-0 p-3">
               <table className="w-full text-[9px] border-collapse border border-gray-300">
                 <thead>
@@ -438,12 +447,12 @@ export default function WeeklyReportDocument({
           </div>
 
           {/* certification */}
-          <div className="border border-gray-400 rounded-lg px-4 py-2.5 text-center">
+          <div className="border border-gray-400 rounded-lg px-4 py-2.5 text-center keep-together">
             <p className="text-[10px] font-bold text-gray-800">ขอรับรองว่าการรายงานข้างต้นเป็นความจริงทุกประการ</p>
           </div>
 
           {/* signatures */}
-          <div className="border border-gray-300 rounded-lg p-4">
+          <div className="border border-gray-300 rounded-lg p-4 keep-together">
             <div className="text-center mb-4">
               <p className="text-[10px]">ลงชื่อ ............................................................</p>
               <p className="text-[9px] text-gray-600">( ............................................................ )</p>

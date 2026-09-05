@@ -283,9 +283,17 @@ ${styleTags}
     .no-print { display:none !important; }
     body { background:#fff !important; }
     .report-root { background:#fff !important; padding:0 !important; }
-    .report-page { box-shadow:none !important; border:none !important; margin:0 !important; page-break-after:always; }
-    .report-page:last-child { page-break-after:auto; }
-    tr, thead, tbody { break-inside:avoid; page-break-inside:avoid; }
+    .report-page { box-shadow:none !important; border:none !important; margin:0 !important; break-after: page; page-break-after: always; break-inside: auto; }
+    .report-page:last-child { break-after: auto; page-break-after: auto; }
+    /* จัดหน้า: หัวตารางซ้ำทุกหน้าเมื่อข้อมูลล้น */
+    table { break-inside: auto; page-break-inside: auto; border-collapse: collapse !important; }
+    thead { display: table-header-group !important; break-inside: avoid; }
+    tfoot { display: table-footer-group !important; }
+    tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+    tbody { break-inside: auto; }
+    .section-block { break-inside: auto; page-break-inside: auto; }
+    .section-title { break-after: avoid !important; page-break-after: avoid !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+    .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
   }
 </style>
 </head>

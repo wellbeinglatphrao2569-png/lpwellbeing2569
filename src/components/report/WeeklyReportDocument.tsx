@@ -95,11 +95,11 @@ export default function WeeklyReportDocument({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
         .report-root, .report-page { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; }
-        /* ยึด A4 แนวตั้ง 210×297 mm — แถบล่าง 30mm เฉพาะ Footer เนื้อหาตัดก่อนถึง */
+        /* ยึด A4 แนวตั้ง 210×297 mm — ไม่มี Footer */
         @page {
           size: A4 portrait;
           size: 210mm 297mm;
-          margin: 10mm 15mm 30mm 15mm;
+          margin: 15mm;
         }
         @media print {
           html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0 !important; padding: 0 !important; background: white !important; orphans: 3; widows: 3; overflow: visible !important; }
@@ -116,62 +116,10 @@ export default function WeeklyReportDocument({
           .section-title { break-inside: auto !important; page-break-inside: auto !important; break-after: auto !important; page-break-after: auto !important; }
           .keep-together { break-inside: auto !important; page-break-inside: auto !important; }
           .rounded-xl, .rounded-lg, .report-card { break-inside: auto !important; page-break-inside: auto !important; overflow: visible !important; }
-          /* Footer แถบล่างเฉพาะ — ไม่ทับเนื้อหา (อยู่ใน margin 30mm) */
-          .print-footer { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; height: 12mm !important; background: white !important; border-top: 0.6pt solid #e5e7eb !important; display: flex !important; align-items: center !important; justify-content: flex-end !important; padding-right: 15mm !important; font-size: 7.5pt !important; color: #6b7280 !important; font-family: 'Sarabun', sans-serif !important; z-index: 9999 !important; overflow: visible !important; }
-          .print-footer::after { content: "หน้า " counter(page); }
+          /* ไม่มี Footer — ตัดทิ้ง */
         }
         @media screen {
-          .print-footer { display: none !important; }
-          /* Preview หน้าเดียวยาว มีเส้นประบอกจุดตัด A4 210×297 (เนื้อหา 257mm ต่อหน้า) ให้ตรงพิมพ์จริง */
-          .report-page {
-            position: relative;
-            background-image: repeating-linear-gradient(
-              to bottom,
-              transparent 0,
-              transparent 257mm,
-              #cbd5e1 257mm,
-              #cbd5e1 257.5mm,
-              transparent 257.5mm,
-              transparent 297mm
-            );
-            background-repeat: repeat-y;
-          }
-          .report-page::before {
-            content: "";
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-image: repeating-linear-gradient(
-              to bottom,
-              transparent 0,
-              transparent 296.5mm,
-              #94a3b8 296.5mm,
-              #94a3b8 297mm
-            );
-            pointer-events: none;
-            opacity: 0.35;
-          }
-        }
-        /* เส้นประกำกับจุดตัดใน Preview — ใช้ border แบบ dashed ทุก 257mm */
-        @media screen {
-          .a4-cut-line {
-            border-top: 1.5px dashed #94a3b8;
-            margin: 0 -24px;
-            position: relative;
-            height: 0;
-          }
-          .a4-cut-line::after {
-            content: "✂ ตัดหน้า A4 — พิมพ์จริงจะขึ้นหน้าใหม่ตรงนี้";
-            position: absolute;
-            top: -9px;
-            right: 12px;
-            background: #f8fafc;
-            border: 1px solid #cbd5e1;
-            border-radius: 9999px;
-            padding: 1px 8px;
-            font-size: 9px;
-            color: #64748b;
-            font-family: 'Sarabun', sans-serif;
-          }
+          /* ไม่มี Footer แล้ว — เนื้อหายาวต่อเนื่อง */
         }
       `}</style>
 
@@ -533,8 +481,6 @@ export default function WeeklyReportDocument({
           </div>
         </div>
       </div>
-      {/* Footer เลขหน้าขวาล่าง ทุกหน้า A4 (fixed จะซ้ำทุกหน้าเมื่อพิมพ์) */}
-      <div className="print-footer" aria-hidden />
     </div>
   );
 }

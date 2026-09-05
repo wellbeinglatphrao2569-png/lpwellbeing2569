@@ -276,8 +276,8 @@ export default function AdminReportPage() {
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 ${styleTags}
  <style>
-  /* ยึด A4 แนวตั้ง 210×297 mm — แถบล่าง 30mm เฉพาะ Footer เนื้อหาตัดก่อนถึง */
-  @page { size: A4 portrait; size: 210mm 297mm; margin: 10mm 15mm 30mm 15mm; }
+  /* ยึด A4 แนวตั้ง 210×297 mm — ไม่มี Footer */
+  @page { size: A4 portrait; size: 210mm 297mm; margin: 15mm; }
   html, body { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; color:#000; background:#fff; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .page-container { width:100%; max-width:210mm; margin:0 auto; box-sizing: border-box; }
   @media print {
@@ -296,9 +296,7 @@ ${styleTags}
     .section-title { break-inside: auto !important; page-break-inside: auto !important; break-after: auto !important; page-break-after: auto !important; }
     .keep-together { break-inside: auto !important; page-break-inside: auto !important; }
     .rounded-xl, .rounded-lg, .report-card { break-inside: auto !important; page-break-inside: auto !important; overflow: visible !important; }
-    /* Footer แถบล่างเฉพาะ — ไม่ทับเนื้อหา */
-    .print-footer { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; height: 12mm !important; background: white !important; border-top: 0.6pt solid #e5e7eb !important; display: flex !important; align-items: center !important; justify-content: flex-end !important; padding-right: 15mm !important; font-size: 7.5pt !important; color: #6b7280 !important; font-family: 'Sarabun', sans-serif !important; z-index: 9999 !important; overflow: visible !important; }
-    .print-footer::after { content: "หน้า " counter(page); }
+    /* ไม่มี Footer */
     .print-footer::after { content: "หน้า " counter(page) " / " counter(pages); }
   }
   @media screen { .print-footer { display: none !important; } }

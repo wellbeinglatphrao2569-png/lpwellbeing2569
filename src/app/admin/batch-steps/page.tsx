@@ -736,14 +736,19 @@ export default function BatchStepsPage(){
             <thead className="sticky top-0 z-20">
               <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-xs uppercase">
                 <th className="px-3 py-3 font-semibold sticky left-0 top-0 z-30 bg-gray-50 dark:bg-gray-800 backdrop-blur min-w-[260px] max-w-[280px] text-left border-r border-b border-gray-200 dark:border-gray-700 shadow-sm">บุคลากร <span className="normal-case text-[10px] font-normal text-gray-400 block">ชื่อจริง • ตำแหน่ง • ชื่อเล่น</span></th>
-                {weekDays.map((d,i)=> (
+                {weekDays.map((d)=> {
+                  const dt=new Date(d);
+                  const dow=['จ.','อ.','พ.','พฤ.','ศ.','ส.','อา.'][dt.getDay()===0?6:dt.getDay()-1];
+                  const shortDate=`${dt.getDate()} ${thaiShortMonths[dt.getMonth()]}`;
+                  return (
                   <th key={d} className="px-2 py-3 font-semibold text-center min-w-[150px] sticky top-0 z-20 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex flex-col items-center leading-tight">
-                      <span className="whitespace-nowrap">{weekDaysLabel[i].split(' ').slice(0,2).join(' ')}</span>
-                      <span className="text-[11px] font-bold normal-case text-emerald-700 dark:text-emerald-300">{d.slice(5)}</span>
+                      <span className="whitespace-nowrap">{dow}</span>
+                      <span className="text-[11px] font-bold normal-case text-emerald-700 dark:text-emerald-300">{shortDate}</span>
                     </div>
                   </th>
-                ))}
+                  );
+                })}
                 <th className="px-3 py-3 font-semibold text-center min-w-[90px] sticky top-0 z-20 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">รวม</th>
               </tr>
             </thead>

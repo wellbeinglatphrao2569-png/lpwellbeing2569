@@ -281,22 +281,23 @@ ${styleTags}
   html, body { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; color:#000; background:#fff; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .page-container { width:100%; max-width:210mm; margin:0 auto; box-sizing: border-box; }
   @media print {
-    html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; width: 100% !important; max-width: 100% !important; orphans: 3; widows: 3; }
+    html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; width: 100% !important; max-width: 100% !important; orphans: 3; widows: 3; overflow: visible !important; }
     .no-print { display:none !important; }
-    .page-container { width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important; }
-    .report-root { background:#fff !important; padding:0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
-    .report-page { box-shadow:none !important; border:none !important; margin:0 auto !important; padding:0 0 8mm 0 !important; width:100% !important; max-width:100% !important; break-after: auto !important; page-break-after: auto !important; break-inside: auto; box-sizing: border-box; }
-    /* ไหลต่อเนื่อง */
-    table { break-inside: auto !important; page-break-inside: auto !important; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; }
+    * { overflow: visible !important; max-height: none !important; }
+    .page-container { width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
+    .report-root { background:#fff !important; padding:0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box; overflow: visible !important; }
+    .report-page { box-shadow:none !important; border:none !important; margin:0 auto !important; padding:0 !important; width:100% !important; max-width:100% !important; break-after: auto !important; page-break-after: auto !important; break-inside: auto !important; page-break-inside: auto !important; box-sizing: border-box; overflow: visible !important; }
+    /* ไหลต่อเนื่อง ไม่ตัดทิ้ง */
+    table { break-inside: auto !important; page-break-inside: auto !important; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; overflow: visible !important; }
     thead { display: table-header-group !important; }
     tfoot { display: table-footer-group !important; }
-    tr, tbody, td, th { break-inside: auto !important; page-break-inside: auto !important; }
-    .section-block { break-inside: auto !important; page-break-inside: auto !important; }
+    tr, tbody, td, th { break-inside: auto !important; page-break-inside: auto !important; overflow: visible !important; }
+    .section-block { break-inside: auto !important; page-break-inside: auto !important; overflow: visible !important; }
     .section-title { break-inside: auto !important; page-break-inside: auto !important; break-after: auto !important; page-break-after: auto !important; }
     .keep-together { break-inside: auto !important; page-break-inside: auto !important; }
-    .rounded-xl, .rounded-lg, .report-card { break-inside: auto !important; page-break-inside: auto !important; }
+    .rounded-xl, .rounded-lg, .report-card { break-inside: auto !important; page-break-inside: auto !important; overflow: visible !important; }
     /* Footer แถบล่างเฉพาะ — ไม่ทับเนื้อหา */
-    .print-footer { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; height: 15mm !important; background: white !important; border-top: 0.6pt solid #e5e7eb !important; display: flex !important; align-items: center !important; justify-content: flex-end !important; padding-right: 15mm !important; padding-bottom: 3mm !important; font-size: 7.5pt !important; color: #6b7280 !important; font-family: 'Sarabun', sans-serif !important; z-index: 9999 !important; }
+    .print-footer { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; height: 12mm !important; background: white !important; border-top: 0.6pt solid #e5e7eb !important; display: flex !important; align-items: center !important; justify-content: flex-end !important; padding-right: 15mm !important; font-size: 7.5pt !important; color: #6b7280 !important; font-family: 'Sarabun', sans-serif !important; z-index: 9999 !important; overflow: visible !important; }
     .print-footer::after { content: "หน้า " counter(page); }
     .print-footer::after { content: "หน้า " counter(page) " / " counter(pages); }
   }

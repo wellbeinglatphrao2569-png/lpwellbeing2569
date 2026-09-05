@@ -276,26 +276,30 @@ export default function AdminReportPage() {
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 ${styleTags}
 <style>
-  /* ยึด A4 แนวตั้ง 210×297 mm ทุกหน้า — พื้นที่พิมพ์ 180×267 mm หลังหัก margin 15mm */
-  @page { size: A4 portrait; size: 210mm 297mm; margin: 15mm; }
+  /* ยึด A4 แนวตั้ง 210×297 mm ทุกหน้า — พื้นที่พิมพ์ 180×267 mm หลังหัก margin 15mm/20mm ล่างเผื่อ footer — Choice B ไหลอิสระ */
+  @page { size: A4 portrait; size: 210mm 297mm; margin: 15mm 15mm 20mm 15mm; }
   html, body { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; color:#000; background:#fff; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .page-container { width:100%; max-width:210mm; margin:0 auto; box-sizing: border-box; }
+  .print-footer { display: none; }
   @media print {
     html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; width: 100% !important; max-width: 100% !important; }
     .no-print { display:none !important; }
     .page-container { width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important; }
     .report-root { background:#fff !important; padding:0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; }
-    .report-page { box-shadow:none !important; border:none !important; margin:0 auto !important; padding:0 !important; width:100% !important; max-width:100% !important; break-after: page; page-break-after: always; break-inside: auto; box-sizing: border-box; }
-    .report-page:last-child { break-after: auto; page-break-after: auto; }
-    /* จัดหน้า: หัวตารางซ้ำทุกหน้าเมื่อข้อมูลล้น + แถวไม่ขาดครึ่ง */
+    .report-page { box-shadow:none !important; border:none !important; margin:0 auto !important; padding:0 !important; width:100% !important; max-width:100% !important; break-after: page; page-break-after: always; break-inside: auto; page-break-inside: auto; box-sizing: border-box; }
+    .report-page:last-child { break-after: auto; page-break-after: auto; padding-bottom: 10mm !important; }
+    /* Choice B: ไหลอิสระ ลดช่องว่าง แต่แถวห้ามขาดครึ่ง + หัวตารางซ้ำ */
     table { break-inside: auto; page-break-inside: auto; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; }
     thead { display: table-header-group !important; break-inside: avoid; }
     tfoot { display: table-footer-group !important; }
     tr { break-inside: avoid !important; page-break-inside: avoid !important; }
-    tbody { break-inside: auto; }
-    .section-block { break-inside: auto; page-break-inside: auto; }
-    .section-title { break-after: avoid !important; page-break-after: avoid !important; break-inside: avoid !important; page-break-inside: avoid !important; }
-    .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
+    tbody { break-inside: auto; page-break-inside: auto; }
+    .section-block { break-inside: auto !important; page-break-inside: auto !important; }
+    .section-title { break-after: auto !important; page-break-after: auto !important; break-inside: auto !important; page-break-inside: auto !important; }
+    .keep-together { break-inside: auto !important; page-break-inside: auto !important; }
+    .rounded-xl, .rounded-lg, .report-card { break-inside: auto !important; page-break-inside: auto !important; }
+    .print-footer { display: block !important; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 7pt; color: #666; font-family: 'Sarabun', sans-serif; padding: 4px 0 0 0; border-top: 0.5pt solid #ccc; background: white; }
+    .print-footer:after { content: "หน้า " counter(page) " / " counter(pages); }
   }
 </style>
 </head>

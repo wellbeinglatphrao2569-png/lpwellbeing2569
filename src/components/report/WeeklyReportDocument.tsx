@@ -95,17 +95,17 @@ export default function WeeklyReportDocument({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
         .report-root, .report-page { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; }
-        /* ยึด A4 แนวตั้ง 210×297 mm — แถบล่าง 25mm เป็นพื้นที่ Footer เฉพาะ เนื้อหาไม่ล้ำ */
+        /* ยึด A4 แนวตั้ง 210×297 mm — แถบล่าง 30mm เฉพาะ Footer เนื้อหาตัดก่อนถึง */
         @page {
           size: A4 portrait;
           size: 210mm 297mm;
-          margin: 10mm 15mm 25mm 15mm;
+          margin: 10mm 15mm 30mm 15mm;
         }
         @media print {
           html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0 !important; padding: 0 !important; background: white !important; orphans: 3; widows: 3; }
           .no-print { display: none !important; }
           .report-root { background: white !important; padding: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
-          .report-page { box-shadow: none !important; border: none !important; margin: 0 auto !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; break-after: auto !important; page-break-after: auto !important; break-inside: auto; box-sizing: border-box; }
+          .report-page { box-shadow: none !important; border: none !important; margin: 0 auto !important; padding: 0 0 8mm 0 !important; width: 100% !important; max-width: 100% !important; break-after: auto !important; page-break-after: auto !important; break-inside: auto; box-sizing: border-box; }
           /* ไหลต่อเนื่อง — ปล่อยไหลตาม A4 ได้เรื่อยๆ */
           table { break-inside: auto !important; page-break-inside: auto !important; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; }
           thead { display: table-header-group !important; }

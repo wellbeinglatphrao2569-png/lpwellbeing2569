@@ -276,8 +276,8 @@ export default function AdminReportPage() {
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 ${styleTags}
  <style>
-  /* ยึด A4 แนวตั้ง 210×297 mm — แถบล่าง 25mm เป็นพื้นที่ Footer เฉพาะ เนื้อหาไม่ล้ำ */
-  @page { size: A4 portrait; size: 210mm 297mm; margin: 10mm 15mm 25mm 15mm; }
+  /* ยึด A4 แนวตั้ง 210×297 mm — แถบล่าง 30mm เฉพาะ Footer เนื้อหาตัดก่อนถึง */
+  @page { size: A4 portrait; size: 210mm 297mm; margin: 10mm 15mm 30mm 15mm; }
   html, body { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; color:#000; background:#fff; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .page-container { width:100%; max-width:210mm; margin:0 auto; box-sizing: border-box; }
   @media print {
@@ -285,7 +285,7 @@ ${styleTags}
     .no-print { display:none !important; }
     .page-container { width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important; }
     .report-root { background:#fff !important; padding:0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
-    .report-page { box-shadow:none !important; border:none !important; margin:0 auto !important; padding:0 !important; width:100% !important; max-width:100% !important; break-after: auto !important; page-break-after: auto !important; break-inside: auto; box-sizing: border-box; }
+    .report-page { box-shadow:none !important; border:none !important; margin:0 auto !important; padding:0 0 8mm 0 !important; width:100% !important; max-width:100% !important; break-after: auto !important; page-break-after: auto !important; break-inside: auto; box-sizing: border-box; }
     /* ไหลต่อเนื่อง */
     table { break-inside: auto !important; page-break-inside: auto !important; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; }
     thead { display: table-header-group !important; }

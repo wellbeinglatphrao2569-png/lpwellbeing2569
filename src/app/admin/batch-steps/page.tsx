@@ -731,21 +731,20 @@ export default function BatchStepsPage(){
             <button onClick={()=> setOverwriteWarning(false)} className="ml-auto text-amber-600 hover:text-amber-800">✕</button>
           </div>
         )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[1100px]">
-            <thead>
-              <tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase">
-                <th className="px-3 py-3 font-semibold sticky left-0 bg-gray-50 dark:bg-gray-800/80 backdrop-blur z-10 min-w-[180px] text-left">บุคลากร</th>
+        <div className="overflow-auto max-h-[68vh] relative border-t border-gray-100 dark:border-gray-700 rounded-b-xl">
+          <table className="w-full text-sm min-w-[1380px] border-collapse">
+            <thead className="sticky top-0 z-20">
+              <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-xs uppercase">
+                <th className="px-3 py-3 font-semibold sticky left-0 top-0 z-30 bg-gray-50 dark:bg-gray-800 backdrop-blur min-w-[260px] max-w-[280px] text-left border-r border-b border-gray-200 dark:border-gray-700 shadow-sm">บุคลากร <span className="normal-case text-[10px] font-normal text-gray-400 block">ชื่อจริง • ตำแหน่ง • ชื่อเล่น</span></th>
                 {weekDays.map((d,i)=> (
-                  <th key={d} className="px-2 py-3 font-semibold text-center min-w-[130px]">
-                    <div className="flex flex-col items-center">
-                      <span>{weekDaysLabel[i].split(' ').slice(0,2).join(' ')}</span>
-                      <span className="text-[10px] font-normal normal-case">{d.slice(5)}</span>
-                      {existingMap.size>0 && <span className="text-[9px] font-normal">อนุมัติ: {existingMap.has(`${'placeholder'}|${d}`) ? '—' : ''}</span>}
+                  <th key={d} className="px-2 py-3 font-semibold text-center min-w-[150px] sticky top-0 z-20 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex flex-col items-center leading-tight">
+                      <span className="whitespace-nowrap">{weekDaysLabel[i].split(' ').slice(0,2).join(' ')}</span>
+                      <span className="text-[11px] font-bold normal-case text-emerald-700 dark:text-emerald-300">{d.slice(5)}</span>
                     </div>
                   </th>
                 ))}
-                <th className="px-3 py-3 font-semibold text-center min-w-[90px]">รวม</th>
+                <th className="px-3 py-3 font-semibold text-center min-w-[90px] sticky top-0 z-20 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">รวม</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -761,19 +760,23 @@ export default function BatchStepsPage(){
                 const name=displayName(u);
                 return (
                   <tr key={uid} className={`${locked? 'bg-gray-50 dark:bg-gray-800/30 opacity-60' : 'hover:bg-gray-50/30'} ${!uid? 'opacity-40':''}`}>
-                    <td className="px-3 py-2 sticky left-0 bg-white dark:bg-gray-800 z-10 border-r border-gray-100 dark:border-gray-700 align-top">
-                      <div className="flex items-center gap-2">
+                    <td className="px-3 py-3 sticky left-0 bg-white dark:bg-gray-900 z-10 border-r border-gray-100 dark:border-gray-700 align-top shadow-[2px_0_6px_rgba(0,0,0,0.04)]">
+                      <div className="flex gap-3 items-start">
                         {u.Profile_Image && profileImageUrl(u.Profile_Image) ? (
-                          <img src={profileImageUrl(u.Profile_Image)!} alt="" className="w-8 h-8 rounded-full object-cover ring-1 ring-emerald-200 shrink-0" />
+                          <img src={profileImageUrl(u.Profile_Image)!} alt="" className="w-12 h-12 rounded-xl object-cover ring-1 ring-emerald-200 shrink-0 shadow-sm" />
                         ) : (
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">{(u.Full_Name||u.First_Name||'ส').charAt(0)}</div>
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">{(u.Full_Name||u.First_Name||'ส').charAt(0)}</div>
                         )}
-                        <div className="min-w-0">
-                          <p className="font-bold text-xs truncate max-w-[120px]" title={name}>{name}</p>
-                          <p className="text-[10px] text-gray-400 truncate">{u.Department}</p>
-                          {locked && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 text-[9px] font-bold mt-1" title="Mode 1 — ต้องบันทึกด้วยตนเอง"><span className="material-symbols-outlined text-xs">lock</span>ล็อก Mode 1 • บันทึกเองเท่านั้น</span>}
-                          {!locked && isMode2 && <span className="inline-flex px-1 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-bold mt-1">Mode 2 • จนท.บันทึกให้</span>}
-                          {pendingUser && <span className="inline-flex px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-bold mt-1 ml-1">รอลงทะเบียน</span>}
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-[13px] leading-tight text-gray-900 dark:text-white whitespace-normal break-words" title={name}>{name}</p>
+                          {u.Position ? <p className="text-xs leading-tight text-gray-600 dark:text-gray-300 whitespace-normal break-words mt-0.5" title={u.Position}>{u.Position}</p> : <p className="text-xs text-gray-400">— ไม่ระบุตำแหน่ง —</p>}
+                          {u.Nickname ? <p className="text-xs leading-tight mt-0.5 whitespace-normal break-words"><span className="text-gray-400">ชื่อเล่น:</span> <span className="font-semibold text-emerald-700 dark:text-emerald-300">{u.Nickname}</span></p> : null}
+                          <p className="text-[11px] text-gray-400 whitespace-normal break-words mt-0.5" title={u.Department}>{u.Department}</p>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {locked && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 text-[10px] font-bold" title="Mode 1 — ต้องบันทึกด้วยตนเอง"><span className="material-symbols-outlined text-xs">lock</span>ล็อก Mode 1</span>}
+                            {!locked && isMode2 && <span className="inline-flex px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-bold">Mode 2 • จนท.บันทึกให้</span>}
+                            {pendingUser && <span className="inline-flex px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">รอลงทะเบียน</span>}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -788,33 +791,33 @@ export default function BatchStepsPage(){
                       const placeholderVal = hasPending ? String(pending.Steps_Count) : hasExisting ? String(existing.Steps_Count) : '—';
                       const titleText = locked ? 'Mode 1 — ล็อก: ต้องบันทึกด้วยตนเอง เจ้าหน้าที่บันทึกให้ไม่ได้' : hasPending ? `รอตรวจสอบ ${Number(pending.Steps_Count).toLocaleString()} ก้าว — รอต่างฝ่ายตรวจ` : hasExisting ? `อนุมัติแล้ว ${Number(existing.Steps_Count).toLocaleString()} ก้าว — พิมพ์ทับเพื่อแก้ไข` : '';
                       return (
-                        <td key={d} className={`px-2 py-2 align-top text-center ${bgClass}`}>
+                        <td key={d} className={`px-2 py-3 align-top text-center ${bgClass}`}>
                           <input type="number" min={0} placeholder={placeholderVal} value={gridInputs[uid]?.[d] ?? ''}
                             onChange={e=> setGridStep(uid, d, e.target.value)}
                             disabled={disabled}
                             title={titleText}
-                            className={`w-full px-2 py-1.5 rounded-lg border text-xs font-bold text-center ${disabled? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 cursor-not-allowed' : hasPending ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-400 text-amber-800' : hasExisting? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'} focus:outline-none focus:ring-1 focus:ring-emerald-500`} />
-                          <div className="mt-1 flex flex-col items-center gap-1">
+                            className={`w-full px-2 py-2 rounded-lg border text-sm font-bold text-center ${disabled? 'bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600 cursor-not-allowed' : hasPending ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-400 text-amber-800' : hasExisting? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'} focus:outline-none focus:ring-1 focus:ring-emerald-500`} />
+                          <div className="mt-2 flex flex-col items-center gap-1.5">
                             {img ? (
-                              <div className="relative">
-                                <img src={img.preview} alt="" onClick={()=> setZoomPreview({ src: img.preview, name: `${displayName(users.find(x=> getUserKey(x)===uid) || null)} — ${d}` })} className="w-14 h-10 object-cover rounded border cursor-zoom-in hover:opacity-80 transition" title="คลิกเพื่อดูรูปเต็มก่อนบันทึก" />
-                                <button onClick={()=> clearGridImage(uid,d)} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center text-[10px] leading-none">✕</button>
-                                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1 py-0.5 rounded bg-black/60 text-white text-[7px] whitespace-nowrap">คลิกดูเต็ม</span>
+                              <div className="relative group">
+                                <img src={img.preview} alt="" onClick={()=> setZoomPreview({ src: img.preview, name: `${displayName(users.find(x=> getUserKey(x)===uid) || null)} — ${d}` })} className="w-28 h-20 object-cover rounded-lg border-2 border-emerald-200 dark:border-emerald-800 shadow-sm cursor-zoom-in hover:opacity-80 transition group-hover:ring-2 group-hover:ring-emerald-400" title="คลิกเพื่อดูรูปเต็มก่อนบันทึก" />
+                                <button onClick={()=> clearGridImage(uid,d)} className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center text-xs leading-none shadow-md hover:bg-red-600">✕</button>
+                                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-black/70 text-white text-[9px] whitespace-nowrap">คลิกดูเต็ม</span>
                               </div>
                             ) : (
-                              <label className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border cursor-pointer ${disabled? 'opacity-40 pointer-events-none bg-gray-100' : 'bg-white dark:bg-gray-700 hover:bg-emerald-50 border-gray-200 dark:border-gray-600'}`}>
-                                <span className="material-symbols-outlined text-xs">image</span> แนบภาพ
+                              <label className={`inline-flex items-center gap-1 px-3 py-2 rounded-full text-xs font-medium border cursor-pointer shadow-sm ${disabled? 'opacity-40 pointer-events-none bg-gray-100' : 'bg-white dark:bg-gray-700 hover:bg-emerald-50 border-gray-200 dark:border-gray-600 hover:border-emerald-300'}`}>
+                                <span className="material-symbols-outlined text-sm">image</span> แนบภาพ
                                 <input type="file" accept="image/*" className="hidden" onChange={e=> handleGridImage(uid,d,e.target.files)} disabled={disabled} ref={el=>{ if(el) gridFileInputs.current[`${uid}|${d}`]=el; }} />
                               </label>
                             )}
-                            {hasPending && !gridInputs[uid]?.[d] && <span className="text-[9px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-0.5"><span className="material-symbols-outlined text-[10px]">hourglass_top</span>{Number(pending.Steps_Count).toLocaleString()} รอตรวจ</span>}
-                            {!hasPending && hasExisting && !gridInputs[uid]?.[d] && <span className="text-[9px] text-emerald-600 font-medium">{Number(existing.Steps_Count).toLocaleString()} ก้าว ✓</span>}
+                            {hasPending && !gridInputs[uid]?.[d] && <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-0.5"><span className="material-symbols-outlined text-xs">hourglass_top</span>{Number(pending.Steps_Count).toLocaleString()} รอตรวจ</span>}
+                            {!hasPending && hasExisting && !gridInputs[uid]?.[d] && <span className="text-[10px] text-emerald-600 font-medium">{Number(existing.Steps_Count).toLocaleString()} ก้าว ✓</span>}
                           </div>
                         </td>
                       );
                     })}
                     <td className="px-3 py-2 text-center align-top">
-                      <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                      <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
                         {weekDays.reduce((s,d)=>{
                           const v=gridInputs[uid]?.[d];
                           const n=v? parseInt(v,10):0;

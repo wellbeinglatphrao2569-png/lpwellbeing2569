@@ -122,6 +122,56 @@ export default function WeeklyReportDocument({
         }
         @media screen {
           .print-footer { display: none !important; }
+          /* Preview หน้าเดียวยาว มีเส้นประบอกจุดตัด A4 210×297 (เนื้อหา 257mm ต่อหน้า) ให้ตรงพิมพ์จริง */
+          .report-page {
+            position: relative;
+            background-image: repeating-linear-gradient(
+              to bottom,
+              transparent 0,
+              transparent 257mm,
+              #cbd5e1 257mm,
+              #cbd5e1 257.5mm,
+              transparent 257.5mm,
+              transparent 297mm
+            );
+            background-repeat: repeat-y;
+          }
+          .report-page::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: repeating-linear-gradient(
+              to bottom,
+              transparent 0,
+              transparent 296.5mm,
+              #94a3b8 296.5mm,
+              #94a3b8 297mm
+            );
+            pointer-events: none;
+            opacity: 0.35;
+          }
+        }
+        /* เส้นประกำกับจุดตัดใน Preview — ใช้ border แบบ dashed ทุก 257mm */
+        @media screen {
+          .a4-cut-line {
+            border-top: 1.5px dashed #94a3b8;
+            margin: 0 -24px;
+            position: relative;
+            height: 0;
+          }
+          .a4-cut-line::after {
+            content: "✂ ตัดหน้า A4 — พิมพ์จริงจะขึ้นหน้าใหม่ตรงนี้";
+            position: absolute;
+            top: -9px;
+            right: 12px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 9999px;
+            padding: 1px 8px;
+            font-size: 9px;
+            color: #64748b;
+            font-family: 'Sarabun', sans-serif;
+          }
         }
       `}</style>
 

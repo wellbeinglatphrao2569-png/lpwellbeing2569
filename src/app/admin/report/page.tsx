@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { fetchData } from '@/services/api';
 import type { User, StepsLog, SweetFree } from '@/types';
 import { toDateKey } from '@/utils/thaiDate';
-import { totalsInRange, totalsInRangeCapped, PROJECT_START_DATE, PROJECT_END_DATE, DAILY_CAP, RANKING_CRITERIA_TEXT, projectWeeks } from '@/utils/stepsRanking';
+import { totalsInRange, PROJECT_START_DATE, PROJECT_END_DATE, RANKING_CRITERIA_TEXT, RANKING_FORMULA_DETAIL, projectWeeks } from '@/utils/stepsRanking';
 import { DEPARTMENTS } from '@/utils/personnel';
 import WeeklyReportDocument, { WeeklyComputed } from '@/components/report/WeeklyReportDocument';
 
@@ -101,16 +101,13 @@ export default function AdminReportPage() {
     // participant totals = จำนวน Users ที่ไม่ Inactive
     const participantsTotal = users.filter(u => String((u as any).Registration_Status) !== 'Inactive' && String(u.Full_Name || '').trim()).length || users.length;
 
-    // weekly totals: uncapped for totals & individual, capped for dept ranking (6000/วัน)
+    // weekly totals: uncapped 100% ทั้งหมด (สเปคใหม่ 1.3 ยกเลิก cap)
     const weekMap = totalsInRange(steps, weekStartKey, weekEndKey);
-    const weekMapCapped = totalsInRangeCapped(steps, weekStartKey, weekEndKey, DAILY_CAP);
     const cumMap = totalsInRange(steps, programStart, weekEndKey);
-    const cumMapCapped = totalsInRangeCapped(steps, programStart, weekEndKey, DAILY_CAP);
 
     let totalWeek = 0;
     for (const v of weekMap.values()) totalWeek += v;
-    let totalWeekCapped = 0;
-    for (const v of weekMapCapped.values()) totalWeekCapped += v;
+    const totalWeekCapped = totalWeek;
 
     // helpers to get steps for user (support Personnel_ID fallback)
     function stepsFor(u: User, map: Map<string, number>): number {
@@ -121,9 +118,8 @@ export default function AdminReportPage() {
       return 0;
     }
 
-    // dept week — capped avg หารด้วยคนทั้งหมดในฝ่าย (รวม Pending, ไม่นับ Inactive) + เก็บ actual วงเล็บ
-    function buildDeptCapped(cappedMap: Map<string, number>, actualMap: Map<string, number>) {
-      // นับคนทั้งหมดต่อฝ่าย
+    // dept week — uncapped avg = S_total ÷ N_registered (สเปคใหม่ 1.3)
+    function buildDeptUncapped(actualMap: Map<string, number>) {
       const allCounts = new Map<string, number>();
       for (const u of users) {
         const dept = String(u.Department || '').trim();
@@ -134,44 +130,39 @@ export default function AdminReportPage() {
         if (!hasName) continue;
         allCounts.set(dept, (allCounts.get(dept) || 0) + 1);
       }
-      const sumCapped = new Map<string, number>();
       const sumActual = new Map<string, number>();
       const active = new Map<string, number>();
       for (const u of users) {
         const dept = String(u.Department || '').trim();
         if (!dept) continue;
-        const c = stepsFor(u, cappedMap);
         const a = stepsFor(u, actualMap);
-        if (c > 0 || a > 0) active.set(dept, (active.get(dept) || 0) + 1);
-        if (c > 0) sumCapped.set(dept, (sumCapped.get(dept) || 0) + c);
+        if (a > 0) active.set(dept, (active.get(dept) || 0) + 1);
         if (a > 0) sumActual.set(dept, (sumActual.get(dept) || 0) + a);
       }
       const rows: { name: string; steps: number; stepsActual: number; participants: number; active: number; avg: number; avgActual: number }[] = [];
       for (const [name, totalMembers] of allCounts) {
-        const tc = sumCapped.get(name) || 0;
         const ta = sumActual.get(name) || 0;
         const act = active.get(name) || 0;
         rows.push({
           name,
-          steps: tc,
+          steps: ta,
           stepsActual: ta,
           participants: totalMembers,
           active: act,
-          avg: totalMembers ? Math.round(tc / totalMembers) : 0,
+          avg: totalMembers ? Math.round(ta / totalMembers) : 0,
           avgActual: totalMembers ? Math.round(ta / totalMembers) : 0,
         });
       }
-      for (const [name, tc] of sumCapped) {
+      for (const [name, ta] of sumActual) {
         if (!allCounts.has(name)) {
-          const ta = sumActual.get(name) || 0;
-          rows.push({ name, steps: tc, stepsActual: ta, participants: active.get(name) || 0, active: active.get(name) || 0, avg: tc, avgActual: ta });
+          rows.push({ name, steps: ta, stepsActual: ta, participants: active.get(name) || 0, active: active.get(name) || 0, avg: ta, avgActual: ta });
         }
       }
       return rows.sort((a, b) => b.avg - a.avg || b.steps - a.steps);
     }
 
-    const deptWeek = buildDeptCapped(weekMapCapped, weekMap);
-    const deptCumulative = buildDeptCapped(cumMapCapped, cumMap);
+    const deptWeek = buildDeptUncapped(weekMap);
+    const deptCumulative = buildDeptUncapped(cumMap);
 
     // top 5 week
     const allWeekRows = users.map(u => ({ user: u, steps: stepsFor(u, weekMap) })).filter(r => r.steps > 0).sort((a, b) => b.steps - a.steps);
@@ -268,7 +259,57 @@ export default function AdminReportPage() {
     };
   }, [users, steps, sweet, weekStartKey, weekEndKey, wedKey, weekNumber, programStart]);
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    const el = document.getElementById('weekly-report-print');
+    if (!el) {
+      window.print();
+      return;
+    }
+    // Clone all <style> and <link rel=stylesheet> for isolated but faithful rendering
+    const styleTags = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(n => n.outerHTML).join('\n');
+    const htmlContent = `<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>รายงานผลการจัดอันดับส่วนราชการ - สัปดาห์ที่ ${weekNumber}</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+${styleTags}
+<style>
+  @page { size: A4 portrait; margin: 15mm; }
+  html, body { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; color:#000; background:#fff; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .page-container { width:100%; max-width:210mm; margin:0 auto; }
+  @media print {
+    .no-print { display:none !important; }
+    body { background:#fff !important; }
+    .report-root { background:#fff !important; padding:0 !important; }
+    .report-page { box-shadow:none !important; border:none !important; margin:0 !important; page-break-after:always; }
+    .report-page:last-child { page-break-after:auto; }
+    tr, thead, tbody { break-inside:avoid; page-break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page-container">
+${el.outerHTML}
+</div>
+<script>
+  window.onload = function() { setTimeout(function(){ window.print(); }, 600); };
+<\/script>
+</body>
+</html>`;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('เบราว์เซอร์บล็อกป๊อปอัป — กรุณาอนุญาตให้เปิดแท็บใหม่แล้วลองอีกครั้ง (Popup blocked)');
+      window.print();
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    // Focus new tab for mobile/desktop
+    try { printWindow.focus(); } catch {}
+  };
 
   if (!isLoggedIn || !isAdmin) {
     return (

@@ -5,10 +5,12 @@ import { toDateKey, thaiMonths, thaiShortMonths } from './thaiDate';
 export const PROJECT_START_DATE = '2026-08-24';
 export const PROJECT_END_DATE = '2026-11-13';
 
-// เพดานรายวันสำหรับอันดับส่วนราชการ (ตามสเปคใหม่ 2.1)
+// เพดานอ้างอิงรายวัน (คงไว้สำหรับ Banner เก่า/เป้าหมายรายวัน) — แต่การจัดอันดับส่วนราชการยกเลิก cap แล้ว (Uncapped)
 export const DAILY_CAP = 6000;
 export const RANKING_CRITERIA_TEXT =
-  'ℹ️ เกณฑ์การจัดอันดับส่วนราชการ: คิดคำนวณจากค่าเฉลี่ยก้าวสะสมต่อคนของแต่ละส่วนราชการ โดยจำกัดเพดานคะแนนสูงสุดไม่เกิน 6,000 ก้าว/คน/วัน เพื่อความยุติธรรมและลดความเหลื่อมล้ำจากขนาดทีม รวมถึงขจัดผลกระทบจากกรณีผู้เข้าร่วมรายบุคคลเดินได้ก้าวสูงผิดปกติ (การคิดอันดับรายบุคคลยังคงคิดจากจำนวนก้าวจริงทั้งหมดตามปกติ)';
+  'เกณฑ์การจัดอันดับส่วนราชการ: Department Score = S_total ÷ N_registered โดย S_total คือ ผลรวมก้าวจริงทั้งหมด (Uncapped 100% ไม่ตัดเพดานรายวัน) ของทุกคนในส่วนราชการในช่วงเวลาที่เลือก และ N_registered คือ จำนวนผู้ลงทะเบียนทั้งหมดของส่วนราชการนั้น (ผู้ที่ส่งก้าวเป็น 0 หรือยังไม่เคยส่งก็นับเป็นตัวหาร) — ฝ่ายที่มีค่าเฉลี่ยสูงสุดได้อันดับ 1 (รายบุคคล/เดอะแบก = ก้าวจริง 100% เช่นกัน)';
+export const RANKING_FORMULA_DETAIL =
+  'สูตร: Department Score = S_total / N_registered\n• S_total = Σ ก้าวจริงที่อนุมัติแล้วของทุกคนในฝ่าย (ไม่จำกัดเพดาน 6,000/วัน)\n• N_registered = จำนวนผู้ลงทะเบียนทั้งหมดในฝ่าย (รวมคนที่ส่ง 0 ก้าว)\n• ตัวอย่าง: ฝ่ายมี 10 คน ก้าวรวม 150,000 → Score = 15,000 ก้าว/คน';
 
 export type RankTab = 'weekly' | 'monthly' | 'project';
 export type DeptRow = { name: string; total: number; participants: number; avg: number; isMine: boolean };
@@ -323,53 +325,54 @@ function deptAllCounts(users: User[]): Map<string, number> {
   return m;
 }
 
-/** จัดอันดับรายส่วนราชการ แบบ capped (6000/วัน) หารด้วยจำนวนคนทั้งหมดในฝ่าย — ตามสเปค 2.1 */
+/** จัดอันดับรายส่วนราชการ แบบ Uncapped (สเปคใหม่ 1.3): S_total ÷ N_registered — ไม่ตัดเพดาน */
+export function deptRankingUncapped(
+  users: User[],
+  totalsActual: Map<string, number>,
+  currentDept?: string | null
+): DeptCappedRow[] {
+  const allCounts = deptAllCounts(users);
+  const sumActual = new Map<string, number>();
+  const active = new Map<string, number>();
+  for (const u of users) {
+    const dept = String(u.Department || '').trim();
+    if (!dept) continue;
+    const actual = stepsForUser(u, totalsActual);
+    if (actual > 0) active.set(dept, (active.get(dept) || 0) + 1);
+    if (actual > 0) sumActual.set(dept, (sumActual.get(dept) || 0) + actual);
+  }
+  const rows: DeptCappedRow[] = [];
+  for (const [name, totalMembers] of allCounts) {
+    const ta = sumActual.get(name) || 0;
+    const act = active.get(name) || 0;
+    rows.push({
+      name,
+      totalCapped: ta,
+      totalActual: ta,
+      participants: totalMembers,
+      activeParticipants: act,
+      avg: totalMembers ? Math.round(ta / totalMembers) : 0,
+      avgActual: totalMembers ? Math.round(ta / totalMembers) : 0,
+      isMine: name === currentDept,
+    });
+  }
+  for (const [name, ta] of sumActual) {
+    if (!allCounts.has(name)) {
+      rows.push({ name, totalCapped: ta, totalActual: ta, participants: active.get(name) || 0, activeParticipants: active.get(name) || 0, avg: ta, avgActual: ta, isMine: name === currentDept });
+    }
+  }
+  return rows.sort((a, b) => b.avg - a.avg || b.totalCapped - a.totalCapped || b.activeParticipants - a.activeParticipants);
+}
+
+/** Backward compat: capped wrapper → delegate to uncapped (สเปคใหม่ยกเลิก cap) */
 export function deptRankingCapped(
   users: User[],
   totalsCapped: Map<string, number>,
   totalsActual: Map<string, number>,
   currentDept?: string | null
 ): DeptCappedRow[] {
-  const allCounts = deptAllCounts(users);
-  const sumCapped = new Map<string, number>();
-  const sumActual = new Map<string, number>();
-  const active = new Map<string, number>();
-  for (const u of users) {
-    const dept = String(u.Department || '').trim();
-    if (!dept) continue;
-    const capped = stepsForUser(u, totalsCapped);
-    const actual = stepsForUser(u, totalsActual);
-    if (capped > 0 || actual > 0) {
-      active.set(dept, (active.get(dept) || 0) + 1);
-    }
-    if (capped > 0) sumCapped.set(dept, (sumCapped.get(dept) || 0) + capped);
-    if (actual > 0) sumActual.set(dept, (sumActual.get(dept) || 0) + actual);
-  }
-  const rows: DeptCappedRow[] = [];
-  for (const [name, totalMembers] of allCounts) {
-    const tc = sumCapped.get(name) || 0;
-    const ta = sumActual.get(name) || 0;
-    const act = active.get(name) || 0;
-    // แสดงทุกฝ่ายแม้ยังไม่มีก้าว (avg=0) เพื่อความโปร่งใส
-    rows.push({
-      name,
-      totalCapped: tc,
-      totalActual: ta,
-      participants: totalMembers,
-      activeParticipants: act,
-      avg: totalMembers ? Math.round(tc / totalMembers) : 0,
-      avgActual: totalMembers ? Math.round(ta / totalMembers) : 0,
-      isMine: name === currentDept,
-    });
-  }
-  // ถ้ามีฝ่ายที่มีก้าวแต่ไม่อยู่ใน allCounts (เช่น Dept แปลกๆ) ก็เติม
-  for (const [name, tc] of sumCapped) {
-    if (!allCounts.has(name)) {
-      const ta = sumActual.get(name) || 0;
-      rows.push({ name, totalCapped: tc, totalActual: ta, participants: active.get(name) || 0, activeParticipants: active.get(name) || 0, avg: tc, avgActual: ta, isMine: name === currentDept });
-    }
-  }
-  return rows.sort((a, b) => b.avg - a.avg || b.totalCapped - a.totalCapped || b.activeParticipants - a.activeParticipants);
+  void totalsCapped;
+  return deptRankingUncapped(users, totalsActual, currentDept);
 }
 
 /** legacy: จัดอันดับรายส่วนราชการ จาก ก้าวรวม ÷ คนที่บันทึกก้าวจริงในฝ่าย (มาก→น้อย) — เก็บไว้เผื่อ backward compat */

@@ -73,9 +73,18 @@ export interface AiResult {
   steps: number|null; dateInImage: string|null; dateRaw: string|null; dateMatch: boolean|null; confidence: number; notes: string; alert: boolean; alertReasons: string[]; provider: 'gemini'|'openrouter'; model: string;
 }
 
+export const AUTO_APPROVE_CONFIDENCE = 0.8;
+export function isAutoApprovable(aiSteps: number | null, formSteps: number, dateMatch: boolean | null, confidence: number): boolean {
+  if (aiSteps == null || Number.isNaN(aiSteps)) return false;
+  if (aiSteps !== Number(formSteps)) return false;
+  if (dateMatch !== true) return false;
+  if (confidence < AUTO_APPROVE_CONFIDENCE) return false;
+  return true;
+}
+
 export async function analyzeStepsImage(imageBase64: string, expectedDate: string, preferredProvider: string = 'auto'): Promise<AiResult> {
   const { data, mime } = extractBase64(imageBase64);
-  const prompt = `คุณคือผู้ช่วยตรวจสอบภาพสำหรับโครงการ "นับก้าวเดิน" วิเคราะห์ภาพแคปหน้าจอแอปนับก้าวแล้วตอบเป็น JSON เท่านั้น\nโจทย์:\n1. อ่านจำนวนก้าวทั้งหมด (total steps) ที่แสดงในภาพ — ดูตัวเลขที่ใหญ่/เด่นที่สุดที่ระบุจำนวนก้าว\n2. หาวันที่ที่แสดงในภาพ แปลงเป็น ISO yyyy-MM-dd (ค.ศ.) ถ้าไม่มีให้ null — รองรับรูปแบบ "31 Jul", "07/31/2026", "31 ก.ค. 2569" ฯลฯ\n3. วันที่ในภาพตรงกับ "${expectedDate}" (yyyy-MM-dd) หรือไม่\n4. ตรวจสอบความผิดปกติ: ภาพตัดต่อ/แก้ไขตัวเลข/ซ้อนฟอนต์แปลก/ขอบเบลอ/เงาซ้ำ/ตัวเลขไม่ตรงฟอนต์ระบบ — ถ้าสงสัยให้ระบุใน notes และลด confidence เหลือ 0.3-0.6\n5. ให้คะแนนความมั่นใจ 0.0-1.0 — 1.0=มั่นใจสูงมาก ตัวเลข+วันที่ชัดเจนตรงกัน, <0.8=มีข้อสงสัยเล็กน้อย\nตอบเฉพาะ JSON: {"steps": <int|null>, "dateInImage": "<yyyy-MM-dd|null>", "dateRaw": "<string|null>", "dateMatch": <true|false|null>, "confidence": <0-1>, "notes": "<ไทย สั้นๆ ระบุสิ่งที่เห็นและข้อสงสัย>"} \nกติกา: ถ้าตัวเลขชัด+วันที่ตรงกัน+ไม่มีร่องรอยตัดต่อ ให้ confidence >=0.9 และ notes ระบุว่า "ชัดเจน ตรงกัน"; ถ้ามีข้อสงสัยใดๆ ให้ confidence <0.8 พร้อมเหตุผลใน notes`;
+  const prompt = `คุณคือผู้ช่วยตรวจสอบภาพสำหรับโครงการ "นับก้าวเดิน" วิเคราะห์ภาพแคปหน้าจอแอปนับก้าวแล้วตอบเป็น JSON เท่านั้น\nโจทย์:\n1. อ่านจำนวนก้าวทั้งหมด (total steps) ที่แสดงในภาพ — ดูตัวเลขที่ใหญ่/เด่นที่สุดที่ระบุจำนวนก้าว ต้องอ่านเป็นจำนวนเต็มตรงตัว อย่าปัดเศษ\n2. หาวันที่ที่แสดงในภาพ แปลงเป็น ISO yyyy-MM-dd (ค.ศ.) ถ้าไม่มีให้ null — รองรับรูปแบบ "31 Jul", "07/31/2026", "31 ก.ค. 2569" ฯลฯ\n3. วันที่ในภาพตรงกับ "${expectedDate}" (yyyy-MM-dd) หรือไม่ — ต้องตรง 100% จึง dateMatch=true\n4. ตรวจสอบความผิดปกติ: ภาพตัดต่อ/แก้ไขตัวเลข/ซ้อนฟอนต์แปลก/ขอบเบลอ/เงาซ้ำ/ตัวเลขไม่ตรงฟอนต์ระบบ — ถ้าสงสัยให้ระบุใน notes และลด confidence เหลือ 0.3-0.6\n5. ให้คะแนนความมั่นใจ 0.0-1.0 — 1.0=มั่นใจสูงมาก ตัวเลข+วันที่ชัดเจนตรงกัน, <0.8=มีข้อสงสัยเล็กน้อย\nตอบเฉพาะ JSON: {"steps": <int|null>, "dateInImage": "<yyyy-MM-dd|null>", "dateRaw": "<string|null>", "dateMatch": <true|false|null>, "confidence": <0-1>, "notes": "<ไทย สั้นๆ ระบุสิ่งที่เห็นและข้อสงสัย>"} \nกติกา Auto-Approve: ถ้าตัวเลขชัดและวันที่ตรงกัน 100% และไม่มีร่องรอยตัดต่อ ให้ confidence >=0.9 และ notes ระบุว่า "ชัดเจน ตรงกัน — พร้อมอนุมัติอัตโนมัติ"; ถ้ามีข้อสงสัยใดๆ ให้ confidence <0.8 พร้อมเหตุผลใน notes เพื่อส่งตรวจมือ`;
   const hint = preferredProvider.toLowerCase();
   let text=''; let finalProvider:'gemini'|'openrouter'='gemini'; let finalModel=GEMINI_MODEL; let usedFallback=false;
   async function route(){

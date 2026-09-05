@@ -8,12 +8,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { fetchData } from '@/services/api';
 import type { StepsLog, User, SweetFree } from '@/types';
 import { DEPARTMENTS } from '@/utils/personnel';
+import RankingInfoModal from '@/components/ui/RankingInfoModal';
 import {
   periodRangeFor,
   totalsInRange,
-  totalsInRangeCapped,
   individualRankingOf,
-  deptRankingCapped,
+  deptRankingUncapped,
   programTotals,
   rankBadge,
   formatThaiShort,
@@ -21,7 +21,6 @@ import {
   isTrue,
   projectWeeks,
   DAILY_CAP,
-  RANKING_CRITERIA_TEXT,
   elapsedDays,
   maxCumulativeCap,
   isProjectFrozen,
@@ -70,6 +69,7 @@ export default function DashboardPage() {
   const [monthTo, setMonthTo] = useState(() => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
   const [bagDept, setBagDept] = useState<string>('');
   const [sweetDeptFilter, setSweetDeptFilter] = useState<string>('');
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -96,13 +96,9 @@ export default function DashboardPage() {
     return () => clearTimeout(t);
   }, [tab, activeRange.startKey, activeRange.endKey]);
 
-  // นับเฉพาะก้าวที่อนุมัติแล้ว — รายบุคคลใช้ uncapped, ส่วนราชการใช้ capped 6000/วัน
+  // นับเฉพาะก้าวที่อนุมัติแล้ว — ทั้งรายบุคคลและส่วนราชการ = uncapped 100% (สเปคใหม่ 1.3)
   const perUserStepsActual = useMemo(
     () => totalsInRange(stepsData, activeRange.startKey, activeRange.endKey),
-    [stepsData, activeRange.startKey, activeRange.endKey]
-  );
-  const perUserStepsCapped = useMemo(
-    () => totalsInRangeCapped(stepsData, activeRange.startKey, activeRange.endKey, DAILY_CAP),
     [stepsData, activeRange.startKey, activeRange.endKey]
   );
 
@@ -112,8 +108,8 @@ export default function DashboardPage() {
   );
 
   const deptRanking = useMemo<DeptCappedRow[]>(
-    () => deptRankingCapped(users, perUserStepsCapped, perUserStepsActual, user?.Department),
-    [users, perUserStepsCapped, perUserStepsActual, user]
+    () => deptRankingUncapped(users, perUserStepsActual, user?.Department),
+    [users, perUserStepsActual, user]
   );
 
   const bagRanking = useMemo<IndRow[]>(() => {
@@ -204,12 +200,7 @@ export default function DashboardPage() {
         <span className="text-gray-500 dark:text-gray-400 text-sm">{todayLabel} · สะสมวันที่ {d} · เพดาน {capMax.toLocaleString()} ก้าว/คน</span>
       </div>
 
-      {/* เกณฑ์การจัดอันดับส่วนราชการ */}
-      <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/15 px-4 py-3 flex gap-2.5 items-start">
-        <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-xl shrink-0 mt-0.5">info</span>
-        <p className="text-xs md:text-sm leading-relaxed text-amber-900 dark:text-amber-300">{RANKING_CRITERIA_TEXT}</p>
-      </div>
-      <p className="text-[11px] text-gray-500 dark:text-gray-400 px-1 -mt-3">เพดานสะสมปัจจุบัน: {DAILY_CAP.toLocaleString()} × {d} วัน = {capMax.toLocaleString()} ก้าว/คน · รายบุคคล/เดอะแบกคิดจากก้าวจริง 100% ไม่ตัดเพดาน</p>
+      <p className="text-[11px] text-gray-500 dark:text-gray-400 px-1">สะสมวันที่ {d} · เพดานอ้างอิง {DAILY_CAP.toLocaleString()} × {d} = {capMax.toLocaleString()} ก้าว/คน (อันดับใช้ Uncapped)</p>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <GlassCard className="p-6 md:col-span-2 bg-gradient-to-br from-emerald-600 to-teal-600 border-emerald-500 shadow-xl shadow-emerald-200/40 dark:shadow-emerald-950/40">
@@ -394,9 +385,13 @@ export default function DashboardPage() {
 
           <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2">
-              <div>
-                <h4 className="font-bold text-gray-900 dark:text-white">อันดับภาพรวมรายส่วนราชการ</h4>
-                <p className="text-xs text-gray-500 mt-0.5">ค่าเฉลี่ยแบบ capped {DAILY_CAP.toLocaleString()} ก้าว/คน/วัน · หารด้วยจำนวนคนทั้งหมดในฝ่าย (รวม Pending)</p>
+              <div className="flex items-center gap-2">
+                <div>
+                  <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-1.5">อันดับภาพรวมรายส่วนราชการ
+                    <button onClick={() => setShowInfo(true)} title="ดูสูตรคำนวณ" className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-800/50 transition">i</button>
+                  </h4>
+                  <p className="text-xs text-gray-500 mt-0.5">ค่าเฉลี่ย = ผลรวมจริง ÷ คนทั้งหมดในฝ่าย (Uncapped)</p>
+                </div>
               </div>
               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs font-bold">
                 {deptRanking.length} ฝ่าย
@@ -417,11 +412,11 @@ export default function DashboardPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-sm text-gray-900 dark:text-white truncate">{d.name}</p>
-                      <p className="text-xs text-gray-500">ทั้งหมด {d.participants} คน · ส่งแล้ว {d.activeParticipants} คน · ก้าวรวม capped {d.totalCapped.toLocaleString()} <span className="text-gray-400">(จริง {d.totalActual.toLocaleString()})</span></p>
+                      <p className="text-xs text-gray-500">ทั้งหมด {d.participants} คน · ส่งแล้ว {d.activeParticipants} คน · ก้าวรวม {d.totalActual.toLocaleString()} ก้าว</p>
                     </div>
-                    <div className="shrink-0 text-right" title={`ก้าวจริงเฉลี่ย ${d.avgActual.toLocaleString()} / capped ${safeAvg.toLocaleString()}`}>
+                    <div className="shrink-0 text-right" title={`เฉลี่ย ${safeAvg.toLocaleString()} = ${d.totalActual.toLocaleString()} ÷ ${d.participants}`}>
                       <p className="font-black text-blue-600 dark:text-blue-400 tabular-nums">{safeAvg.toLocaleString()}</p>
-                      <p className="text-[10px] text-gray-400">ก้าว/คน (capped)</p>
+                      <p className="text-[10px] text-gray-400">ก้าว/คน</p>
                     </div>
                   </div>
                 );
@@ -683,6 +678,7 @@ export default function DashboardPage() {
           </div>
         </GlassCard>
       )}
+      <RankingInfoModal open={showInfo} onClose={() => setShowInfo(false)} />
     </div>
   );
 }

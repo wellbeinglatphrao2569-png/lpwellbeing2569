@@ -9,7 +9,7 @@
  * }
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeStepsImage } from '@/lib/serverAi';
+import { analyzeStepsImage, isAutoApprovable } from '@/lib/serverAi';
 
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
@@ -101,17 +101,33 @@ export async function POST(request: NextRequest) {
         finalAiConf = ai.confidence;
         finalDateInImage = ai.dateInImage || '';
         finalDateMatch = ai.dateMatch;
-        finalAlert = ai.alert;
-        finalAlertReasons = ai.alertReasons;
         finalNotes = ai.notes;
         aiProvider = ai.provider;
         aiModel = ai.model;
-        // เทียบจำนวนก้าวที่กรอกกับที่ AI อ่าน — ต่างกันเกิน 20% หรือ 500 ก้าว ถือว่าสงสัย
-        if (ai.steps != null && Math.abs(ai.steps - Number(steps)) > Math.max(500, Number(steps) * 0.2)) {
+        // เงื่อนไข Auto-Approve สเปคใหม่ 1.2: Steps ตรง 100% AND Date ตรง 100% AND confidence >=0.8 AND ไม่มี alert อื่น
+        const stepsExact = ai.steps != null && Number(ai.steps) === Number(steps);
+        const dateExact = ai.dateMatch === true;
+        const autoOk = isAutoApprovable(ai.steps, Number(steps), ai.dateMatch, ai.confidence);
+        // ถ้าไม่เข้าเงื่อนไข auto → ต้อง Pending พร้อมเหตุผลชัดเจน
+        if (!stepsExact && ai.steps != null) {
+          finalAlertReasons = [...ai.alertReasons, `จำนวนก้าวที่กรอก (${Number(steps).toLocaleString()}) ไม่ตรงกับที่ AI อ่าน (${Number(ai.steps).toLocaleString()}) — ต้องตรง 100%`];
           finalAlert = true;
-          finalAlertReasons = [...finalAlertReasons, `จำนวนก้าวที่กรอก (${Number(steps).toLocaleString()}) ต่างจากที่ AI อ่าน (${ai.steps.toLocaleString()})`];
+        } else if (!dateExact) {
+          finalAlertReasons = [...ai.alertReasons];
+          finalAlert = true;
+        } else {
+          finalAlertReasons = [...ai.alertReasons];
+          finalAlert = ai.alert;
         }
-        serverStatus = finalAlert ? 'Pending' : 'Approved';
+        // แม้ steps/date ตรง แต่ถ้า confidence ต่ำหรือมี alert เรื่องตัดต่อ/สูงผิดปกติ ก็ยัง Pending
+        if (autoOk && !finalAlert) {
+          serverStatus = 'Approved';
+        } else {
+          serverStatus = 'Pending';
+          if (!finalAlert) { finalAlert = true; }
+          // เติมเหตุผลถ้ายังไม่มี
+          if (finalAlertReasons.length === 0) finalAlertReasons = ['ไม่เข้าเงื่อนไขอนุมัติอัตโนมัติ — รอเจ้าหน้าที่ต่างฝ่ายตรวจ'];
+        }
       } catch (e) {
         console.warn('image-upload server AI failed, fallback to Pending:', e);
         finalAlert = true;

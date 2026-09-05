@@ -11,7 +11,8 @@ import { fetchData, postData } from '@/services/api';
 import type { StepsLog, User, AiImageAnalysis } from '@/types';
 import * as GF from '@/lib/google-fitness';
 import { useProjectWindow } from '@/hooks/useProjectWindow';
-import { DAILY_CAP, RANKING_CRITERIA_TEXT, isProjectFrozen } from '@/utils/stepsRanking';
+import RankingInfoModal from '@/components/ui/RankingInfoModal';
+import { DAILY_CAP, isProjectFrozen } from '@/utils/stepsRanking';
 
 type DepartmentMember = {
   name: string;
@@ -212,6 +213,7 @@ export default function StepsPage() {
   const [deptPeriod, setDeptPeriod] = useState<'weekly' | 'monthly'>('weekly');
   const [deptUsers, setDeptUsers] = useState<User[]>([]);
   const [showAllRanking, setShowAllRanking] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
 
   // จำสัปดาห์ประวัติที่เลือกไว้ (ให้หลังรีเฟรชยังอยู่สัปดาห์เดิม)
   useEffect(() => {
@@ -696,9 +698,9 @@ export default function StepsPage() {
           </div>
         </div>
       )}
-      <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/15 px-4 py-3 flex gap-2.5 items-start">
-        <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-xl shrink-0 mt-0.5">info</span>
-        <p className="text-xs md:text-sm leading-relaxed text-amber-900 dark:text-amber-300">{RANKING_CRITERIA_TEXT}</p>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-500 dark:text-gray-400">เกณฑ์จัดอันดับ</span>
+        <button onClick={() => setShowInfo(true)} className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center text-xs font-bold hover:bg-blue-200 transition" title="ดูสูตรคำนวณ">i</button>
       </div>
       {hasPending && (
         <div className="rounded-xl border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/15 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
@@ -709,7 +711,7 @@ export default function StepsPage() {
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">ก้าวสร้างสุข</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">บันทึกก้าวประจำวัน — เป้าหมาย {DAILY_CAP.toLocaleString()} ก้าว/วัน · อันดับฝ่าย capped {DAILY_CAP.toLocaleString()}/วัน · รายบุคคล = ก้าวจริง</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">บันทึกก้าวประจำวัน — เป้าหมาย {DAILY_CAP.toLocaleString()} ก้าว/วัน · ทุกอันดับคิดจากก้าวจริง (Uncapped)</p>
         </div>
         <span className="text-gray-500 dark:text-gray-400 text-sm hidden sm:block">
           {new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
@@ -1605,6 +1607,7 @@ export default function StepsPage() {
           </div>
         </div>
       )}
+      <RankingInfoModal open={showInfo} onClose={() => setShowInfo(false)} />
     </div>
   );
 }

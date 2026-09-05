@@ -133,21 +133,21 @@ export default function WeeklyReportDocument({
           {/* เกณฑ์ - banner */}
           {c.rankingCriteria && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[8.5px] leading-snug text-amber-900">
-              <span className="font-bold">เกณฑ์การจัดอันดับส่วนราชการ:</span> {c.rankingCriteria.replace('ℹ️ ', '')} <span className="text-amber-700">(ส่วนราชการ capped 6,000/วัน · รายบุคคล/เดอะแบก = ก้าวจริง)</span>
+              <span className="font-bold">เกณฑ์การจัดอันดับส่วนราชการ:</span> {c.rankingCriteria.replace('ℹ️ ', '')}
             </div>
           )}
           {/* 1 */}
           <div className="rounded-xl border-2 border-emerald-600 overflow-hidden">
             <div className="bg-emerald-600 text-white text-[11px] font-bold px-3 py-1.5">1. จำนวนก้าวรวมทั้งสำนักงานเขตลาดพร้าว (สัปดาห์นี้)</div>
             <div className="text-center py-4 bg-emerald-50/50">
-              <div className="text-[32px] font-black text-emerald-700 leading-none tabular-nums">{c.totalStepsWeek.toLocaleString()} <span className="text-[14px] font-bold">ก้าว</span> <span className="text-[11px] font-normal text-emerald-700/70">(capped {(c.totalStepsWeekCapped ?? c.totalStepsWeek).toLocaleString()})</span></div>
-              <div className="text-[10px] text-gray-600 mt-1">จากบุคลากรที่ส่งข้อมูล {c.participantsWeek} / {c.participantsTotal} คน ({c.participantsTotal ? ((c.participantsWeek / c.participantsTotal) * 100).toFixed(1) : '0'}%) &nbsp;|&nbsp; เฉลี่ย {c.participantsWeek ? Math.round(c.totalStepsWeek / c.participantsWeek).toLocaleString() : '0'} ก้าว/คน/สัปดาห์ · capped เฉลี่ย {c.participantsWeek ? Math.round((c.totalStepsWeekCapped ?? c.totalStepsWeek) / c.participantsWeek).toLocaleString() : '0'}</div>
+              <div className="text-[32px] font-black text-emerald-700 leading-none tabular-nums">{c.totalStepsWeek.toLocaleString()} <span className="text-[14px] font-bold">ก้าว</span> <span className="text-[11px] font-normal text-emerald-700/70">(Uncapped 100%)</span></div>
+              <div className="text-[10px] text-gray-600 mt-1">จากบุคลากรที่ส่งข้อมูล {c.participantsWeek} / {c.participantsTotal} คน ({c.participantsTotal ? ((c.participantsWeek / c.participantsTotal) * 100).toFixed(1) : '0'}%) &nbsp;|&nbsp; เฉลี่ย {c.participantsWeek ? Math.round(c.totalStepsWeek / c.participantsWeek).toLocaleString() : '0'} ก้าว/คน/สัปดาห์</div>
             </div>
           </div>
 
-          {/* 2 */}
+          {/* 2 - uncapped */}
           <div>
-            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">2. ตารางจำนวนก้าวรายฝ่าย ประจำสัปดาห์นี้ — ค่าเฉลี่ย capped 6,000/คน/วัน (เรียงมาก → น้อย)</div>
+            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">2. ตารางจำนวนก้าวรายฝ่าย ประจำสัปดาห์นี้ — ค่าเฉลี่ย = ผลรวมจริง ÷ จำนวนคนทั้งหมด (Uncapped · เรียงมาก → น้อย)</div>
             <table className="w-full text-[9px] border-collapse border border-gray-300">
               <thead>
                 <tr className="bg-gray-100 text-gray-700">
@@ -155,7 +155,7 @@ export default function WeeklyReportDocument({
                   <th className="border border-gray-300 px-1.5 py-1 text-left">ส่วนราชการ/ฝ่าย</th>
                   <th className="border border-gray-300 px-1.5 py-1 w-[50px]">ทั้งหมด</th>
                   <th className="border border-gray-300 px-1.5 py-1 w-[50px]">ส่งแล้ว</th>
-                  <th className="border border-gray-300 px-1.5 py-1 w-[78px]">ก้าวรวม capped</th>
+                  <th className="border border-gray-300 px-1.5 py-1 w-[78px]">ก้าวรวม</th>
                   <th className="border border-gray-300 px-1.5 py-1 w-[68px]">เฉลี่ย/คน</th>
                 </tr>
               </thead>
@@ -184,18 +184,18 @@ export default function WeeklyReportDocument({
                 )}
               </tbody>
             </table>
-            <div className="text-[7px] text-gray-500 mt-1">ทั้งหมด = คนทั้งหมดในฝ่าย (รวม Pending ไม่นับ Inactive) · ส่งแล้ว = คนที่มีก้าว &gt;0 · ก้าวรวม capped = min(ก้าวจริง,6000)/วัน · วงเล็บ = ก้าวจริง</div>
+            <div className="text-[7px] text-gray-500 mt-1">ทั้งหมด = คนทั้งหมดในฝ่าย (รวม_PENDING ไม่นับ Inactive) · ส่งแล้ว = คนที่มีก้าว &gt;0 · ก้าวรวม = ผลรวมจริง 100% (Uncapped ไม่ตัดเพดาน)</div>
           </div>
 
           {/* 3 */}
           <div>
-            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">3. ตารางจำนวนก้าวสะสมรายฝ่าย — capped 6,000/คน/วัน ตั้งแต่เริ่มโครงการ ถึงสัปดาห์ล่าสุด (เรียงมาก → น้อย)</div>
+            <div className="bg-gray-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">3. ตารางจำนวนก้าวสะสมรายฝ่าย — ผลรวมจริง ÷ จำนวนคนทั้งหมด (Uncapped) ตั้งแต่เริ่มโครงการ ถึงสัปดาห์ล่าสุด (เรียงมาก → น้อย)</div>
             <table className="w-full text-[9px] border-collapse border border-gray-300">
               <thead>
                 <tr className="bg-gray-100 text-gray-700">
                   <th className="border border-gray-300 px-1.5 py-1 w-[36px]">ลำดับ</th>
                   <th className="border border-gray-300 px-1.5 py-1 text-left">ส่วนราชการ/ฝ่าย</th>
-                  <th className="border border-gray-300 px-1.5 py-1 w-[78px]">ก้าวสะสม capped</th>
+                    <th className="border border-gray-300 px-1.5 py-1 w-[78px]">ก้าวสะสม</th>
                   <th className="border border-gray-300 px-1.5 py-1 w-[56px]">สัดส่วน</th>
                   <th className="border border-gray-300 px-1.5 py-1 w-[64px]">ทั้งหมด</th>
                   <th className="border border-gray-300 px-1.5 py-1 w-[56px]">เฉลี่ย/คน</th>
@@ -222,7 +222,7 @@ export default function WeeklyReportDocument({
                 })()}
               </tbody>
             </table>
-            <div className="text-[7px] text-gray-500 mt-1">ก้าวสะสม capped = ผลรวม capped รายวันทุกวันตั้งแต่วันเริ่มโครงการ · วงเล็บ = ก้าวจริง</div>
+            <div className="text-[7px] text-gray-500 mt-1">ก้าวสะสม = ผลรวมจริง 100% ทุกวันตั้งแต่วันเริ่มโครงการ (Uncapped)</div>
           </div>
 
           {/* 4 */}
@@ -474,7 +474,7 @@ export default function WeeklyReportDocument({
           </div>
 
           <div className="text-[7px] text-gray-400 border-t border-gray-200 pt-2 flex justify-between">
-            <span>หมายเหตุ: ข้อมูลก้าวนับเฉพาะ Approved | ส่วนราชการ capped 6,000/วัน หารด้วยคนทั้งหมด (รวม Pending) · รายบุคคล/เดอะแบก = ก้าวจริง 100% | สัปดาห์ จ.-อา.</span>
+            <span>หมายเหตุ: ข้อมูลก้าวนับเฉพาะ Approved | ส่วนราชการ = ผลรวมจริง ÷ คนทั้งหมด (Uncapped ไม่ตัดเพดาน) | สัปดาห์ จ.-อา.</span>
             <span>พิมพ์เมื่อ {formatPrintDate()}</span>
           </div>
         </div>

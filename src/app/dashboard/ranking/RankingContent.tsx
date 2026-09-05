@@ -8,16 +8,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { fetchData } from '@/services/api';
 import type { StepsLog, User } from '@/types';
 import { DEPARTMENTS } from '@/utils/personnel';
+import RankingInfoModal from '@/components/ui/RankingInfoModal';
 import {
   periodRangeFor,
   totalsInRange,
-  totalsInRangeCapped,
   individualRankingOf,
-  deptRankingCapped,
+  deptRankingUncapped,
   rankBadge,
   projectWeeks,
-  DAILY_CAP,
-  RANKING_CRITERIA_TEXT,
   type RankTab,
   type IndRow,
   type DeptCappedRow,
@@ -44,6 +42,7 @@ export default function RankingContent() {
   const [search, setSearch] = useState('');
   const [wantScrollMe, setWantScrollMe] = useState(0);
   const [bagDept, setBagDept] = useState(() => searchParams.get('bagDept') || '');
+  const [showInfo, setShowInfo] = useState(false);
 
   // เก็บค่าช่วงเวลาลง URL เพื่อแชร์/ย้อนกลับได้
   useEffect(() => {
@@ -89,13 +88,9 @@ export default function RankingContent() {
     return () => clearTimeout(t);
   }, [tab, activeRange.startKey, activeRange.endKey]);
 
-  // ── อันดับ ── รายบุคคล uncapped / ส่วนราชการ capped 6000/วัน (ตามสเปคใหม่) — clean replace ไม่ concat
+  // ── อันดับ ── ทั้งรายบุคคลและส่วนราชการ = uncapped 100% (สเปคใหม่ 1.3) — clean replace
   const perUserStepsActual = useMemo(
     () => totalsInRange(stepsData, activeRange.startKey, activeRange.endKey),
-    [stepsData, activeRange.startKey, activeRange.endKey]
-  );
-  const perUserStepsCapped = useMemo(
-    () => totalsInRangeCapped(stepsData, activeRange.startKey, activeRange.endKey, DAILY_CAP),
     [stepsData, activeRange.startKey, activeRange.endKey]
   );
   const allRows = useMemo<IndRow[]>(
@@ -103,8 +98,8 @@ export default function RankingContent() {
     [users, perUserStepsActual, user]
   );
   const deptRows = useMemo<DeptCappedRow[]>(
-    () => deptRankingCapped(users, perUserStepsCapped, perUserStepsActual, user?.Department),
-    [users, perUserStepsCapped, perUserStepsActual, user]
+    () => deptRankingUncapped(users, perUserStepsActual, user?.Department),
+    [users, perUserStepsActual, user]
   );
 
   const myRow = allRows.find(r => r.isCurrent);
@@ -151,10 +146,6 @@ export default function RankingContent() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* เกณฑ์ */}
-      <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/15 px-4 py-3 flex gap-2.5 items-start">
-        <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-xl shrink-0 mt-0.5">info</span>
-        <p className="text-xs md:text-sm leading-relaxed text-amber-900 dark:text-amber-300">{RANKING_CRITERIA_TEXT}</p>
-      </div>
       {/* ── Header ── */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
@@ -162,8 +153,10 @@ export default function RankingContent() {
             <span className="material-symbols-outlined text-base">arrow_back</span>
             กลับไปแดชบอร์ด
           </Link>
-          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">การจัดอันดับทั้งหมด</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">ค้นหาตำแหน่งของตนเอง หรือดูอันดับรายบุคคล/รายส่วนราชการฉบับเต็ม · รายบุคคล/เดอะแบก = ก้าวจริง 100% · ส่วนราชการ = capped {DAILY_CAP.toLocaleString()}/วัน</p>
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">การจัดอันดับทั้งหมด
+            <button onClick={() => setShowInfo(true)} title="ดูสูตรคำนวณ" className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center text-sm font-bold hover:bg-blue-200 transition">i</button>
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">ค้นหาตำแหน่งของตนเอง หรือดูอันดับรายบุคคล/รายส่วนราชการฉบับเต็ม · ทุกรายการ = ก้าวจริง 100% (Uncapped)</p>
         </div>
       </div>
 
@@ -381,11 +374,11 @@ export default function RankingContent() {
           </div>
         </div>
 
-        {/* ── อันดับรายส่วนราชการ (เต็ม) — capped */}
+        {/* ── อันดับรายส่วนราชการ (เต็ม) — Uncapped */}
         <div className="rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden mb-6">
           <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
             <h4 className="font-bold text-gray-900 dark:text-white">อันดับภาพรวมรายส่วนราชการ</h4>
-            <p className="text-xs text-gray-500 mt-0.5">ค่าเฉลี่ยแบบ capped {DAILY_CAP.toLocaleString()} ก้าว/คน/วัน · หารด้วยจำนวนคนทั้งหมดในฝ่าย (รวม Pending)</p>
+            <p className="text-xs text-gray-500 mt-0.5">ค่าเฉลี่ย = ผลรวมจริง ÷ คนทั้งหมดในฝ่าย (Uncapped ไม่ตัดเพดาน)</p>
           </div>
           <div className="overflow-x-auto">
             {deptRows.map((d, idx) => {
@@ -402,11 +395,11 @@ export default function RankingContent() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-sm text-gray-900 dark:text-white truncate">{d.name}</p>
-                    <p className="text-xs text-gray-500">ทั้งหมด {d.participants} คน · ส่งแล้ว {d.activeParticipants} คน · ก้าวรวม capped {d.totalCapped.toLocaleString()} <span className="text-gray-400">(จริง {d.totalActual.toLocaleString()})</span></p>
+                    <p className="text-xs text-gray-500">ทั้งหมด {d.participants} คน · ส่งแล้ว {d.activeParticipants} คน · ก้าวรวม {d.totalActual.toLocaleString()} ก้าว</p>
                   </div>
-                  <div className="shrink-0 text-right" title={`จริงเฉลี่ย ${d.avgActual.toLocaleString()}`}>
+                  <div className="shrink-0 text-right" title={`เฉลี่ย ${safeAvg.toLocaleString()} = ${d.totalActual.toLocaleString()} ÷ ${d.participants}`}>
                     <p className="font-black text-blue-600 dark:text-blue-400 tabular-nums">{safeAvg.toLocaleString()}</p>
-                    <p className="text-[10px] text-gray-400">ก้าว/คน (capped)</p>
+                    <p className="text-[10px] text-gray-400">ก้าว/คน</p>
                   </div>
                 </div>
               );
@@ -424,7 +417,9 @@ export default function RankingContent() {
         <div className="rounded-2xl border border-amber-200 dark:border-amber-800 overflow-hidden">
           <div className="px-5 py-4 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div>
-              <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="material-symbols-outlined text-amber-600">military_tech</span>เดอะแบกประจำฝ่าย</h4>
+              <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="material-symbols-outlined text-amber-600">military_tech</span>เดอะแบกประจำฝ่าย
+                <button onClick={() => setShowInfo(true)} className="w-6 h-6 rounded-full bg-amber-200 dark:bg-amber-800 text-amber-700 dark:text-amber-300 flex items-center justify-center text-xs font-bold">i</button>
+              </h4>
               <p className="text-xs text-gray-500 mt-0.5">เลือกฝ่ายเพื่อดูอันดับ Top ในฝ่ายตามช่วงเวลาเดียวกัน</p>
             </div>
             <select value={bagDept} onChange={e => setBagDept(e.target.value)}
@@ -468,7 +463,8 @@ export default function RankingContent() {
             </div>
           )}
         </div>
-      </GlassCard>
+        </GlassCard>
+      <RankingInfoModal open={showInfo} onClose={() => setShowInfo(false)} />
     </div>
   );
 }

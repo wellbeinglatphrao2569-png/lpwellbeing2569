@@ -3,7 +3,7 @@
  * Server-only AI: หลังรับข้อมูล จะเรียก AI ตรวจภาพทุกใบก่อนส่ง GAS — ถ้าผ่านจะ Approved ทันที ไม่ผ่านจะ Pending ให้ต่างฝ่ายตรวจ
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeStepsImage } from '@/lib/serverAi';
+import { analyzeStepsImage, isAutoApprovable } from '@/lib/serverAi';
 
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
 export const runtime = 'nodejs';
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
       let alertReason: any = step.Alert_Reason ?? '';
       let notes: any = step.Notes ?? '';
       let status = 'Approved';
-      // ถ้ามีภาพและมีคีย์ — ให้ AI ตรวจจริง
+      // ถ้ามีภาพและมีคีย์ — ให้ AI ตรวจจริง (Auto-Approve ต้อง 100% match)
       if (base64Raw && useAi) {
         try {
           const dataUrl = base64Raw.startsWith('data:') ? base64Raw : `data:image/jpeg;base64,${base64Raw}`;
@@ -149,15 +149,21 @@ export async function POST(request: NextRequest) {
           aiConf = ai.confidence ?? '';
           dateInImage = ai.dateInImage ?? '';
           dateMatch = ai.dateMatch === true ? 'TRUE' : ai.dateMatch === false ? 'FALSE' : '';
-          alertFlag = ai.alert ? 'TRUE' : 'FALSE';
-          alertReason = ai.alertReasons.join('; ');
-          if (ai.alert) status = 'Pending';
-          else status = 'Approved';
-          // ถ้า AI อ่านก้าวต่างจากที่กรอกมาก ให้ flag
-          if (ai.steps != null && Math.abs(ai.steps - userSteps) > Math.max(500, userSteps * 0.2)) {
-            alertFlag = 'TRUE';
-            alertReason = (alertReason ? alertReason + '; ' : '') + `จำนวนก้าวที่กรอก (${userSteps}) ต่างจากที่ AI อ่าน (${ai.steps})`;
+          // เงื่อนไข Auto-Approve: steps ตรง 100% AND date ตรง AND confidence >=0.8 AND ไม่มี alert
+          const autoOk = isAutoApprovable(ai.steps, Number(userSteps), ai.dateMatch, ai.confidence);
+          const stepsExact = ai.steps != null && Number(ai.steps) === Number(userSteps);
+          let reasons = [...ai.alertReasons];
+          if (!stepsExact && ai.steps != null) {
+            reasons.push(`จำนวนก้าวที่กรอก (${Number(userSteps).toLocaleString()}) ไม่ตรงกับที่ AI อ่าน (${Number(ai.steps).toLocaleString()}) — ต้องตรง 100%`);
+          }
+          alertReason = reasons.join('; ');
+          alertFlag = reasons.length > 0 ? 'TRUE' : 'FALSE';
+          if (autoOk && reasons.length === 0) {
+            status = 'Approved';
+          } else {
             status = 'Pending';
+            alertFlag = 'TRUE';
+            if (!alertReason) alertReason = 'ไม่เข้าเงื่อนไขอนุมัติอัตโนมัติ — รอเจ้าหน้าที่ต่างฝ่ายตรวจ';
           }
           notes = (notes ? notes + ' | ' : '') + ai.notes;
         } catch (e) {

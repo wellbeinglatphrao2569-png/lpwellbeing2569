@@ -269,14 +269,7 @@ export default function WeeklyReportDocument({
               </tbody>
             </table>
           </div>
-        </div>
-
-        <div className="px-6 pb-3 text-[8px] text-gray-400 text-right border-t border-gray-100 pt-2">หน้า 1 / 3</div>
-      </div>
-
-      {/* ===== PAGE 2 ===== */}
-      <div className="report-page bg-white mx-auto max-w-[210mm] shadow-lg border border-gray-200 print:shadow-none print:border-none mb-6 print:mb-0">
-        <div className="px-6 py-4 space-y-4">
+        {/* — ไหลต่อเนื่อง: ไม่มีแบ่งหน้าใน Preview, พิมพ์จะตัดตาม A4 อัตโนมัติ — */}
           {/* 5 */}
           <div className="section-block">
             <div className="section-title bg-amber-600 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">5. อันดับบุคลากร Top 3 ประจำส่วนราชการ ประจำสัปดาห์นี้</div>
@@ -356,13 +349,7 @@ export default function WeeklyReportDocument({
               </tbody>
             </table>
           </div>
-        </div>
-        <div className="px-6 pb-3 text-[8px] text-gray-400 text-right border-t border-gray-100 pt-2">หน้า 2 / 3</div>
-      </div>
 
-      {/* ===== PAGE 3 ===== */}
-      <div className="report-page bg-white mx-auto max-w-[210mm] shadow-lg border border-gray-200 print:shadow-none print:border-none">
-        <div className="px-6 py-4 space-y-4">
           {/* 7 */}
           <div className="section-block">
             <div className="section-title bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-t-lg">7. สถิติกิจกรรม “พุธนี้ไม่มีเชื่อม” (งดหวานวันพุธ) ประจำสัปดาห์นี้</div>
@@ -496,7 +483,6 @@ export default function WeeklyReportDocument({
             <span>พิมพ์เมื่อ {formatPrintDate()}</span>
           </div>
         </div>
-        <div className="px-6 pb-3 text-[8px] text-gray-400 text-right border-t border-gray-100 pt-2">หน้า 3 / 3</div>
       </div>
       {/* Footer เลขหน้าขวาล่าง ทุกหน้า A4 (fixed จะซ้ำทุกหน้าเมื่อพิมพ์) */}
       <div className="print-footer" aria-hidden />

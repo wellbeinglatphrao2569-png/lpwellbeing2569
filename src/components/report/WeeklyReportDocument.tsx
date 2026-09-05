@@ -95,35 +95,34 @@ export default function WeeklyReportDocument({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
         .report-root, .report-page { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; }
-        .print-footer { display: none; }
-        /* ยึด A4 แนวตั้ง 210×297 mm ทุกหน้า — Choice B: ไหลอิสระ แต่แถวห้ามขาดครึ่ง */
+        /* ยึด A4 แนวตั้ง 210×297 mm ทุกหน้า */
         @page {
           size: A4 portrait;
           size: 210mm 297mm;
-          margin: 15mm 15mm 20mm 15mm; /* ล่าง 20mm เผื่อ footer เลขหน้า */
+          margin: 15mm 15mm 20mm 15mm;
         }
         @media print {
           html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0 !important; padding: 0 !important; background: white !important; }
           .no-print { display: none !important; }
           .report-root { background: white !important; padding: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; }
-          .report-page { box-shadow: none !important; border: none !important; margin: 0 auto !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; break-after: page; page-break-after: always; break-inside: auto; page-break-inside: auto; box-sizing: border-box; }
+          /* หน้าจอพรีวิว 210mm — ตอนพิมพ์ให้พอดีพื้นที่พิมพ์ (210-30=180mm) ไม่บิดเบี้ยว */
+          .report-page { box-shadow: none !important; border: none !important; margin: 0 auto !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; break-after: page; page-break-after: always; break-inside: auto; box-sizing: border-box; }
           .report-page:last-child { break-after: auto; page-break-after: auto; }
-          /* Choice B: ไหลต่อเนื่อง — ยกเลิก keep-together เพื่อลดช่องว่าง แต่คง tr ห้ามขาดครึ่ง + หัวตารางซ้ำ */
-          table { break-inside: auto; page-break-inside: auto; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; }
-          thead { display: table-header-group !important; break-inside: avoid; }
+          /* ไหลต่อเนื่อง: ไม่บังคับอยู่หน้าเดียวกัน — ปล่อยไหลตาม A4 ได้เรื่อยๆ */
+          table { break-inside: auto !important; page-break-inside: auto !important; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; }
+          thead { display: table-header-group !important; }
           tfoot { display: table-footer-group !important; }
-          tr { break-inside: avoid !important; page-break-inside: avoid !important; }
-          tbody { break-inside: auto; page-break-inside: auto; }
+          tr, tbody, td, th { break-inside: auto !important; page-break-inside: auto !important; }
           .section-block { break-inside: auto !important; page-break-inside: auto !important; }
-          .section-title { break-after: auto !important; page-break-after: auto !important; break-inside: auto !important; page-break-inside: auto !important; }
+          .section-title { break-inside: auto !important; page-break-inside: auto !important; break-after: auto !important; page-break-after: auto !important; }
           .keep-together { break-inside: auto !important; page-break-inside: auto !important; }
           .rounded-xl, .rounded-lg, .report-card { break-inside: auto !important; page-break-inside: auto !important; }
-          /* Footer เลขหน้า — แสดงทุกหน้า A4 มุมล่างกลาง */
-          .print-footer { position: fixed; bottom: 0; left: 0; right: 0; text-align: center; font-size: 7pt; color: #666; font-family: 'Sarabun', sans-serif; padding: 4px 0 0 0; border-top: 0.5pt solid #ccc; background: white; }
-          .print-footer:after { content: "หน้า " counter(page) " / " counter(pages); }
-          /* กันเนื้อหาทับ footer — เพิ่ม padding ล่างของหน้าสุดท้าย */
-          .report-page:last-child { padding-bottom: 10mm !important; }
+          /* Footer เลขหน้า ขวาล่าง ทุกหน้า */
+          .print-footer { position: fixed !important; bottom: 8mm !important; right: 15mm !important; left: auto !important; font-size: 7.5pt !important; color: #6b7280 !important; font-family: 'Sarabun', sans-serif !important; display: block !important; }
+          .print-footer::after { content: "หน้า " counter(page) " / " counter(pages); }
         }
+        @media screen {
+          .print-footer { display: none !important; }
         }
       `}</style>
 
@@ -499,8 +498,8 @@ export default function WeeklyReportDocument({
         </div>
         <div className="px-6 pb-3 text-[8px] text-gray-400 text-right border-t border-gray-100 pt-2">หน้า 3 / 3</div>
       </div>
-      {/* Footer เลขหน้า A4 — แสดงทุกหน้าเมื่อพิมพ์ (fixed repeat) */}
-      <div className="print-footer" aria-hidden>สำนักงานเขตลาดพร้าว · รายงานผลกิจกรรมสร้างสุขภาวะ · พิมพ์เมื่อ {formatPrintDate()} · </div>
+      {/* Footer เลขหน้าขวาล่าง ทุกหน้า A4 (fixed จะซ้ำทุกหน้าเมื่อพิมพ์) */}
+      <div className="print-footer" aria-hidden />
     </div>
   );
 }

@@ -97,6 +97,26 @@ export default function VerifyHistoryPage() {
   const [filterDate, setFilterDate] = useState(''); // YYYY-MM-DD (Date_Thai)
   const [filterMethod, setFilterMethod] = useState<string>(''); // '' = ทั้งหมด, 'google' | 'image' | 'batch'
   const [selected, setSelected] = useState<HistoryItem | null>(null);
+  // พับ/กางแถบย่อ: วันที่ → ฝ่าย → รายการ
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+  const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
+  function toggleDate(dateKey: string) {
+    setExpandedDates(prev => {
+      const next = new Set(prev);
+      if (next.has(dateKey)) next.delete(dateKey);
+      else next.add(dateKey);
+      return next;
+    });
+  }
+  function toggleDept(dateKey: string, dept: string) {
+    const key = `${dateKey}__${dept}`;
+    setExpandedDepts(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   const userMap = useMemo(() => {
     const m = new Map<string, User>();
@@ -363,28 +383,39 @@ export default function VerifyHistoryPage() {
           ไม่พบรายการตามเงื่อนไขที่เลือก
         </GlassCard>
       ) : (
-        <div className="space-y-5">
+        <>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button onClick={() => { const all = new Set(grouped.map(g=>g.dateKey)); setExpandedDates(all); const allDepts = new Set(grouped.flatMap(g=> g.deptGroups.map(dg=> `${g.dateKey}__${dg.dept}`))); setExpandedDepts(allDepts); }} className="px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-100">กางทั้งหมด</button>
+          <button onClick={() => { setExpandedDates(new Set()); setExpandedDepts(new Set()); }} className="px-3 py-1.5 rounded-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-xs font-bold hover:bg-gray-100">พับทั้งหมด</button>
+        </div>
+        <div className="space-y-3">
           {grouped.map(group => (
             <div key={group.dateKey} className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
-              {/* หัวข้อวัน */}
-              <div className="px-4 py-3 bg-emerald-50/70 dark:bg-emerald-900/20 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {/* หัวข้อวัน — แถบย่อ กดเพื่อกาง/พับ */}
+              <button onClick={() => toggleDate(group.dateKey)} className="w-full px-4 py-3 bg-emerald-50/70 dark:bg-emerald-900/20 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-x-3 gap-y-1 text-left hover:bg-emerald-100/70 dark:hover:bg-emerald-900/30 transition-colors">
+                <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400">{expandedDates.has(group.dateKey) ? 'expand_less' : 'expand_more'}</span>
                 <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400">calendar_month</span>
                 <span className="font-bold text-emerald-700 dark:text-emerald-400">{group.dateKey === 'unknown' ? 'วันที่ไม่ระบุ' : toThaiDateFull(group.dateKey)}</span>
                 <span className="text-xs text-gray-500 dark:text-gray-400">{group.items.length} รายการ</span>
                 <span className="text-xs text-gray-500 dark:text-gray-400">รวม {group.totalSteps.toLocaleString()} ก้าว</span>
                 <span className="text-xs text-gray-400">· {group.deptGroups.length} ฝ่าย</span>
-              </div>
-              {/* รายฝ่าย */}
+                <span className="ml-auto text-xs text-emerald-600 dark:text-emerald-400 font-bold">{expandedDates.has(group.dateKey) ? 'ซ่อน' : 'ดูฝ่าย'}</span>
+              </button>
+              {/* รายฝ่าย — แสดงเมื่อกางวันที่ */}
+              {expandedDates.has(group.dateKey) && (
               <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
                 {group.deptGroups.map(dg => (
                   <div key={dg.dept} className="">
-                    <div className="px-4 py-2 bg-gray-50 dark:bg-gray-700/30 flex flex-wrap items-center gap-2">
+                    <button onClick={() => toggleDept(group.dateKey, dg.dept)} className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-700/30 flex flex-wrap items-center gap-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
+                      <span className="material-symbols-outlined text-gray-500 text-base">{expandedDepts.has(`${group.dateKey}__${dg.dept}`) ? 'expand_less' : 'expand_more'}</span>
                       <span className="material-symbols-outlined text-gray-400 text-base">group</span>
                       <span className="text-sm font-bold text-gray-700 dark:text-gray-200">{dg.dept}</span>
                       <span className="text-xs px-1.5 py-0.5 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-500">{dg.items.length} คน</span>
                       <span className="text-xs text-gray-400">รวม {dg.items.reduce((s,it)=>s+(Number(it.Steps_Count)||0),0).toLocaleString()} ก้าว</span>
-                    </div>
-                    <div className="p-3 space-y-3">
+                      <span className="ml-auto text-xs text-gray-500 font-bold">{expandedDepts.has(`${group.dateKey}__${dg.dept}`) ? 'ซ่อน' : 'ดูรายการ'}</span>
+                    </button>
+                    {expandedDepts.has(`${group.dateKey}__${dg.dept}`) && (
+                    <div className="p-3 space-y-3 bg-gray-50/30 dark:bg-gray-800/30">
                       {dg.items.map(item => {
                         const isAlert = item.Alert_Flag === 'TRUE' || item.Alert_Flag === true;
                         const dateMatch = item.Date_Match === 'TRUE' || item.Date_Match === true ? true : item.Date_Match === 'FALSE' || item.Date_Match === false ? false : null;
@@ -451,12 +482,15 @@ export default function VerifyHistoryPage() {
                         );
                       })}
                     </div>
+                    )}
                   </div>
                 ))}
               </div>
+              )}
             </div>
           ))}
         </div>
+        </>
       )}
 
       {/* Popup รายละเอียด (ดูอย่างเดียว) */}
@@ -510,7 +544,7 @@ export default function VerifyHistoryPage() {
               ) : String(sel.Record_Method||'').toLowerCase().includes('google') ? (
                 <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
                   <span className="material-symbols-outlined text-xl">watch</span>
-                  <span><b>Google Fit</b> — ซิงค์อัตโนมัติ ไม่มีรูปภาพหลักฐาน (ลบได้เช่นเดียวกับรูป)</span>
+                  <span><b>Google Fit</b> — ซิงค์อัตโนมัติ ไม่มีรูปภาพหลักฐาน</span>
                 </div>
               ) : (
                 <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300 flex items-center gap-1.5">

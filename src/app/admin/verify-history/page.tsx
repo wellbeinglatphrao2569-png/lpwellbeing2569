@@ -57,6 +57,34 @@ function AiBadge() {
   );
 }
 
+function methodLabel(method?: string): string {
+  const m = String(method || '').trim();
+  if (!m) return 'ไม่ระบุ';
+  if (m === 'ภาพถ่าย' || m.toLowerCase().includes('ภาพถ่าย') || m.includes('เจ้าหน้าที่')) return m.includes('เจ้าหน้าที่') ? 'เจ้าหน้าที่บันทึกให้ (รูป)' : 'ภาพถ่าย';
+  if (m.toLowerCase().includes('google')) return 'Google Fit';
+  return m;
+}
+function MethodBadge({ method }: { method?: string }) {
+  const m = String(method || '').trim().toLowerCase();
+  const isGoogle = m.includes('google');
+  const isBatch = m.includes('เจ้าหน้าที่');
+  if (isGoogle) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800"><span className="material-symbols-outlined text-xs">watch</span>Google Fit</span>;
+  if (isBatch) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800"><span className="material-symbols-outlined text-xs">group</span>รายกลุ่ม (รูป)</span>;
+  if (m.includes('ภาพถ่าย') || m.includes('manual') || m.includes('ocr')) return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"><span className="material-symbols-outlined text-xs">image</span>ภาพถ่าย</span>;
+  return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600">{methodLabel(method)}</span>;
+}
+
+function isBatchAiAuto(item: { Record_Method?: string; Status?: string; Alert_Flag?: string | boolean }): boolean {
+  const m = String(item.Record_Method || '');
+  const st = String(item.Status || '').trim();
+  const alert = String(item.Alert_Flag || 'FALSE').toUpperCase();
+  return m.includes('เจ้าหน้าที่') && st === 'Approved' && alert !== 'TRUE';
+}
+function isAiReviewer(item: { Auditor_ID?: string; Record_Method?: string; Status?: string; Alert_Flag?: string | boolean }): boolean {
+  const blank = !item.Auditor_ID || String(item.Auditor_ID).trim() === '';
+  return blank || isBatchAiAuto(item as any);
+}
+
 export default function VerifyHistoryPage() {
   const { isLoggedIn, isAdmin, user } = useAuth() as any;
   const [steps, setSteps] = useState<StepsLog[]>([]);
@@ -67,6 +95,7 @@ export default function VerifyHistoryPage() {
   const [reviewer, setReviewer] = useState('');
   const [filterDept, setFilterDept] = useState('');
   const [filterDate, setFilterDate] = useState(''); // YYYY-MM-DD (Date_Thai)
+  const [filterMethod, setFilterMethod] = useState<string>(''); // '' = ทั้งหมด, 'google' | 'image' | 'batch'
   const [selected, setSelected] = useState<HistoryItem | null>(null);
 
   const userMap = useMemo(() => {
@@ -93,10 +122,12 @@ export default function VerifyHistoryPage() {
 
   const historyItems: HistoryItem[] = useMemo(() => {
     return steps
-      .filter(s =>
-        (s.Record_Method === 'ภาพถ่าย' || (s.Image_Drive_ID && String(s.Image_Drive_ID).trim() !== '')) &&
-        s.Status !== 'Pending'
-      )
+      .filter(s => {
+        const st = String(s.Status || '').trim();
+        // ประวัติ = เฉพาะที่ตรวจแล้ว (Approved/Rejected) — แสดงทุกวิธี: ภาพถ่ายรายคน/กลุ่ม, Google Fit, เจ้าหน้าที่บันทึกให้ ฯลฯ
+        // ตัด Pending ออก (อยู่ในหน้า verify-steps)
+        return st === 'Approved' || st === 'Rejected';
+      })
       .map(s => {
         const u = userMap.get(String(s.User_ID));
         return {
@@ -131,6 +162,7 @@ export default function VerifyHistoryPage() {
     const rq = reviewer.trim().toLowerCase();
     const dq = filterDept.trim();
     const dateKey = filterDate.trim(); // YYYY-MM-DD
+    const mq = filterMethod.trim().toLowerCase();
     return historyItems.filter(i => {
       const submitMatch = !sq ||
         String(i.userName || '').toLowerCase().includes(sq) ||
@@ -143,10 +175,18 @@ export default function VerifyHistoryPage() {
         const itemKey = toDateKey(i.Date_Thai);
         if (itemKey !== dateKey) return false;
       }
+      if (mq) {
+        const m = String(i.Record_Method || '').toLowerCase();
+        const hasImage = !!String(i.Image_Drive_ID || '').trim();
+        if (mq === 'google' && !m.includes('google')) return false;
+        if (mq === 'image' && (m.includes('google') || (!hasImage && m.includes('เจ้าหน้าที่')))) return false;
+        if (mq === 'batch' && !m.includes('เจ้าหน้าที่')) return false;
+        if (mq === 'other' && (m.includes('google') || m.includes('เจ้าหน้าที่') || m.includes('ภาพถ่าย') || hasImage)) return false;
+      }
       if (rq) {
-        // รองรับ AI: ถ้า Auditor ว่าง ให้ค้นคำว่า ai ได้
-        const isAi = !i.Auditor_ID || String(i.Auditor_ID).trim() === '';
-        const auditor = i.Auditor_ID ? (userMap.get(String(i.Auditor_ID)) || null) : null;
+        // รองรับ AI: รายกลุ่ม auto-approve ให้ถือเป็น AI ด้วยแม้ Auditor_ID จะเป็นคนบันทึก
+        const isAi = isAiReviewer(i);
+        const auditor = !isAi && i.Auditor_ID ? (userMap.get(String(i.Auditor_ID)) || null) : null;
         const auditorName = auditor ? displayName(auditor) : (isAi ? 'AI ระบบอัตโนมัติ' : String(i.Auditor_ID || ''));
         const auditorDept = auditor?.Department || '';
         const hay = `${auditorName} ${auditorDept} ${String(i.Auditor_ID || '')}`.toLowerCase();
@@ -154,7 +194,7 @@ export default function VerifyHistoryPage() {
       }
       return true;
     });
-  }, [historyItems, submitter, status, reviewer, filterDept, filterDate, userMap]);
+  }, [historyItems, submitter, status, reviewer, filterDept, filterDate, filterMethod, userMap]);
 
   // จัดกลุ่ม: วัน (Date_Thai) → ฝ่าย
   const grouped = useMemo(() => {
@@ -180,7 +220,7 @@ export default function VerifyHistoryPage() {
     });
   }, [filtered]);
 
-  const hasActiveFilter = !!submitter.trim() || status !== 'all' || !!reviewer.trim() || !!filterDept.trim() || !!filterDate.trim();
+  const hasActiveFilter = !!submitter.trim() || status !== 'all' || !!reviewer.trim() || !!filterDept.trim() || !!filterDate.trim() || !!filterMethod.trim();
 
   function clearFilters() {
     setSubmitter('');
@@ -188,6 +228,7 @@ export default function VerifyHistoryPage() {
     setReviewer('');
     setFilterDept('');
     setFilterDate('');
+    setFilterMethod('');
   }
 
   const sel = selected;
@@ -195,8 +236,8 @@ export default function VerifyHistoryPage() {
   const selDateMatch = sel ? (sel.Date_Match === 'TRUE' || sel.Date_Match === true ? true : sel.Date_Match === 'FALSE' || sel.Date_Match === false ? false : null) : null;
   const selConfidence = sel && sel.AI_Confidence != null && sel.AI_Confidence !== '' ? Number(sel.AI_Confidence) : null;
   const selAiSteps = sel && sel.AI_Steps != null && sel.AI_Steps !== '' ? Number(sel.AI_Steps) : null;
-  const selAuditor = sel?.Auditor_ID ? (userMap.get(String(sel.Auditor_ID)) || users.find(u=> String(u.User_ID)===String(sel.Auditor_ID) || String(u.Personnel_ID)===String(sel.Auditor_ID)) || null) : null;
-  const selIsAiAuditor = !!sel && (!sel.Auditor_ID || String(sel.Auditor_ID).trim() === '');
+  const selAuditor = sel && !isAiReviewer(sel) ? (userMap.get(String(sel.Auditor_ID)) || users.find(u=> String(u.User_ID)===String(sel.Auditor_ID) || String(u.Personnel_ID)===String(sel.Auditor_ID)) || null) : null;
+  const selIsAiAuditor = !!sel && isAiReviewer(sel);
   const [confirmDelete, setConfirmDelete] = useState<HistoryItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -244,7 +285,7 @@ export default function VerifyHistoryPage() {
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">ประวัติการตรวจสอบก้าวเดิน</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">จัดหมวด <b>รายวัน</b> ตามวันที่นับก้าว · แยกย่อย <b>รายฝ่าย</b> — คลิกการ์ดเพื่อดูรายละเอียดและภาพหลักฐาน</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">แสดงทั้งหมด <b>ภาพถ่ายรายคน/รายกลุ่ม + Google Fit</b> ที่ตรวจแล้ว (อนุมัติ/ไม่อนุมัติ) — จัดหมวด <b>รายวัน</b> แยกย่อย <b>รายฝ่าย</b> — คลิกการ์ดเพื่อดูรายละเอียดและลบได้ทุกวิธี</p>
         </div>
         <Link href="/admin/verify-steps"
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 font-semibold text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors shrink-0">
@@ -276,6 +317,16 @@ export default function VerifyHistoryPage() {
           วันที่นับก้าว
           <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
             className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
+          วิธีบันทึก
+          <select value={filterMethod} onChange={e => setFilterMethod(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 min-w-[150px]">
+            <option value="">ทั้งหมด (รูป+Google Fit)</option>
+            <option value="image">ภาพถ่ายรายคน</option>
+            <option value="batch">รายกลุ่ม (เจ้าหน้าที่บันทึกให้)</option>
+            <option value="google">Google Fit</option>
+          </select>
         </label>
         <label className="flex flex-col gap-1 text-xs font-semibold text-gray-500 dark:text-gray-400">
           สถานะ
@@ -339,7 +390,7 @@ export default function VerifyHistoryPage() {
                         const dateMatch = item.Date_Match === 'TRUE' || item.Date_Match === true ? true : item.Date_Match === 'FALSE' || item.Date_Match === false ? false : null;
                         const confidence = item.AI_Confidence != null && item.AI_Confidence !== '' ? Number(item.AI_Confidence) : null;
                         const aiSteps = item.AI_Steps != null && item.AI_Steps !== '' ? Number(item.AI_Steps) : null;
-                        const isAiAuditor = !item.Auditor_ID || String(item.Auditor_ID).trim() === '';
+                        const isAiAuditor = isAiReviewer(item);
                         const auditor = !isAiAuditor ? (userMap.get(String(item.Auditor_ID)) || users.find(u => String(u.User_ID) === String(item.Auditor_ID) || String(u.Personnel_ID) === String(item.Auditor_ID)) || null) : null;
                         const isApproved = item.Status === 'Approved';
                         // เวลาตรวจ: ใช้ Reviewed_At ก่อน ถ้าว่างและเป็น AI ให้ fallback Recorded_At
@@ -362,7 +413,8 @@ export default function VerifyHistoryPage() {
                                   </p>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <MethodBadge method={item.Record_Method} />
                                 {isAlert && <AlertBadge />}
                                 <StatusBadge status={item.Status} />
                               </div>
@@ -371,12 +423,13 @@ export default function VerifyHistoryPage() {
                               const submitted = item.Submitted_Steps != null && String(item.Submitted_Steps).trim() !== '' ? Number(item.Submitted_Steps) : Number(item.Steps_Count);
                               const finalSteps = Number(item.Steps_Count);
                               const isEdited = !isNaN(submitted) && !isNaN(finalSteps) && submitted !== finalSteps;
+                              const isGoogleFit = String(item.Record_Method || '').toLowerCase().includes('google');
                               return (
                                 <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
                                   <span>ส่งครั้งแรก <b className="text-gray-700 dark:text-gray-200">{submitted.toLocaleString()}</b> ก้าว</span>
                                   <span className={isEdited ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>ตรวจสอบแล้ว <b>{finalSteps.toLocaleString()}</b> ก้าว {isEdited && <span className="text-xs font-normal">({finalSteps > submitted ? `+${(finalSteps - submitted).toLocaleString()}` : `${(finalSteps - submitted).toLocaleString()}`})</span>}</span>
                                   {isEdited && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${finalSteps === submitted ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700'}`}>{finalSteps === submitted ? 'ตรงกัน' : 'ต่างกัน'}</span>}
-                                  <span>AI อ่านได้ <b className="text-purple-600 dark:text-purple-400">{aiSteps != null ? aiSteps.toLocaleString() : '—'}</b> ({confidence != null ? Math.round(confidence * 100) : '—'}%)</span>
+                                  {!isGoogleFit && <span>AI อ่านได้ <b className="text-purple-600 dark:text-purple-400">{aiSteps != null ? aiSteps.toLocaleString() : '—'}</b> ({confidence != null ? Math.round(confidence * 100) : '—'}%)</span>}
                                   <span>วันที่ในภาพ: {dateMatch === true ? <b className="text-emerald-600 dark:text-emerald-400">ตรงกัน</b> : dateMatch === false ? <b className="text-red-600 dark:text-red-400">ไม่ตรง</b> : <b className="text-amber-600 dark:text-amber-400">ไม่พบ/ไม่ชัด</b>}</span>
                                 </div>
                               );
@@ -424,7 +477,8 @@ export default function VerifyHistoryPage() {
                   <p className="text-xs text-gray-500 dark:text-gray-400">{sel.userDept || 'ไม่ระบุฝ่าย'}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <MethodBadge method={sel.Record_Method} />
                 {selIsAlert && <AlertBadge />}
                 {selIsAiAuditor && <AiBadge />}
                 <StatusBadge status={sel.Status} />
@@ -436,6 +490,10 @@ export default function VerifyHistoryPage() {
             </div>
 
             <div className="p-5 space-y-4">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span>วิธีบันทึก:</span> <MethodBadge method={sel.Record_Method} />
+                {sel.Record_Method && <span className="text-gray-400">({sel.Record_Method})</span>}
+              </div>
               {sel.Image_Drive_ID ? (
                 <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
                   <ProofImage fileId={sel.Image_Drive_ID} alt={`หลักฐานก้าว ${sel.userName}`} onClick={src => window.open(src, '_blank')} />
@@ -449,10 +507,15 @@ export default function VerifyHistoryPage() {
                     เปิดใน Google Drive
                   </button>
                 </div>
+              ) : String(sel.Record_Method||'').toLowerCase().includes('google') ? (
+                <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-xl">watch</span>
+                  <span><b>Google Fit</b> — ซิงค์อัตโนมัติ ไม่มีรูปภาพหลักฐาน (ลบได้เช่นเดียวกับรูป)</span>
+                </div>
               ) : (
-                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-base">image_not_supported</span>
-                  ไม่มีรูปภาพหลักฐาน (อัปโหลดภาพไม่สำเร็จ)
+                  ไม่มีรูปภาพหลักฐาน
                 </div>
               )}
 
@@ -510,14 +573,14 @@ export default function VerifyHistoryPage() {
               </div>
               <div className="flex justify-end pt-2">
                 <button onClick={() => setConfirmDelete(sel)} disabled={deleting} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
-                  <span className="material-symbols-outlined text-base">delete</span> ลบข้อมูลนี้ (พร้อมรูป) เพื่อให้กรอกใหม่ได้
+                  <span className="material-symbols-outlined text-base">delete</span> {String(sel.Record_Method||'').toLowerCase().includes('google') ? 'ลบข้อมูล Google Fit นี้เพื่อให้ซิงค์ใหม่ได้' : 'ลบข้อมูลนี้ (พร้อมรูป) เพื่อให้กรอกใหม่ได้'}
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-      <ConfirmPopup open={!!confirmDelete} title="ยืนยันการลบ" message={`คุณกำลังจะลบประวัติก้าวของ "${confirmDelete?.userName || ''}" วันที่ ${confirmDelete ? safeThaiDate(confirmDelete.Date_Thai) : ''} จำนวน ${confirmDelete ? Number(confirmDelete.Steps_Count).toLocaleString() : ''} ก้าว พร้อมรูปภาพ — ลบแล้วต้องกรอกใหม่ แน่ใจหรือไม่?`} variant="danger" loading={deleting} onConfirm={() => confirmDelete && handleDelete(confirmDelete)} onClose={() => setConfirmDelete(null)} />
+      <ConfirmPopup open={!!confirmDelete} title="ยืนยันการลบ" message={`คุณกำลังจะลบประวัติก้าวของ "${confirmDelete?.userName || ''}" วันที่ ${confirmDelete ? safeThaiDate(confirmDelete.Date_Thai) : ''} จำนวน ${confirmDelete ? Number(confirmDelete.Steps_Count).toLocaleString() : ''} ก้าว ${confirmDelete?.Image_Drive_ID ? 'พร้อมรูปภาพ' : String(confirmDelete?.Record_Method||'').toLowerCase().includes('google') ? '(Google Fit)' : ''} — ลบแล้วต้องกรอกใหม่ แน่ใจหรือไม่?`} variant="danger" loading={deleting} onConfirm={() => confirmDelete && handleDelete(confirmDelete)} onClose={() => setConfirmDelete(null)} />
     </div>
   );
 }

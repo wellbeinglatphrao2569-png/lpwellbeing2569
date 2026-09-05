@@ -3317,7 +3317,18 @@ function addBatchSteps_(data) {
         set('Alert_Flag', item.Alert_Flag || 'FALSE');
         set('Alert_Reason', item.Alert_Reason || '');
         set('Status', finalStatus2);
-        set('Auditor_ID', String(data.Logged_By));
+        // AI อนุมัติอัตโนมัติ (รายกลุ่ม): ถ้า Approved และไม่มี Alert → ให้ AI เป็นผู้ตรวจ (Auditor ว่าง) เพื่อให้ verify-history แสดง "AI ระบบอัตโนมัติ" พร้อมเวลา
+        var isAiAuto2 = finalStatus2 === 'Approved' && String(item.Alert_Flag || 'FALSE') !== 'TRUE';
+        if (isAiAuto2) {
+          set('Auditor_ID', '');
+          set('Reviewed_At', getTimestamp_());
+        } else if (finalStatus2 === 'Pending') {
+          set('Auditor_ID', '');
+          set('Reviewed_At', '');
+        } else {
+          set('Auditor_ID', String(data.Logged_By));
+          set('Reviewed_At', '');
+        }
         set('Recorded_At', getTimestamp_());
         if (item.Notes) set('Notes', item.Notes);
         saved++;
@@ -3346,8 +3357,9 @@ function addBatchSteps_(data) {
       Alert_Reason: item.Alert_Reason || '',
       Status: finalStatus,
       Week_Number: getWeekNumber_(),
-      Auditor_ID: String(data.Logged_By),
+      Auditor_ID: (finalStatus === 'Approved' && String(item.Alert_Flag || 'FALSE') !== 'TRUE') ? '' : (finalStatus === 'Pending' ? '' : String(data.Logged_By)),
       Recorded_At: getTimestamp_(),
+      Reviewed_At: (finalStatus === 'Approved' && String(item.Alert_Flag || 'FALSE') !== 'TRUE') ? getTimestamp_() : '',
       Notes: item.Notes || ''
     });
     

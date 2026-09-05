@@ -95,20 +95,26 @@ export default function WeeklyReportDocument({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
         .report-root, .report-page { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; }
+        /* ยึด A4 แนวตั้ง 210×297 mm ทุกหน้า */
+        @page {
+          size: A4 portrait;
+          size: 210mm 297mm;
+          margin: 15mm;
+        }
         @media print {
-          @page { size: A4 portrait; margin: 15mm; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0 !important; padding: 0 !important; background: white !important; }
           .no-print { display: none !important; }
-          .report-root { background: white !important; padding: 0 !important; }
-          .report-page { box-shadow: none !important; border: none !important; margin: 0 !important; break-after: page; page-break-after: always; break-inside: auto; }
+          .report-root { background: white !important; padding: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; }
+          /* หน้าจอพรีวิว 210mm — ตอนพิมพ์ให้พอดีพื้นที่พิมพ์ (210-30=180mm) ไม่บิดเบี้ยว */
+          .report-page { box-shadow: none !important; border: none !important; margin: 0 auto !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; break-after: page; page-break-after: always; break-inside: auto; box-sizing: border-box; }
           .report-page:last-child { break-after: auto; page-break-after: auto; }
           /* จัดหน้า: ตารางยาวให้ตัดหน้าได้ แต่แถวห้ามขาดครึ่ง + หัวตารางซ้ำทุกหน้า */
-          table { break-inside: auto; page-break-inside: auto; border-collapse: collapse !important; }
+          table { break-inside: auto; page-break-inside: auto; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; }
           thead { display: table-header-group !important; break-inside: avoid; }
           tfoot { display: table-footer-group !important; }
           tr { break-inside: avoid !important; page-break-inside: avoid !important; }
           tbody { break-inside: auto; }
-          /* หัวข้อแต่ละหมวด (เช่น 2. ตาราง...) ให้ติดกับตาราง ไม่ให้หลุดเดี่ยวท้ายหน้า */
+          /* หัวข้อแต่ละหมวด (เช่น 2. ตาราง...) ให้ติดกับตาราง ไม่ให้หลุดเดี่ยวท้ายหน้า และซ้ำหน้าใหม่พร้อมหัวตารางเมื่อตัดหน้า */
           .section-block { break-inside: auto; page-break-inside: auto; }
           .section-title { break-after: avoid !important; page-break-after: avoid !important; break-inside: avoid !important; page-break-inside: avoid !important; }
           /* การ์ดสรุป/ลายเซ็น ควรอยู่หน้าเดียวกันถ้าเป็นไปได้ */

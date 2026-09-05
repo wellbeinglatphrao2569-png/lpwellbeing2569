@@ -276,17 +276,19 @@ export default function AdminReportPage() {
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 ${styleTags}
 <style>
-  @page { size: A4 portrait; margin: 15mm; }
+  /* ยึด A4 แนวตั้ง 210×297 mm ทุกหน้า — พื้นที่พิมพ์ 180×267 mm หลังหัก margin 15mm */
+  @page { size: A4 portrait; size: 210mm 297mm; margin: 15mm; }
   html, body { font-family: 'Sarabun','TH Sarabun PSK',system-ui,sans-serif; color:#000; background:#fff; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .page-container { width:100%; max-width:210mm; margin:0 auto; }
+  .page-container { width:100%; max-width:210mm; margin:0 auto; box-sizing: border-box; }
   @media print {
+    html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; width: 100% !important; max-width: 100% !important; }
     .no-print { display:none !important; }
-    body { background:#fff !important; }
-    .report-root { background:#fff !important; padding:0 !important; }
-    .report-page { box-shadow:none !important; border:none !important; margin:0 !important; break-after: page; page-break-after: always; break-inside: auto; }
+    .page-container { width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important; }
+    .report-root { background:#fff !important; padding:0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; }
+    .report-page { box-shadow:none !important; border:none !important; margin:0 auto !important; padding:0 !important; width:100% !important; max-width:100% !important; break-after: page; page-break-after: always; break-inside: auto; box-sizing: border-box; }
     .report-page:last-child { break-after: auto; page-break-after: auto; }
-    /* จัดหน้า: หัวตารางซ้ำทุกหน้าเมื่อข้อมูลล้น */
-    table { break-inside: auto; page-break-inside: auto; border-collapse: collapse !important; }
+    /* จัดหน้า: หัวตารางซ้ำทุกหน้าเมื่อข้อมูลล้น + แถวไม่ขาดครึ่ง */
+    table { break-inside: auto; page-break-inside: auto; border-collapse: collapse !important; width: 100% !important; max-width: 100% !important; }
     thead { display: table-header-group !important; break-inside: avoid; }
     tfoot { display: table-footer-group !important; }
     tr { break-inside: avoid !important; page-break-inside: avoid !important; }

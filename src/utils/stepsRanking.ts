@@ -325,7 +325,7 @@ function deptAllCounts(users: User[]): Map<string, number> {
   return m;
 }
 
-/** จัดอันดับรายส่วนราชการ แบบ Uncapped (สเปคใหม่ 1.3): S_total ÷ N_registered — ไม่ตัดเพดาน */
+/** จัดอันดับรายส่วนราชการ แบบ Uncapped — แสดงเฉพาะฝ่ายที่มี Approved ในช่วง (แม้ 0 ก้าวก็ตาม, Pending ไม่นับ) */
 export function deptRankingUncapped(
   users: User[],
   totalsActual: Map<string, number>,
@@ -334,15 +334,24 @@ export function deptRankingUncapped(
   const allCounts = deptAllCounts(users);
   const sumActual = new Map<string, number>();
   const active = new Map<string, number>();
+  const deptHasApproved = new Map<string, boolean>();
   for (const u of users) {
     const dept = String(u.Department || '').trim();
     if (!dept) continue;
+    const uid = String((u as any).User_ID ?? '').trim();
+    const pid = String((u as any).Personnel_ID ?? '').trim();
+    const hasApproved = (uid && totalsActual.has(uid)) || (pid && totalsActual.has(pid));
+    if (hasApproved) deptHasApproved.set(dept, true);
     const actual = stepsForUser(u, totalsActual);
-    if (actual > 0) active.set(dept, (active.get(dept) || 0) + 1);
-    if (actual > 0) sumActual.set(dept, (sumActual.get(dept) || 0) + actual);
+    // นับเฉพาะผู้ที่มี Approved ในช่วง (แม้ 0 ก้าว) — Pending ไม่นับ จึงต้องเช็ค hasApproved ไม่ใช่ actual>0
+    if (hasApproved) {
+      active.set(dept, (active.get(dept) || 0) + 1);
+      sumActual.set(dept, (sumActual.get(dept) || 0) + actual);
+    }
   }
   const rows: DeptCappedRow[] = [];
   for (const [name, totalMembers] of allCounts) {
+    if (!deptHasApproved.get(name)) continue; // ยังไม่มี Approved ในช่วงนี้ → ไม่แสดง
     const ta = sumActual.get(name) || 0;
     const act = active.get(name) || 0;
     rows.push({
@@ -357,7 +366,7 @@ export function deptRankingUncapped(
     });
   }
   for (const [name, ta] of sumActual) {
-    if (!allCounts.has(name)) {
+    if (!allCounts.has(name) && deptHasApproved.get(name)) {
       rows.push({ name, totalCapped: ta, totalActual: ta, participants: active.get(name) || 0, activeParticipants: active.get(name) || 0, avg: ta, avgActual: ta, isMine: name === currentDept });
     }
   }

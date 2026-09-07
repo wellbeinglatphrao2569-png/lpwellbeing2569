@@ -27,7 +27,7 @@ export interface AiImageAnalysis {
   notes: string;
   alert: boolean;
   alertReasons: string[];
-  provider?: 'gemini' | 'openrouter';
+  provider?: 'gemini' | 'openrouter' | 'typhoon';
   model?: string;
 }
 export type SweetFreeOtherReason = 'ลาป่วย' | 'ลากิจ' | 'ลาพักผ่อน' | 'อบรมนอกสถานที่' | string;

@@ -14,7 +14,7 @@ function extractBase64(imageBase64: string): string {
   return m ? m[1] : imageBase64;
 }
 function hasAiKeys(): boolean {
-  return !!(process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY);
+  return !!(process.env.TYPHOON_API_KEY || process.env.TYPHOON_OCR_API_KEY);
 }
 
 export async function POST(request: NextRequest) {

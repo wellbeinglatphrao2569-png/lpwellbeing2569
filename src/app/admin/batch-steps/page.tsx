@@ -45,16 +45,15 @@ function compressImage(file: File, maxDim=1024, quality=0.72): Promise<string> {
 function getUserKey(u: User): string { return String((u as any).User_ID || u.Personnel_ID || '').trim(); }
 function isPendingUser(u: User): boolean { return !String((u as any).User_ID || '').trim(); }
 
-// กระจาย AI คนละโมเดลต่อคนแบบ round-robin เพื่อลด 429 และให้แต่ละคนวิ่งบนโมเดลของตัวเองจนครบ
-type ProviderKey = 'gemini' | 'openrouter' | 'openrouter2' | 'openrouter3';
-const PROVIDERS: ProviderKey[] = ['gemini','openrouter','openrouter2','openrouter3'];
+// Typhoon เดี่ยว — ไม่ต้องกระจายหลายโมเดลแล้ว
+type ProviderKey = 'typhoon' | 'typhoon-preview';
+const PROVIDERS: ProviderKey[] = ['typhoon'];
 function hashUid(s: string): number { let h=0; for(let i=0;i<s.length;i++) h=(h*31 + s.charCodeAt(i))|0; return Math.abs(h); }
-function getProviderForUid(uid: string): ProviderKey { return PROVIDERS[hashUid(uid) % PROVIDERS.length]; }
-function providerLabel(p: ProviderKey): string { return p==='gemini' ? 'Gemini 2.5' : p==='openrouter' ? 'Gemma-4-26b' : p==='openrouter2' ? 'Gemma-3-27b' : 'Nemotron-3'; }
+function getProviderForUid(uid: string): ProviderKey { return 'typhoon'; }
+function providerLabel(p: ProviderKey): string { return p==='typhoon-preview' ? 'Typhoon OCR (preview)' : 'Typhoon OCR'; }
 function providerBadgeClass(p: ProviderKey | string): string {
-  if(p==='openrouter') return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200';
-  if(p==='openrouter2') return 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 border-teal-200';
-  if(p==='openrouter3') return 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 border-violet-200';
+  if(p==='typhoon-preview') return 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 border-violet-200';
+  if(p==='typhoon') return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200';
   return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200';
 }
 
@@ -235,7 +234,7 @@ export default function BatchStepsPage(){
     const targetUser = users.find(u=> String(u.User_ID)===userId || String((u as any).Personnel_ID)===userId);
     const userName = targetUser ? displayName(targetUser) : userId;
     // ใช้โมเดลเดียว (Gemini) สำหรับทุกคน — สลับเฉพาะเมื่อขัดข้อง/429/เกินโควตา (fallback ที่เซิร์ฟเวอร์จัดการให้)
-    const providerForThisUser: ProviderKey = 'gemini';
+    const providerForThisUser: ProviderKey = 'typhoon';
     setAiProcessing(true);
     setProcessingUserId(userId);
     setAiProgress({total: pending.length, done: 0, percent: 0, currentUserName: `${userName} [${providerLabel(providerForThisUser)}]`});
@@ -269,8 +268,8 @@ export default function BatchStepsPage(){
           notes: data.notes ?? '',
           alert: !!data.alert,
           alertReasons: data.alertReasons ?? [],
-          provider: (data.provider as any) ?? 'gemini',
-           model: data.model ?? (data.provider==='openrouter' ? 'google/gemma-4-26b-a4b-it:free' : 'gemini-2.5-flash'),
+          provider: (data.provider as any) ?? 'typhoon',
+           model: data.model ?? 'typhoon-ocr',
         };
         const targetDate = pickTargetDateForResult(userId, r.dateInImage, usedInBatch);
         usedInBatch.add(targetDate);
@@ -322,7 +321,7 @@ export default function BatchStepsPage(){
         const pending = (userFiles[uid]||[]).filter(f=> !f.aiResult);
         if(pending.length===0) return;
         const userName=displayName(u);
-        const assignedProvider: ProviderKey = 'gemini';
+        const assignedProvider: ProviderKey = 'typhoon';
         const usedInBatch = new Set<string>();
         for(const f of (userFiles[uid]||[])){ if(f.aiResult) usedInBatch.add(f.targetDate); }
         if(!allowOverwrite){ for(const d of weekDays){ if(existingMap.has(`${uid}|${d}`)) usedInBatch.add(d); } }
@@ -342,8 +341,8 @@ export default function BatchStepsPage(){
             notes: data.notes ?? '',
             alert: !!data.alert,
             alertReasons: data.alertReasons ?? [],
-            provider: (data.provider as any) ?? 'gemini',
-          model: data.model ?? (data.provider==='openrouter' ? 'google/gemma-3-27b-it:free' : 'gemini-2.5-flash'),
+            provider: (data.provider as any) ?? 'typhoon',
+          model: data.model ?? 'typhoon-ocr',
           };
           const targetDate = pickTargetDateForResult(uid, r.dateInImage, usedInBatch);
           usedInBatch.add(targetDate);
@@ -502,10 +501,10 @@ export default function BatchStepsPage(){
     }
     const totalToSave = payloadStepsPre.length || 1;
     setSaving(true);
-    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: 'Gemini 2.5 · Gemma-4-26b · Gemma-3-27b · Nemotron-3' });
-    // อนิเมชัน % ระหว่างรอเซิร์ฟเวอร์ประมวลผล AI (เพิ่มทีละนิดจนถึง 90% แล้วรอของจริง)
+    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: 'Typhoon OCR' });
+    // อนิเมชัน % ระหว่างรอเซิร์ฟเวอร์ประมวลผล AI
     let simPercent = 0;
-    const modelsCycle = ['Gemini 2.5-flash', 'Gemma-4-26b (free)', 'Gemma-3-27b (free)', 'Nemotron-3 (free)'];
+    const modelsCycle = ['Typhoon OCR', 'Typhoon OCR (preview)'];
     let modelIdx = 0;
     const simTimer = setInterval(()=>{
       simPercent = Math.min(90, simPercent + Math.random()*6 + 2);

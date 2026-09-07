@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     if (!expectedDate) return NextResponse.json({ error: 'expectedDate is required' }, { status: 400 });
     // provider mapping
     let providerHintNorm = hint;
-    if (preferredModel && String(preferredModel).includes('gemma')) providerHintNorm = 'openrouter2';
+    if (preferredModel && String(preferredModel).includes('preview')) providerHintNorm = 'typhoon-preview';
     const result = await analyzeStepsImage(imageBase64, expectedDate, providerHintNorm);
     return NextResponse.json(result);
   } catch (e: any) {

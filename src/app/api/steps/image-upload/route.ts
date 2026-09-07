@@ -12,14 +12,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeStepsImage, isAutoApprovable } from '@/lib/serverAi';
 
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const TYPHOON_MODEL = process.env.TYPHOON_OCR_MODEL || 'typhoon-ocr';
 
 function extractBase64(imageBase64: string): string {
   const match = imageBase64.match(/^data:[^;]+;base64,(.+)$/);
   return match ? match[1] : imageBase64;
 }
 function hasAiKeys(): boolean {
-  return !!(process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY);
+  return !!(process.env.TYPHOON_API_KEY || process.env.TYPHOON_OCR_API_KEY);
 }
 
 export const runtime = 'nodejs';
@@ -90,8 +90,8 @@ export async function POST(request: NextRequest) {
     let finalAlert: boolean = !!alert;
     let finalAlertReasons: string[] = Array.isArray(alertReasons) ? [...alertReasons] : [];
     let finalNotes = '';
-    let aiProvider: string = 'gemini';
-    let aiModel: string = GEMINI_MODEL;
+    let aiProvider: string = 'typhoon';
+    let aiModel: string = TYPHOON_MODEL;
     let serverStatus: 'Approved' | 'Pending' = 'Pending';
 
     if (imageBase64 && hasAiKeys()) {

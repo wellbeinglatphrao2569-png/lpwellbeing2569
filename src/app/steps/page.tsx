@@ -178,7 +178,7 @@ export default function StepsPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [aiProcessing, setAiProcessing] = useState(false);
-  const [aiProcessingModel, setAiProcessingModel] = useState('Gemma-4-26b (free)');
+  const [aiProcessingModel, setAiProcessingModel] = useState('Typhoon OCR');
   const [aiExtractedSteps, setAiExtractedSteps] = useState<number | null>(null);
   const [aiResult, setAiResult] = useState<AiImageAnalysis | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -533,8 +533,8 @@ export default function StepsPage() {
     setAiExtractedSteps(null);
     setAiResult(null);
     setAiError(null);
-    // แสดง Model ที่กำลังใช้ — หลักคือ Gemma-4 free (Gemini คีย์ปัจจุบันไม่ valid จะ fallback ทันที)
-    const modelsCycleAi = ['Gemma-4-26b (free)', 'Gemma-3-27b (free)', 'Nemotron-3 (free)'];
+    // แสดง Model ที่กำลังใช้ — Typhoon OCR เดี่ยว (fallback preview)
+    const modelsCycleAi = ['Typhoon OCR', 'Typhoon OCR (preview)'];
     let aiModelIdx = 0;
     setAiProcessingModel(modelsCycleAi[0]);
     const aiModelTimer = setInterval(() => {
@@ -597,9 +597,9 @@ export default function StepsPage() {
     setAiError(null);
     let simTimer: any = null;
     if (logMethod === 'image-upload') {
-      setSavingAiProgress({ percent: 0, model: 'Gemini 2.5-flash' });
+      setSavingAiProgress({ percent: 0, model: 'Typhoon OCR' });
       let pct = 0;
-      const models = ['Gemini 2.5-flash', 'Gemma-4-26b', 'Gemma-3-27b', 'Nemotron-3'];
+      const models = ['Typhoon OCR', 'Typhoon OCR (preview)'];
       let mi = 0;
       simTimer = setInterval(() => {
         pct = Math.min(88, pct + Math.random()*7 + 2);
@@ -636,7 +636,7 @@ export default function StepsPage() {
           }),
         });
         const data = await uploadRes.json().catch(() => ({}));
-        if (simTimer) { clearInterval(simTimer); setSavingAiProgress({ percent: 100, model: data.aiModel || 'Gemini 2.5-flash' }); await new Promise(r=> setTimeout(r, 600)); setSavingAiProgress(null); }
+        if (simTimer) { clearInterval(simTimer); setSavingAiProgress({ percent: 100, model: data.aiModel || 'Typhoon OCR' }); await new Promise(r=> setTimeout(r, 600)); setSavingAiProgress(null); }
         if (!uploadRes.ok || !data.success) {
           throw new Error(data.error || 'บันทึกไม่สำเร็จ');
         }
@@ -1079,7 +1079,7 @@ export default function StepsPage() {
                       🤖 กำลังใช้ {aiProcessingModel}
                     </span>
                     <span className="text-[11px] text-gray-500 dark:text-gray-400 text-center leading-relaxed">เนื่องจากใช้ Model AI รูปแบบฟรี จึงอาจทำให้ประมวลผลใช้เวลาสักหน่อย<br/>รออีกอึดใจเดียว ฮึบ ๆ ✊</span>
-                    <span className="text-[11px] text-gray-400">สลับอัตโนมัติ Gemma-4 → Gemma-3 → Nemotron หากช้า</span>
+                    <span className="text-[11px] text-gray-400">Typhoon OCR ฟรี 2 req/s — สลับ preview หากช้า</span>
                   </div>
                 )}
                 {aiError && (

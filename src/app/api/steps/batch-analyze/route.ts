@@ -1,111 +1,61 @@
 /**
- * AI — อ่านจำนวนก้าวจากภาพแบบกลุ่ม (Batch) รองรับกระจายโหลดหลายโมเดล
- *
+ * AI — อ่านจำนวนก้าวจากภาพแบบกลุ่ม (Batch) ใช้ Typhoon OCR เดี่ยว
  * POST /api/steps/batch-analyze
- * Body: { images: [{ imageBase64, expectedDate, preferredProvider?: "gemini"|"openrouter"|"openrouter2"|"auto", preferredModel?: string }] }
- * Response: { results: [{ steps, dateInImage, dateRaw, dateMatch, confidence, notes, alert, alertReasons, provider, model }] }
+ * Body: { images: [{ imageBase64, expectedDate, preferredProvider?: "typhoon"|"auto", preferredModel?: string }] }
  */
 import { NextRequest, NextResponse } from 'next/server';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-function isGeminiKeyValidBatch(): boolean { const k=GEMINI_API_KEY.trim(); return k.startsWith('AIza') && k.length>30; }
-const HAS_VALID_GEMINI_BATCH = isGeminiKeyValidBatch();
-function isRetryableBatch(msg: string): boolean { const m=msg.toLowerCase(); return m.includes('402')||m.includes('404')||m.includes('429')||m.includes('500')||m.includes('502')||m.includes('503')||m.includes('aborted')||m.includes('timeout')||m.includes('timed out')||m.includes('aborterror'); }
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it:free';
-const OPENROUTER_MODEL_2 = process.env.OPENROUTER_MODEL_2 || 'google/gemma-3-27b-it:free';
-const OPENROUTER_MODEL_3 = process.env.OPENROUTER_MODEL_3 || 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free';
+const TYPHOON_API_KEY = process.env.TYPHOON_API_KEY || process.env.TYPHOON_OCR_API_KEY || '';
+const TYPHOON_MODEL = process.env.TYPHOON_OCR_MODEL || 'typhoon-ocr';
+const TYPHOON_MODEL_FALLBACK = process.env.TYPHOON_OCR_MODEL_FALLBACK || 'typhoon-ocr-preview';
 const MIN_CONFIDENCE = 0.8;
 const MAX_REASONABLE_STEPS = 200000;
-const MAX_IMAGES = 49; // 7 people * 7 days
+const MAX_IMAGES = 49;
 
-async function callOpenRouterWithModelBatch(prompt: string, data: string, mime: string, model: string): Promise<string> {
-  if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY not configured');
-  const isNemotron = model.includes('nemotron');
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+function isRetryableTyphoon(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return m.includes('429')||m.includes('500')||m.includes('502')||m.includes('503')||m.includes('404')||m.includes('aborted')||m.includes('timeout')||m.includes('timed out')||m.includes('aborterror');
+}
+
+async function callTyphoonOCRWithModelBatch(prompt: string, data: string, mime: string, model: string): Promise<string> {
+  if (!TYPHOON_API_KEY) throw new Error('TYPHOON_API_KEY not configured');
+  const res = await fetch('https://api.opentyphoon.ai/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Authorization': `Bearer ${TYPHOON_API_KEY}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : 'https://lpwellbeing2569.vercel.app',
-      'X-Title': 'LPWellbeing Steps',
     },
-    signal: AbortSignal.timeout(isNemotron ? 45000 : 30000),
+    signal: AbortSignal.timeout(45000),
     body: JSON.stringify({
       model,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: `data:${mime};base64,${data}` } },
-          ],
-        },
-      ],
-      response_format: { type: 'json_object' },
-      max_tokens: isNemotron ? 1024 : 2048,
-      ...(isNemotron ? { reasoning: { effort: 'low' } } : {}),
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${data}` } }] }],
+      max_tokens: 2048,
+      temperature: 0.1,
+      top_p: 0.6,
+      repetition_penalty: 1.2,
     }),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    console.error(`OpenRouter API error (batch ${model}):`, res.status, errText.slice(0, 500));
-    throw new Error(`OpenRouter API error (${model}): ${res.status}`);
+    console.error(`Typhoon API error (batch ${model}):`, res.status, errText.slice(0, 500));
+    throw new Error(`Typhoon API error (${model}): ${res.status}`);
   }
   const j = await res.json();
   const text = j?.choices?.[0]?.message?.content || '';
   return text;
 }
-async function callOpenRouterForBatch(prompt: string, data: string, mime: string): Promise<string> {
+
+async function callTyphoonOCRForBatch(prompt: string, data: string, mime: string): Promise<string> {
   try {
-    return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL);
+    return await callTyphoonOCRWithModelBatch(prompt, data, mime, TYPHOON_MODEL);
   } catch (e) {
     const msg = String(e);
-    if (isRetryableBatch(msg) && OPENROUTER_MODEL_2 && OPENROUTER_MODEL_2 !== OPENROUTER_MODEL) {
-      try {
-        console.warn(`OpenRouter ${OPENROUTER_MODEL} failed in batch (${msg}) — fallback to ${OPENROUTER_MODEL_2}`);
-        return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_2);
-      } catch (e2) {
-        const msg2 = String(e2);
-        if (isRetryableBatch(msg2) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL_2) {
-          console.warn(`OpenRouter ${OPENROUTER_MODEL_2} failed in batch (${msg2}) — fallback to ${OPENROUTER_MODEL_3}`);
-          return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
-        }
-        throw e2;
-      }
-    }
-    if (isRetryableBatch(msg) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL) {
-      console.warn(`OpenRouter ${OPENROUTER_MODEL} failed in batch (${msg}) — fallback to ${OPENROUTER_MODEL_3}`);
-      return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
+    if (isRetryableTyphoon(msg) && TYPHOON_MODEL_FALLBACK && TYPHOON_MODEL_FALLBACK !== TYPHOON_MODEL) {
+      console.warn(`Typhoon ${TYPHOON_MODEL} failed in batch (${msg}) — fallback to ${TYPHOON_MODEL_FALLBACK}`);
+      return await callTyphoonOCRWithModelBatch(prompt, data, mime, TYPHOON_MODEL_FALLBACK);
     }
     throw e;
   }
-}
-
-async function callGeminiBatch(prompt: string, data: string, mime: string): Promise<string> {
-  if (!GEMINI_API_KEY || !HAS_VALID_GEMINI_BATCH) throw new Error('GEMINI_API_KEY not configured or invalid');
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(15000),
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data } }] }],
-        generationConfig: { responseMimeType: 'application/json' },
-      }),
-    }
-  );
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    console.error('Gemini batch API error:', res.status, errText.slice(0, 500));
-    const e: any = new Error(`Gemini API error: ${res.status}`);
-    e.status = res.status;
-    throw e;
-  }
-  const j = await res.json();
-  return j?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
 export const runtime = 'nodejs';
@@ -167,103 +117,28 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
 }`;
 
   let text = '';
-  let finalProvider: 'gemini' | 'openrouter' = 'gemini';
-  let finalModel = GEMINI_MODEL;
+  let finalProvider: 'typhoon' = 'typhoon';
+  let finalModel = TYPHOON_MODEL;
   let usedFallback = false;
   try {
-    if (hint === 'openrouter') {
-      const m = explicitModel || OPENROUTER_MODEL;
-      try {
-        text = await callOpenRouterWithModelBatch(prompt, data, mime, m);
-        finalProvider = 'openrouter'; finalModel = m;
-      } catch (e: any) {
-        const msg = String(e);
-        if (isRetryableBatch(msg) && OPENROUTER_MODEL_2 && m !== OPENROUTER_MODEL_2) {
-          try {
-            text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_2);
-            finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_2; usedFallback = true;
-          } catch (e2:any) {
-            const m2 = String(e2);
-            if (isRetryableBatch(m2) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==OPENROUTER_MODEL_2) {
-              text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
-              finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_3; usedFallback = true;
-            } else if (HAS_VALID_GEMINI_BATCH) {
-              text = await callGeminiBatch(prompt, data, mime);
-              finalProvider = 'gemini'; finalModel = GEMINI_MODEL; usedFallback = true;
-            } else throw e2;
-            if (!text && HAS_VALID_GEMINI_BATCH) { text = await callGeminiBatch(prompt, data, mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; usedFallback=true; }
-            return;
-          }
-          return;
-        }
-        if (isRetryableBatch(msg) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==m) {
-          text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
-          finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_3; usedFallback = true;
-        } else if (HAS_VALID_GEMINI_BATCH) {
-          text = await callGeminiBatch(prompt, data, mime);
-          finalProvider = 'gemini'; finalModel = GEMINI_MODEL; usedFallback = true;
-        } else throw e;
-      }
-    } else if (hint === 'openrouter2' || hint === 'gemma') {
-      const m = explicitModel || OPENROUTER_MODEL_2;
-      try {
-        text = await callOpenRouterWithModelBatch(prompt, data, mime, m);
-        finalProvider = 'openrouter'; finalModel = m;
-      } catch (e: any) {
-        const msg = String(e);
-        if (isRetryableBatch(msg) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==m) {
-          text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
-          finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_3; usedFallback = true;
-        } else if (isRetryableBatch(msg) && m !== OPENROUTER_MODEL) {
-          text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL);
-          finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
-        } else if (HAS_VALID_GEMINI_BATCH) {
-          text = await callGeminiBatch(prompt, data, mime);
-          finalProvider = 'gemini'; finalModel = GEMINI_MODEL; usedFallback = true;
-        } else throw e;
-      }
-    } else if (hint === 'openrouter3' || hint === 'nemotron') {
-      const m = explicitModel || OPENROUTER_MODEL_3;
-      try {
-        text = await callOpenRouterWithModelBatch(prompt, data, mime, m);
-        finalProvider = 'openrouter'; finalModel = m;
-      } catch (e:any) {
-        if (HAS_VALID_GEMINI_BATCH) { text = await callGeminiBatch(prompt, data, mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; usedFallback=true; } else throw e;
-      }
-    } else if (hint === 'gemini') {
-      if (!HAS_VALID_GEMINI_BATCH && OPENROUTER_API_KEY) {
-        text = await callOpenRouterForBatch(prompt, data, mime);
-        finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
-      } else {
-        try {
-          text = await callGeminiBatch(prompt, data, mime);
-          finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
-        } catch (e: any) {
-          const status = e?.status || 0;
-          if (((status === 402 || status === 404 || status === 429 || status === 503 || status === 500) || isRetryableBatch(String(e))) && OPENROUTER_API_KEY) {
-            text = await callOpenRouterForBatch(prompt, data, mime);
-            finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
-          } else throw e;
-        }
-      }
+    // Typhoon เดี่ยว — ทุก hint วิ่งบน Typhoon OCR
+    if (hint === 'typhoon-ocr-preview' || hint === 'preview') {
+      const m = explicitModel || TYPHOON_MODEL_FALLBACK;
+      text = await callTyphoonOCRWithModelBatch(prompt, data, mime, m);
+      finalModel = m;
     } else {
-      // auto — ถ้า Gemini คีย์ไม่ valid ให้ข้ามไป OpenRouter ทันที ไม่เสียเวลาลอง
-      if (!HAS_VALID_GEMINI_BATCH && OPENROUTER_API_KEY) {
-        text = await callOpenRouterForBatch(prompt, data, mime);
-        finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
-      } else if (!HAS_VALID_GEMINI_BATCH) {
-        throw new Error('GEMINI_API_KEY invalid and no OpenRouter key');
-      } else {
-        try {
-          text = await callGeminiBatch(prompt, data, mime);
-          finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
-        } catch (e: any) {
-          const status = e?.status || 0;
-          if (((status === 402 || status === 404 || status === 429 || status === 500 || status === 502 || status === 503) || isRetryableBatch(String(e))) && OPENROUTER_API_KEY) {
-            text = await callOpenRouterForBatch(prompt, data, mime);
-            finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
-          } else throw e;
-        }
+      // auto / typhoon / openrouter (legacy) -> Typhoon OCR
+      try {
+        const m = explicitModel && explicitModel.includes('typhoon') ? explicitModel : TYPHOON_MODEL;
+        text = await callTyphoonOCRWithModelBatch(prompt, data, mime, m);
+        finalModel = m;
+      } catch (e: any) {
+        const msg = String(e);
+        if (isRetryableTyphoon(msg) && TYPHOON_MODEL_FALLBACK !== TYPHOON_MODEL) {
+          text = await callTyphoonOCRWithModelBatch(prompt, data, mime, TYPHOON_MODEL_FALLBACK);
+          finalModel = TYPHOON_MODEL_FALLBACK;
+          usedFallback = true;
+        } else throw e;
       }
     }
   } catch (e: any) {
@@ -313,11 +188,10 @@ export async function POST(request: NextRequest) {
     if (images.length > MAX_IMAGES) {
       return NextResponse.json({ error: `สูงสุด ${MAX_IMAGES} ภาพต่อครั้ง` }, { status: 400 });
     }
-    if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY and OPENROUTER_API_KEY not configured' }, { status: 500 });
+    if (!TYPHOON_API_KEY) {
+      return NextResponse.json({ error: 'TYPHOON_API_KEY not configured' }, { status: 500 });
     }
 
-    // ประมวลผลแบบขนาน จำกัด concurrency เพื่อลดเวลารวม (จากเดิม sequential)
     const CONCURRENCY = 4;
     const results: any[] = new Array(images.length);
     let idx = 0;

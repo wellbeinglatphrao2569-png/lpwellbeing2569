@@ -11,6 +11,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 function isGeminiKeyValidBatch(): boolean { const k=GEMINI_API_KEY.trim(); return k.startsWith('AIza') && k.length>30; }
 const HAS_VALID_GEMINI_BATCH = isGeminiKeyValidBatch();
+function isRetryableBatch(msg: string): boolean { const m=msg.toLowerCase(); return m.includes('402')||m.includes('404')||m.includes('429')||m.includes('500')||m.includes('502')||m.includes('503')||m.includes('aborted')||m.includes('timeout')||m.includes('timed out')||m.includes('aborterror'); }
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it:free';
 const OPENROUTER_MODEL_2 = process.env.OPENROUTER_MODEL_2 || 'google/gemma-3-27b-it:free';
@@ -30,7 +31,7 @@ async function callOpenRouterWithModelBatch(prompt: string, data: string, mime: 
       'HTTP-Referer': process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : 'https://lpwellbeing2569.vercel.app',
       'X-Title': 'LPWellbeing Steps',
     },
-    signal: AbortSignal.timeout(isNemotron ? 20000 : 15000),
+    signal: AbortSignal.timeout(isNemotron ? 45000 : 30000),
     body: JSON.stringify({
       model,
       messages: [
@@ -61,20 +62,20 @@ async function callOpenRouterForBatch(prompt: string, data: string, mime: string
     return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL);
   } catch (e) {
     const msg = String(e);
-    if ((msg.includes('402') || msg.includes('404') || msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && OPENROUTER_MODEL_2 !== OPENROUTER_MODEL) {
+    if (isRetryableBatch(msg) && OPENROUTER_MODEL_2 && OPENROUTER_MODEL_2 !== OPENROUTER_MODEL) {
       try {
         console.warn(`OpenRouter ${OPENROUTER_MODEL} failed in batch (${msg}) — fallback to ${OPENROUTER_MODEL_2}`);
         return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_2);
       } catch (e2) {
         const msg2 = String(e2);
-        if ((msg2.includes('402') || msg2.includes('404') || msg2.includes('429') || msg2.includes('500') || msg2.includes('502') || msg2.includes('503')) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL_2) {
+        if (isRetryableBatch(msg2) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL_2) {
           console.warn(`OpenRouter ${OPENROUTER_MODEL_2} failed in batch (${msg2}) — fallback to ${OPENROUTER_MODEL_3}`);
           return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
         }
         throw e2;
       }
     }
-    if ((msg.includes('402') || msg.includes('404') || msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL) {
+    if (isRetryableBatch(msg) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3 !== OPENROUTER_MODEL) {
       console.warn(`OpenRouter ${OPENROUTER_MODEL} failed in batch (${msg}) — fallback to ${OPENROUTER_MODEL_3}`);
       return await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
     }
@@ -109,6 +110,7 @@ async function callGeminiBatch(prompt: string, data: string, mime: string): Prom
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 function extractBase64(imageBase64: string): { data: string; mime: string } {
   const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
@@ -176,13 +178,13 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
         finalProvider = 'openrouter'; finalModel = m;
       } catch (e: any) {
         const msg = String(e);
-        if ((msg.includes('402') || msg.includes('404') || msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_2 && m !== OPENROUTER_MODEL_2) {
+        if (isRetryableBatch(msg) && OPENROUTER_MODEL_2 && m !== OPENROUTER_MODEL_2) {
           try {
             text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_2);
             finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_2; usedFallback = true;
           } catch (e2:any) {
             const m2 = String(e2);
-            if ((m2.includes('402')||m2.includes('404')||m2.includes('429')||m2.includes('500')||m2.includes('502')||m2.includes('503')) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==OPENROUTER_MODEL_2) {
+            if (isRetryableBatch(m2) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==OPENROUTER_MODEL_2) {
               text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
               finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_3; usedFallback = true;
             } else if (HAS_VALID_GEMINI_BATCH) {
@@ -194,7 +196,7 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
           }
           return;
         }
-        if ((msg.includes('402')||msg.includes('404')||msg.includes('429')||msg.includes('500')||msg.includes('502')||msg.includes('503')) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==m) {
+        if (isRetryableBatch(msg) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==m) {
           text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
           finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_3; usedFallback = true;
         } else if (HAS_VALID_GEMINI_BATCH) {
@@ -209,10 +211,10 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
         finalProvider = 'openrouter'; finalModel = m;
       } catch (e: any) {
         const msg = String(e);
-        if ((msg.includes('402') || msg.includes('404') || msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==m) {
+        if (isRetryableBatch(msg) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==m) {
           text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL_3);
           finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL_3; usedFallback = true;
-        } else if ((msg.includes('402') || msg.includes('404') || msg.includes('429') || msg.includes('500') || msg.includes('502') || msg.includes('503')) && m !== OPENROUTER_MODEL) {
+        } else if (isRetryableBatch(msg) && m !== OPENROUTER_MODEL) {
           text = await callOpenRouterWithModelBatch(prompt, data, mime, OPENROUTER_MODEL);
           finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
         } else if (HAS_VALID_GEMINI_BATCH) {
@@ -238,7 +240,7 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
           finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
         } catch (e: any) {
           const status = e?.status || 0;
-          if ((status === 402 || status === 404 || status === 429 || status === 503 || status === 500) && OPENROUTER_API_KEY) {
+          if (((status === 402 || status === 404 || status === 429 || status === 503 || status === 500) || isRetryableBatch(String(e))) && OPENROUTER_API_KEY) {
             text = await callOpenRouterForBatch(prompt, data, mime);
             finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
           } else throw e;
@@ -257,7 +259,7 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
           finalProvider = 'gemini'; finalModel = GEMINI_MODEL;
         } catch (e: any) {
           const status = e?.status || 0;
-          if ((status === 402 || status === 404 || status === 429 || status === 500 || status === 502 || status === 503) && OPENROUTER_API_KEY) {
+          if (((status === 402 || status === 404 || status === 429 || status === 500 || status === 502 || status === 503) || isRetryableBatch(String(e))) && OPENROUTER_API_KEY) {
             text = await callOpenRouterForBatch(prompt, data, mime);
             finalProvider = 'openrouter'; finalModel = OPENROUTER_MODEL; usedFallback = true;
           } else throw e;

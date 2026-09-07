@@ -1078,6 +1078,7 @@ export default function StepsPage() {
                     <span className="text-xs font-medium bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 px-2.5 py-1 rounded-full">
                       🤖 กำลังใช้ {aiProcessingModel}
                     </span>
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 text-center leading-relaxed">เนื่องจากใช้ Model AI รูปแบบฟรี จึงอาจทำให้ประมวลผลใช้เวลาสักหน่อย<br/>รออีกอึดใจเดียว ฮึบ ๆ ✊</span>
                     <span className="text-[11px] text-gray-400">สลับอัตโนมัติ Gemma-4 → Gemma-3 → Nemotron หากช้า</span>
                   </div>
                 )}

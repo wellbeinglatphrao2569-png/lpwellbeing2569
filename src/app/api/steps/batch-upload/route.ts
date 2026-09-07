@@ -8,6 +8,7 @@ import { analyzeStepsImage, isAutoApprovable } from '@/lib/serverAi';
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 function extractBase64(imageBase64: string): string {
   const m = imageBase64.match(/^data:[^;]+;base64,(.+)$/);
   return m ? m[1] : imageBase64;

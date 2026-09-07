@@ -27,8 +27,8 @@ async function callOpenRouterWithModel(prompt: string, data: string, mime: strin
       'HTTP-Referer': process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : 'https://lpwellbeing2569.vercel.app',
       'X-Title': 'LPWellbeing Steps',
     },
-    // reasoning model ช้า — จำกัด max_tokens และเพิ่ม timeout
-    signal: AbortSignal.timeout(isNemotron ? 20000 : 15000),
+    // เพิ่ม timeout กัน abort เร็ว — free model ช้า 20-30s ได้, Nemotron reasoning ช้าสุด
+    signal: AbortSignal.timeout(isNemotron ? 45000 : 30000),
     body: JSON.stringify({
       model,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${data}` } }] }],
@@ -44,21 +44,23 @@ async function callOpenRouterWithModel(prompt: string, data: string, mime: strin
   const j = await res.json();
   return j?.choices?.[0]?.message?.content || '';
 }
+function isRetryableOpenRouterError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return m.includes('402')||m.includes('404')||m.includes('429')||m.includes('500')||m.includes('502')||m.includes('503')||m.includes('aborted')||m.includes('timeout')||m.includes('timed out')||m.includes('aborterror');
+}
 async function callOpenRouter(prompt: string, data: string, mime: string): Promise<string> {
   try { return await callOpenRouterWithModel(prompt, data, mime, OPENROUTER_MODEL); } catch (e) {
     const msg = String(e);
-    if ((msg.includes('402')||msg.includes('404')||msg.includes('429')||msg.includes('500')||msg.includes('502')||msg.includes('503')) && OPENROUTER_MODEL_2 && OPENROUTER_MODEL_2!==OPENROUTER_MODEL) {
+    if (isRetryableOpenRouterError(msg) && OPENROUTER_MODEL_2 && OPENROUTER_MODEL_2!==OPENROUTER_MODEL) {
       try { return await callOpenRouterWithModel(prompt, data, mime, OPENROUTER_MODEL_2); } catch (e2) {
         const msg2 = String(e2);
-        if ((msg2.includes('402')||msg2.includes('404')||msg2.includes('429')||msg2.includes('500')||msg2.includes('502')||msg2.includes('503')) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==OPENROUTER_MODEL && OPENROUTER_MODEL_3!==OPENROUTER_MODEL_2) {
+        if (isRetryableOpenRouterError(msg2) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==OPENROUTER_MODEL && OPENROUTER_MODEL_3!==OPENROUTER_MODEL_2) {
           return await callOpenRouterWithModel(prompt, data, mime, OPENROUTER_MODEL_3);
         }
         throw e2;
       }
     }
-    // ถ้า MODEL ไม่ต่างหรือ MODEL_2 ไม่มี ให้ลอง MODEL_3 โดยตรง
-    const msg3 = String(e);
-    if ((msg3.includes('402')||msg3.includes('404')||msg3.includes('429')||msg3.includes('500')||msg3.includes('502')||msg3.includes('503')) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==OPENROUTER_MODEL) {
+    if (isRetryableOpenRouterError(msg) && OPENROUTER_MODEL_3 && OPENROUTER_MODEL_3!==OPENROUTER_MODEL) {
       return await callOpenRouterWithModel(prompt, data, mime, OPENROUTER_MODEL_3);
     }
     throw e;
@@ -116,14 +118,14 @@ export async function analyzeStepsImage(imageBase64: string, expectedDate: strin
     if(hint==='auto'||hint===''){
       if(!HAS_VALID_GEMINI && OPENROUTER_API_KEY){ text=await callOpenRouter(prompt,data,mime); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; usedFallback=true; return; }
       if(!HAS_VALID_GEMINI){ throw new Error('GEMINI_API_KEY invalid and no OpenRouter key'); }
-      try{ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; } catch(e:any){ const s=e?.status||0; if((s===402||s===404||s===429||s===500||s===502||s===503) && OPENROUTER_API_KEY){ text=await callOpenRouter(prompt,data,mime); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; usedFallback=true; } else throw e; }
+      try{ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; } catch(e:any){ const s=e?.status||0; const em=String(e).toLowerCase(); if(((s===402||s===404||s===429||s===500||s===502||s===503) || isRetryableOpenRouterError(em)) && OPENROUTER_API_KEY){ text=await callOpenRouter(prompt,data,mime); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; usedFallback=true; } else throw e; }
       return;
     }
     if(hint==='gemini'){ 
       if(!HAS_VALID_GEMINI && OPENROUTER_API_KEY){ text=await callOpenRouter(prompt,data,mime); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; usedFallback=true; return; }
-      try{ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; } catch(e:any){ const s=e?.status||0; if((s===402||s===404||s===429||s===500||s===502||s===503)&&OPENROUTER_API_KEY){ text=await callOpenRouter(prompt,data,mime); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; usedFallback=true; } else throw e; } return; }
-    if(hint==='openrouter'){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; } catch(e:any){ const msg=String(e); if((msg.includes('402')||msg.includes('404')||msg.includes('429')||msg.includes('500')||msg.includes('502')||msg.includes('503'))&&OPENROUTER_MODEL_2){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_2); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_2; usedFallback=true; return; }catch(e2:any){ const m2=String(e2); if((m2.includes('402')||m2.includes('404')||m2.includes('429')||m2.includes('500')||m2.includes('502')||m2.includes('503'))&&OPENROUTER_MODEL_3){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_3); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_3; usedFallback=true; return; }catch{}} }} if((msg.includes('402')||msg.includes('404')||msg.includes('429')||msg.includes('500')||msg.includes('502')||msg.includes('503'))&&OPENROUTER_MODEL_3){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_3); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_3; usedFallback=true; return; }catch{}} if(HAS_VALID_GEMINI){ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; usedFallback=true; } else throw e; } return; }
-    if(hint==='openrouter2'||hint==='gemma'){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_2); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_2; } catch(e:any){ const m=String(e); if((m.includes('402')||m.includes('404')||m.includes('429')||m.includes('500')||m.includes('502')||m.includes('503'))&&OPENROUTER_MODEL_3){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_3); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_3; usedFallback=true; return; }catch{}} if(HAS_VALID_GEMINI){ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; usedFallback=true; } else throw e; } return; }
+      try{ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; } catch(e:any){ const s=e?.status||0; const em=String(e).toLowerCase(); if(((s===402||s===404||s===429||s===500||s===502||s===503) || isRetryableOpenRouterError(em))&&OPENROUTER_API_KEY){ text=await callOpenRouter(prompt,data,mime); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; usedFallback=true; } else throw e; } return; }
+    if(hint==='openrouter'){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; } catch(e:any){ const msg=String(e); if(isRetryableOpenRouterError(msg)&&OPENROUTER_MODEL_2){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_2); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_2; usedFallback=true; return; }catch(e2:any){ const m2=String(e2); if(isRetryableOpenRouterError(m2)&&OPENROUTER_MODEL_3){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_3); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_3; usedFallback=true; return; }catch{}} }} if(isRetryableOpenRouterError(msg)&&OPENROUTER_MODEL_3){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_3); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_3; usedFallback=true; return; }catch{}} if(HAS_VALID_GEMINI){ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; usedFallback=true; } else throw e; } return; }
+    if(hint==='openrouter2'||hint==='gemma'){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_2); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_2; } catch(e:any){ const m=String(e); if(isRetryableOpenRouterError(m)&&OPENROUTER_MODEL_3){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_3); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_3; usedFallback=true; return; }catch{}} if(HAS_VALID_GEMINI){ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; usedFallback=true; } else throw e; } return; }
     if(hint==='openrouter3'||hint==='nemotron'){ try{ text=await callOpenRouterWithModel(prompt,data,mime,OPENROUTER_MODEL_3); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL_3; } catch(e:any){ if(HAS_VALID_GEMINI){ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; usedFallback=true; } else throw e; } return; }
     if(!HAS_VALID_GEMINI){ text=await callOpenRouter(prompt,data,mime); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; usedFallback=true; return; }
     try{ text=await callGemini(prompt,data,mime); finalProvider='gemini'; finalModel=GEMINI_MODEL; } catch{ text=await callOpenRouter(prompt,data,mime); finalProvider='openrouter'; finalModel=OPENROUTER_MODEL; usedFallback=true; }

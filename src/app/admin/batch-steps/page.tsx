@@ -711,6 +711,7 @@ export default function BatchStepsPage(){
             <span>เหลือ {aiProgress.total - aiProgress.done} ภาพ</span>
             <span>ทั้งหมด {aiProgress.total} ภาพ</span>
           </div>
+          <p className="text-center text-[11px] text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">เนื่องจากใช้ Model AI รูปแบบฟรี จึงอาจทำให้ประมวลผลใช้เวลาสักหน่อย รออีกอึดใจเดียว ฮึบ ๆ ✊</p>
         </GlassCard>
       )}
 

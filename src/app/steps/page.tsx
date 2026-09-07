@@ -133,8 +133,8 @@ function normalizeDateKey(value: unknown): string {
   return s;
 }
 
-/** ย่อขนาดภาพเป็น JPEG (กัน payload ใหญ่เกินจำกัดของ GAS/Gemini) */
-function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise<string> {
+/** ย่อขนาดภาพเป็น JPEG (ลดขนาดเพื่อเร่ง AI + กัน payload ใหญ่) */
+function compressImage(file: File, maxDim = 1024, quality = 0.72): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

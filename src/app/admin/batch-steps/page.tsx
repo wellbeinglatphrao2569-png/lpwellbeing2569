@@ -23,7 +23,7 @@ function normalizeDateKey(value: unknown): string {
   if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const dd=new Date(s); if(!isNaN(dd.getTime())) return toIsoLocal(dd); return s;
 }
-function compressImage(file: File, maxDim=1600, quality=0.85): Promise<string> {
+function compressImage(file: File, maxDim=1024, quality=0.72): Promise<string> {
   return new Promise((resolve, reject)=>{
     const reader=new FileReader();
     reader.onload=()=>{

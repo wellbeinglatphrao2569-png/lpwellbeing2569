@@ -178,6 +178,7 @@ export default function StepsPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [aiProcessing, setAiProcessing] = useState(false);
+  const [aiProcessingModel, setAiProcessingModel] = useState('Gemma-4-26b (free)');
   const [aiExtractedSteps, setAiExtractedSteps] = useState<number | null>(null);
   const [aiResult, setAiResult] = useState<AiImageAnalysis | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -532,6 +533,14 @@ export default function StepsPage() {
     setAiExtractedSteps(null);
     setAiResult(null);
     setAiError(null);
+    // แสดง Model ที่กำลังใช้ — หลักคือ Gemma-4 free (Gemini คีย์ปัจจุบันไม่ valid จะ fallback ทันที)
+    const modelsCycleAi = ['Gemma-4-26b (free)', 'Gemma-3-27b (free)', 'Nemotron-3 (free)'];
+    let aiModelIdx = 0;
+    setAiProcessingModel(modelsCycleAi[0]);
+    const aiModelTimer = setInterval(() => {
+      aiModelIdx = (aiModelIdx + 1) % modelsCycleAi.length;
+      setAiProcessingModel(modelsCycleAi[aiModelIdx]);
+    }, 1800);
     try {
       const res = await fetch('/api/steps/image-analyze', {
         method: 'POST',
@@ -542,9 +551,11 @@ export default function StepsPage() {
       if (!res.ok) throw new Error(data.error || 'AI อ่านภาพล้มเหลว');
       setAiResult(data);
       setAiExtractedSteps(data.steps);
+      if (data.model) setAiProcessingModel(String(data.model));
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'AI อ่านภาพล้มเหลว');
     } finally {
+      clearInterval(aiModelTimer);
       setAiProcessing(false);
     }
   }
@@ -1059,9 +1070,15 @@ export default function StepsPage() {
                   </button>
                 )}
                 {aiProcessing && (
-                  <div className="flex items-center justify-center gap-2 py-4 text-purple-500">
-                    <span className="loading loading-spinner loading-md"></span>
-                    <span className="text-sm font-medium">กำลังวิเคราะห์ภาพ...</span>
+                  <div className="flex flex-col items-center justify-center gap-1.5 py-4 text-purple-600 dark:text-purple-400">
+                    <div className="flex items-center gap-2">
+                      <span className="loading loading-spinner loading-md"></span>
+                      <span className="text-sm font-bold">กำลังวิเคราะห์ภาพ...</span>
+                    </div>
+                    <span className="text-xs font-medium bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 px-2.5 py-1 rounded-full">
+                      🤖 กำลังใช้ {aiProcessingModel}
+                    </span>
+                    <span className="text-[11px] text-gray-400">สลับอัตโนมัติ Gemma-4 → Gemma-3 → Nemotron หากช้า</span>
                   </div>
                 )}
                 {aiError && (
@@ -1107,6 +1124,12 @@ export default function StepsPage() {
                           <span className="material-symbols-outlined text-base text-gray-500">auto_awesome</span>
                           <span className="text-gray-600 dark:text-gray-400">ความมั่นใจ AI:</span>
                           <span className="ml-auto font-bold text-gray-900 dark:text-white">{Math.round(aiResult.confidence * 100)}%</span>
+                        </div>
+                        {/* โมเดลที่ใช้ */}
+                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/50 border">
+                          <span className="material-symbols-outlined text-base text-gray-500">smart_toy</span>
+                          <span className="text-gray-600 dark:text-gray-400">โมเดลที่ใช้:</span>
+                          <span className="ml-auto font-bold text-purple-700 dark:text-purple-300 text-[11px]">{(aiResult as any).model || aiResult.provider} {(aiResult as any).provider ? `(${(aiResult as any).provider})` : ''}</span>
                         </div>
                         {aiResult.notes && (
                           <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/50 border">

@@ -588,7 +588,7 @@ export default function StepsPage() {
     if (logMethod === 'image-upload') {
       setSavingAiProgress({ percent: 0, model: 'Gemini 2.5-flash' });
       let pct = 0;
-      const models = ['Gemini 2.5-flash', 'Gemma-4-26b', 'Gemma-3-27b'];
+      const models = ['Gemini 2.5-flash', 'Gemma-4-26b', 'Gemma-3-27b', 'Nemotron-3'];
       let mi = 0;
       simTimer = setInterval(() => {
         pct = Math.min(88, pct + Math.random()*7 + 2);

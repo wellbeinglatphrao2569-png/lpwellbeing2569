@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeStepsImage, isAutoApprovable } from '@/lib/serverAi';
 
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 function extractBase64(imageBase64: string): string {
   const match = imageBase64.match(/^data:[^;]+;base64,(.+)$/);

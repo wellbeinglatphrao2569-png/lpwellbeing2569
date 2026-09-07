@@ -586,9 +586,9 @@ export default function StepsPage() {
     setAiError(null);
     let simTimer: any = null;
     if (logMethod === 'image-upload') {
-      setSavingAiProgress({ percent: 0, model: 'Gemini 3.6-flash' });
+      setSavingAiProgress({ percent: 0, model: 'Gemini 2.5-flash' });
       let pct = 0;
-      const models = ['Gemini 3.6-flash', 'GLM-5.3', 'Gemma-4-26b'];
+      const models = ['Gemini 2.5-flash', 'Gemma-4-26b', 'Gemma-3-27b'];
       let mi = 0;
       simTimer = setInterval(() => {
         pct = Math.min(88, pct + Math.random()*7 + 2);
@@ -625,7 +625,7 @@ export default function StepsPage() {
           }),
         });
         const data = await uploadRes.json().catch(() => ({}));
-        if (simTimer) { clearInterval(simTimer); setSavingAiProgress({ percent: 100, model: data.aiModel || 'Gemini 3.6-flash' }); await new Promise(r=> setTimeout(r, 600)); setSavingAiProgress(null); }
+        if (simTimer) { clearInterval(simTimer); setSavingAiProgress({ percent: 100, model: data.aiModel || 'Gemini 2.5-flash' }); await new Promise(r=> setTimeout(r, 600)); setSavingAiProgress(null); }
         if (!uploadRes.ok || !data.success) {
           throw new Error(data.error || 'บันทึกไม่สำเร็จ');
         }

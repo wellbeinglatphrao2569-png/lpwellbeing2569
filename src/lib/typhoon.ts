@@ -7,14 +7,14 @@
 const TYPHOON_API_URL = 'https://api.opentyphoon.ai/v1/chat/completions';
 const TYPHOON_OCR_MODEL = process.env.TYPHOON_OCR_MODEL || 'typhoon-ocr';
 
-// จำนวนก้าว OCR result
+// จำนวนก้าว OCR result — รองรับทุกสคีมาที่เคยใช้ (legacy + สกัดข้อความล้วน)
 export interface TyphoonOcrResult {
   rawText: string;
   steps: number | null;
   stepsRaw: string | null;
   dateRaw: string | null;
   confidence: number | null;
-  // fields ใหม่ตามสเปคล่าสุด
+  // สคีมา Checklist แบบเก่า (passed/flagged)
   step_count: number | null;
   detected_date_raw: string | null;
   formatted_date: string | null;
@@ -22,6 +22,11 @@ export interface TyphoonOcrResult {
   confidence_score: number | null;
   status: 'passed' | 'flagged_for_review' | null;
   reasoning: string | null;
+  // สคีมาใหม่ — สกัดข้อความล้วน (Text Extraction Only)
+  raw_date_text_from_image: string | null;
+  parsed_date_from_image: string | null;
+  ocr_confidence: number | null;
+  visual_evidence: string | null;
 }
 
 function getApiKey(): string {
@@ -37,35 +42,31 @@ export interface TyphoonPromptContext {
 
 function buildPrompt(ctx: TyphoonPromptContext): { system: string; user: string } {
   const system =
-    'คุณคือระบบ AI OCR พิเศษสำหรับตรวจสอบภาพถ่ายหน้าจอนับก้าว ของแอปพลิเคชัน "ก้าวสร้างสุข" (ใช้สำหรับการบันทึกก้าวรายบุคคล และการบันทึกก้าวแบบกลุ่ม)';
+    'คุณคือระบบ AI OCR ที่มีหน้าที่สกัดข้อความ (Text Extraction) จากภาพถ่ายหน้าจอนับก้าวเท่านั้น';
 
   const user =
-    `[ข้อมูลอ้างอิงจากระบบ]\n` +
-    `- วันที่ปัจจุบันของระบบ (Today System Date): ${ctx.systemDate} (รูปแบบ YYYY-MM-DD)\n` +
-    `- วันที่ผู้ใช้ต้องการบันทึก (Target Record Date): ${ctx.targetDate} (รูปแบบ YYYY-MM-DD)\n` +
-    `- ปีปัจจุบันของระบบ (Current Year): ${ctx.currentYear} (ค.ศ.) / ${ctx.currentThaiYear} (พ.ศ.)\n` +
-    `\n[เงื่อนไขการตรวจสอบ - Checklist]\n` +
-    `1. การอ่านจำนวนก้าว (Steps):\n` +
-    `   - อ่านเฉพาะตัวเลขรวมจำนวนก้าวหลักของวันนั้น (ระวังอย่าสับสนกับ kcal, km, นาที)\n` +
-    `   - ถอดเครื่องหมาย comma ออก (เช่น 3,115 -> 3115)\n` +
-    `2. การอ่านและเทียบเคียงวันที่ (Date Matching):\n` +
-    `   - อ่านวันที่ในภาพ (รองรับ "Today", "วันนี้", "Yesterday", "เมื่อวาน", ตัวย่อวัน เช่น "พ. 2 ก.ย.", หรือตัวย่อเดือนภาษาไทย/อังกฤษ)\n` +
-    `   - หากภาพระบุเฉพาะ วัน/เดือน ให้ถือว่าเป็นปี ${ctx.currentYear}\n` +
-    `   - แปลงวันที่ในภาพให้อยู่ในฟอร์แมต YYYY-MM-DD (ใช้ชื่อตัวแปร formatted_date)\n` +
-    `   - ตรวจสอบว่า formatted_date ตรงกับ ${ctx.targetDate} ที่ผู้ใช้ต้องการบันทึกหรือไม่ (is_date_matched)\n` +
-    `3. ประเมินความถูกต้อง (Verification Decision):\n` +
-    `   - ถ้าอ่านค่าก้าวได้ชัดเจน และ formatted_date ตรงกับ ${ctx.targetDate} ให้สถานะเป็น "passed"\n` +
-    `   - ถ้าภาพเบลอ, อ่านตัวเลขไม่ได้, ไม่พบวันที่, หรือวันที่ไม่ตรงกับ ${ctx.targetDate} ให้สถานะเป็น "flagged_for_review" (เพื่อให้ระบบส่งต่อให้เจ้าหน้าที่ นสส. ฝ่ายอื่นตรวจสอบ)\n` +
-    `\n[รูปแบบผลลัพธ์ที่ต้องการ (JSON)]\n` +
-    `ตอบกลับเฉพาะ JSON Object ตามโครงสร้างนี้เท่านั้น ห้ามใส่ข้อความเกริ่นนำหรือ Markdown อื่น:\n` +
+    `[ข้อมูลอ้างอิงปีสำหรับกรณีภาพไม่ระบุปี]\n` +
+    `- ปีปัจจุบัน (Current Year): ${ctx.currentYear} (ค.ศ.) / ${ctx.currentThaiYear} (พ.ศ.)\n` +
+    `- วันที่ปัจจุบันของระบบ (SYSTEM_DATE): ${ctx.systemDate} (YYYY-MM-DD)\n` +
+    `- วันที่ผู้ใช้ต้องการบันทึก (TARGET_DATE): ${ctx.targetDate} — ใช้อ้างอิงเฉพาะกรณี Today/Yesterday (ไม่ต้องตัดสิน passed/flagged เอง ให้ส่ง raw + parsed กลับมาเท่านั้น)\n` +
+    `\n[ภารกิจของคุณ]\n` +
+    `1. ค้นหาข้อความวันที่ที่ปรากฏอยู่ในรูปภาพจริงๆ (Visual Text)\n` +
+    `   - อ่านข้อความทุกรูปแบบ เช่น "Today", "วันนี้", "เมื่อวาน", "พ. 2 ก.ย.", "2 ก.ย.", "02/09/2026", "2 กุมภาพันธ์"\n` +
+    `   - นำข้อความที่เห็นในภาพจริงๆ มาใส่ในช่อง "raw_date_text_from_image" (ห้ามเมคขึ้นมาเองเด็ดขาด ถ้าไม่เห็นให้ใส่ null)\n` +
+    `2. แปลงข้อความวันที่ที่อ่านได้จากภาพเป็นฟอร์แมต YYYY-MM-DD:\n` +
+    `   - หากเจอ "Today" / "วันนี้" ให้แปลงโดยใช้ปี-เดือน-วัน ของวันที่ ${ctx.systemDate}\n` +
+    `   - หากเจอ "Yesterday" / "เมื่อวาน" ให้แปลงเป็นวันก่อนหน้า ${ctx.systemDate} 1 วัน\n` +
+    `   - หากเจอวัน/เดือนภาษาไทย เช่น "พ. 2 ก.ย." หรือ "2 ก.ย." ให้ใช้ปี ${ctx.currentYear} รวมเข้าไป แล้วแปลงเป็น YYYY-MM-DD\n` +
+    `   - หากเจอปี พ.ศ. (เช่น 2569) ให้แปลงเป็น ค.ศ. (2026)\n` +
+    `3. อ่านจำนวนก้าว (Step Count):\n` +
+    `   - อ่านเฉพาะตัวเลขก้าวรวมหลัก ดึงเครื่องหมาย Comma ออก\n` +
+    `\n[รูปแบบผลลัพธ์ที่ต้องการ (ตอบเฉพาะ JSON เท่านั้น)]\n` +
     `{\n` +
-    `  "step_count": <จำนวนก้าวเป็น integer หรือ null หากอ่านไม่ได้>,\n` +
-    `  "detected_date_raw": "<ข้อความวันที่ที่อ่านได้จริงจากภาพ>",\n` +
-    `  "formatted_date": "<วันที่ในรูป YYYY-MM-DD หรือ null>",\n` +
-    `  "is_date_matched": <true หากตรงกับ TARGET_DATE / false หากไม่ตรง>,\n` +
-    `  "confidence_score": <ระดับความมั่นใจ 0.0 ถึง 1.0>,\n` +
-    `  "status": "<'passed' หรือ 'flagged_for_review'>",\n` +
-    `  "reasoning": "<เหตุผลประกอบสั้นๆ เช่น: ก้าวตรง 3115 แต่วันที่ในภาพไม่ตรงกับวันที่บันทึก>"\n` +
+    `  "raw_date_text_from_image": "<ข้อความวันที่ที่ตาเห็นในภาพจริงๆ เช่น 'พ. 2 ก.ย.' หรือ 'Today'>",\n` +
+    `  "parsed_date_from_image": "<วันที่ที่แปลงจากภาพได้ในรูปแบบ YYYY-MM-DD หรือ null หากอ่านจากภาพไม่ได้>",\n` +
+    `  "step_count": <จำนวนก้าวเป็นตัวเลข integer หรือ null หากอ่านไม่ได้>,\n` +
+    `  "ocr_confidence": <ระดับความมั่นใจในการอ่านภาพ 0.0 ถึง 1.0>,\n` +
+    `  "visual_evidence": "<อธิบายจุดที่พบวันที่และจำนวนก้าวในภาพ เช่น พบข้อความ 'พ. 2 ก.ย.' อยู่มุมซ้ายบน>"\n` +
     `}`;
 
   return { system, user };
@@ -145,31 +146,36 @@ function parseTyphoonContent(content: string): TyphoonOcrResult {
   if (jsonMatch) {
     try {
       const obj = JSON.parse(jsonMatch[0]);
-      // รองรับทั้งสคีมาใหม่ (step_count/detected_date_raw) และเก่า (steps/dateRaw)
+      // สคีมาใหม่หลัก: raw_date_text_from_image / parsed_date_from_image / step_count / ocr_confidence / visual_evidence
+      const rawDateNew = obj.raw_date_text_from_image ?? obj.detected_date_raw ?? obj.dateRaw ?? null;
+      const parsedDateNew = obj.parsed_date_from_image ?? obj.formatted_date ?? null;
       const stepVal = obj.step_count ?? obj.steps ?? null;
-      const dateRawVal = obj.detected_date_raw ?? obj.dateRaw ?? null;
-      const formatted = obj.formatted_date ?? null;
-      const isMatched = obj.is_date_matched ?? null;
-      const confScore = obj.confidence_score ?? obj.confidence ?? null;
-      const status = obj.status ?? null;
-      const reasoning = obj.reasoning ?? null;
+      const confVal = obj.ocr_confidence ?? obj.confidence_score ?? obj.confidence ?? null;
+      const visual = obj.visual_evidence ?? obj.reasoning ?? null;
+      // legacy fallback
+      const legacyDateRaw = obj.detected_date_raw ?? obj.dateRaw ?? rawDateNew;
+      const legacyFmt = obj.formatted_date ?? parsedDateNew;
 
-      // ถ้าได้ formatted_date มา ให้ใช้เป็น dateRaw fallback ด้วย ถ้าไม่มี detected_date_raw
-      const finalDateRaw = dateRawVal != null ? String(dateRawVal) : formatted ? String(formatted) : null;
+      const finalDateRaw = rawDateNew != null ? String(rawDateNew) : legacyDateRaw ? String(legacyDateRaw) : null;
+      const finalParsed = parsedDateNew ? String(parsedDateNew) : legacyFmt ? String(legacyFmt) : null;
 
       return {
-        rawText: String(obj.rawText ?? obj.reasoning ?? raw),
+        rawText: String(obj.rawText ?? visual ?? raw),
         steps: stepVal != null ? Number(String(stepVal).replace(/,/g, '')) : null,
         stepsRaw: stepVal != null ? String(stepVal) : null,
         dateRaw: finalDateRaw,
-        confidence: confScore != null ? Number(confScore) : null,
+        confidence: confVal != null ? Number(confVal) : null,
         step_count: stepVal != null ? Number(String(stepVal).replace(/,/g, '')) : null,
         detected_date_raw: finalDateRaw,
-        formatted_date: formatted ? String(formatted) : null,
-        is_date_matched: isMatched != null ? Boolean(isMatched) : null,
-        confidence_score: confScore != null ? Number(confScore) : null,
-        status: status === 'passed' || status === 'flagged_for_review' ? status : null,
-        reasoning: reasoning ? String(reasoning) : null,
+        formatted_date: finalParsed,
+        is_date_matched: obj.is_date_matched != null ? Boolean(obj.is_date_matched) : null,
+        confidence_score: confVal != null ? Number(confVal) : null,
+        status: obj.status === 'passed' || obj.status === 'flagged_for_review' ? obj.status : null,
+        reasoning: visual ? String(visual) : obj.reasoning ? String(obj.reasoning) : null,
+        raw_date_text_from_image: finalDateRaw,
+        parsed_date_from_image: finalParsed,
+        ocr_confidence: confVal != null ? Number(confVal) : null,
+        visual_evidence: visual ? String(visual) : null,
       };
     } catch {}
   }
@@ -186,6 +192,10 @@ function parseTyphoonContent(content: string): TyphoonOcrResult {
     confidence_score: null,
     status: null,
     reasoning: null,
+    raw_date_text_from_image: null,
+    parsed_date_from_image: null,
+    ocr_confidence: null,
+    visual_evidence: null,
   };
 }
 

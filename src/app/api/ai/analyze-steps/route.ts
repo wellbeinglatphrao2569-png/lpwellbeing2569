@@ -16,8 +16,17 @@ export const maxDuration = 60;
 
 
 export async function POST(request: NextRequest) {
+  let expectedForError = '';
+  let inputForError: unknown = null;
   try {
-    const body = await request.json();
+    let body: any;
+    try {
+      body = await request.json();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('analyze-steps json parse failed:', msg);
+      return NextResponse.json({ success: true, fallback: true, aiSteps: null, dateRaw: null, dateNormalized: null, dateMatch: null, confidence: null, alert: true, alertReason: `คำขอไม่ถูกต้อง (JSON): ${msg.slice(0,200)} — รอตรวจสอบ manual`, expectedDate: '', inputSteps: null });
+    }
     const { imageBase64, expectedDate, inputSteps } = body as {
       imageBase64: string;
       expectedDate: string;
@@ -32,7 +41,9 @@ export async function POST(request: NextRequest) {
     }
 
     const expected = String(expectedDate).trim();
+    expectedForError = expected;
     const inputNum = inputSteps != null && String(inputSteps).trim() !== '' ? Number(inputSteps) : null;
+    inputForError = inputNum;
 
     // ถ้าไม่มี Typhoon key ให้ fallback เป็น manual pending
     if (!isTyphoonConfigured()) {
@@ -215,7 +226,22 @@ export async function POST(request: NextRequest) {
       inputSteps: inputNum,
     });
   } catch (error) {
-    console.error('analyze-steps error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack?.slice(0, 800) : '';
+    console.error('analyze-steps outer error:', msg, stack);
+    return NextResponse.json({
+      success: true,
+      fallback: true,
+      aiSteps: null,
+      dateRaw: null,
+      dateNormalized: null,
+      dateMatch: null,
+      confidence: null,
+      alert: true,
+      alertReason: `AI ขัดข้อง: ${msg.slice(0,200)} — รอตรวจสอบ manual`,
+      expectedDate: expectedForError,
+      inputSteps: inputForError,
+      error: msg,
+    });
   }
 }

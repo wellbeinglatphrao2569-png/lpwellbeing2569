@@ -195,6 +195,7 @@ export default function StepsPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthOffset, setMonthOffset] = useState(0);
   const [zoomImage, setZoomImage] = useState<{ fileId: string; alt: string } | null>(null);
+  const [uploadZoom, setUploadZoom] = useState<string | null>(null);
   // วันที่เริ่มต้นของสัปดาห์ (วันจันทร์) ที่เลือกจากปฏิทิน — start = จันทร์ เสมอ (จำสัปดาห์ล่าสุดที่บันทึกไว้)
   const [historyWeekDate, setHistoryWeekDate] = useState(() => {
     try {
@@ -1025,8 +1026,11 @@ export default function StepsPage() {
                 </div>
                 {imagePreview && (
                   <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 group">
-                    <img src={imagePreview} alt="Preview — คลิกเพื่อดูเต็มก่อนบันทึก" onClick={()=> window.open(imagePreview, '_blank')} className="w-full max-h-56 object-contain bg-gray-100 dark:bg-gray-900 cursor-zoom-in group-hover:opacity-90 transition" title="คลิกเพื่อดูรูปเต็มก่อนบันทึก — ตรวจว่าเจ้าของข้อมูลตรงกับรูป" />
-                    <span className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-full bg-black/60 text-white text-xs font-medium">คลิกเพื่อดูเต็ม — ตรวจก่อนบันทึก</span>
+                    <img src={imagePreview} alt="Preview — คลิกเพื่อขยาย" onClick={()=> setUploadZoom(imagePreview)} className="w-full max-h-56 object-contain bg-gray-100 dark:bg-gray-900 cursor-zoom-in group-hover:opacity-90 transition" title="คลิกเพื่อขยายดูภาพเต็ม — ลากเพื่อเลื่อน/ซูม" />
+                    <span className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-full bg-black/60 text-white text-xs font-medium flex items-center gap-1"><span className="material-symbols-outlined text-sm">zoom_in</span>คลิกเพื่อขยาย — ตรวจก่อนบันทึก</span>
+                    <button onClick={()=> setUploadZoom(imagePreview)} className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/50 text-white hover:bg-black/70">
+                      <span className="material-symbols-outlined text-lg">open_in_full</span>
+                    </button>
                   </div>
                 )}
                 {imagePreview && (
@@ -1402,7 +1406,7 @@ export default function StepsPage() {
       </GlassCard>
 
       {/* ═══════════════════════════════════════════ */}
-      {/* Zoom Image Modal */}
+      {/* Zoom Image Modal — ประวัติ */}
       {/* ═══════════════════════════════════════════ */}
       {zoomImage && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-fade-in">
@@ -1423,6 +1427,31 @@ export default function StepsPage() {
                 className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-all text-sm">
                 เปิดใน Google Drive
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* Zoom Upload Preview — ก้าวสร้างสุข แบบส่วนบุคคล */}
+      {/* ═══════════════════════════════════════════ */}
+      {uploadZoom && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 animate-fade-in">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setUploadZoom(null)} />
+          <div className="bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/30 dark:border-gray-700/30 rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl relative z-10 animate-scale-in flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
+              <p className="font-bold text-gray-900 dark:text-white flex items-center gap-2"><span className="material-symbols-outlined text-emerald-600">image</span>ภาพหลักฐาน — ก้าวสร้างสุข</p>
+              <button onClick={() => setUploadZoom(null)} aria-label="ปิด" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div className="p-3 overflow-auto flex-1 bg-gray-50 dark:bg-gray-900/50 flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={uploadZoom} alt="ภาพหลักฐานขยาย" className="max-w-full max-h-[70vh] object-contain rounded-xl shadow" />
+            </div>
+            <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex gap-2 shrink-0">
+              <button onClick={() => setUploadZoom(null)} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600">ปิด</button>
+              <button onClick={() => window.open(uploadZoom, '_blank')} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg">open_in_new</span>เปิดแท็บใหม่</button>
             </div>
           </div>
         </div>

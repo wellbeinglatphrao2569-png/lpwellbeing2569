@@ -1,25 +1,21 @@
 /**
  * อัปโหลดภาพหลักฐานก้าวเดิน → ส่งต่อ GAS backend
  * (GAS เป็นคนอัปโหลดไฟล์ไป Google Drive + บันทึก Steps_Log)
+ * ระบบบันทึกแบบ Pending รอตรวจสอบ manual ล้วน
  *
  * POST /api/steps/image-upload
- * Body: {
- *   imageBase64, userId, steps, dateThai,
- *   aiSteps, aiConfidence, dateInImage, dateMatch, alert, alertReasons[]
- * }
+ * Body: { imageBase64, userId, steps, dateThai }
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeStepsImage, isAutoApprovable } from '@/lib/serverAi';
+import { analyzeStepsImageWithTyphoon, isTyphoonConfigured } from '@/lib/typhoon';
+import { extractStepsFromText } from '@/lib/stepsExtractor';
+import { normalizeOcrDate, isDateMatch } from '@/lib/stepsDateParser';
 
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
-const TYPHOON_MODEL = process.env.TYPHOON_OCR_MODEL || 'typhoon-ocr';
 
 function extractBase64(imageBase64: string): string {
   const match = imageBase64.match(/^data:[^;]+;base64,(.+)$/);
   return match ? match[1] : imageBase64;
-}
-function hasAiKeys(): boolean {
-  return !!(process.env.TYPHOON_API_KEY || process.env.TYPHOON_OCR_API_KEY);
 }
 
 export const runtime = 'nodejs';
@@ -29,7 +25,7 @@ export const maxDuration = 60;
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageBase64, userId, steps, dateThai, aiSteps, aiConfidence, dateMatch, alert, alertReasons } = body;
+    const { imageBase64, userId, steps, dateThai } = body;
 
     if (!imageBase64) {
       return NextResponse.json({ error: 'Image is required' }, { status: 400 });
@@ -47,26 +43,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
     }
 
-    // ห้วงเวลาบันทึก + Data Freeze: ตรวจว่าอยู่ในห้วงและยังไม่เกินวันสิ้นสุด (กันยิง API ตรง)
+    // ห้วงเวลาบันทึก + Data Freeze
     try {
       const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
       if (winRes.ok) {
         const win = await winRes.json();
         if (win && win.start && win.end) {
-          const today = new Date().toISOString().slice(0,10);
-          // Data Freeze: ถ้าวันนี้เกิน end ให้ล็อคทันที
-          if (today > String(win.end).slice(0,10)) {
-            return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร` }, { status: 403 });
+          const today = new Date().toISOString().slice(0, 10);
+          if (today > String(win.end).slice(0, 10)) {
+            return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
           }
-          const d = String(dateThai).trim().slice(0,10);
-          if (d < String(win.start).slice(0,10) || d > String(win.end).slice(0,10)) {
+          const d = String(dateThai).trim().slice(0, 10);
+          if (d < String(win.start).slice(0, 10) || d > String(win.end).slice(0, 10)) {
             return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถบันทึกวันที่ ${d} ได้` }, { status: 400 });
           }
         }
       }
-    } catch (e) { console.warn('image-upload window check failed', e); }
+    } catch (e) {
+      console.warn('image-upload window check failed', e);
+    }
 
-    // กัน Mode 2 บันทึกเอง — ต้องให้ จนท. บันทึกให้เท่านั้น (Mode 1 จึงบันทึกได้)
+    // กัน Mode 2 บันทึกเอง
     try {
       const uRes = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
       if (uRes.ok) {
@@ -74,7 +71,7 @@ export async function POST(request: NextRequest) {
         if (Array.isArray(users)) {
           const target = users.find((u: any) => String(u.User_ID).trim() === String(userId).trim());
           if (target && String((target as any).Step_Record_Mode || '1').trim() === '2') {
-            return NextResponse.json({ error: 'คุณอยู่ใน Mode 2 (เจ้าหน้าที่ นสส. บันทึกให้) — ไม่สามารถบันทึกเองได้ กรุณาติดต่อเจ้าหน้าที่ประจำฝ่าย' }, { status: 403 });
+            return NextResponse.json({ error: 'คุณอยู่ใน Mode 2 (เจ้าหน้าที่ นสส. บันทึกให้) — ไม่สามารถบันทึกเองได้' }, { status: 403 });
           }
         }
       }
@@ -82,68 +79,84 @@ export async function POST(request: NextRequest) {
       console.warn('image-upload mode check failed', e);
     }
 
-    // ── Server-only AI ตรวจสอบ: ถ้ามั่นใจสูง (ตัวเลข+วันที่ชัดเจนตรงกัน) → Approved ทันที + นับคะแนน; ถ้าสงสัยเล็กน้อย/ผิดปกติ/ตัดต่อ → Pending ให้ต่างฝ่ายตรวจ ──
-    let finalAiSteps: any = aiSteps;
-    let finalAiConf: any = aiConfidence;
-    let finalDateInImage: any = '';
-    let finalDateMatch: any = dateMatch;
-    let finalAlert: boolean = !!alert;
-    let finalAlertReasons: string[] = Array.isArray(alertReasons) ? [...alertReasons] : [];
-    let finalNotes = '';
-    let aiProvider: string = 'typhoon';
-    let aiModel: string = TYPHOON_MODEL;
-    let serverStatus: 'Approved' | 'Pending' = 'Pending';
+    // ตรวจสอบด้วย Typhoon OCR — ถ้ามีข้อมูล AI จาก client ส่งมา (aiSteps/dateMatch) ให้ใช้เลย, ถ้าไม่มีให้ลองอ่านเอง
+    let aiSteps: number | null = null;
+    let aiConfidence: number | null = null;
+    let dateInImageRaw: string | null = null;
+    let dateMatch: boolean | null = null;
+    let dateNormalized: string | null = null;
+    let alertFlag: 'TRUE' | 'FALSE' = 'TRUE';
+    let alertReason = 'รอตรวจสอบ manual';
+    let aiStepsRaw: string | null = null;
 
-    if (imageBase64 && hasAiKeys()) {
+    // รับค่าจาก body ถ้า client ส่งมาจาก /api/ai/analyze-steps แล้ว (flow 2 ชั้นยืนยัน)
+    const bodyAi = body as any;
+    if (bodyAi.aiSteps != null || bodyAi.dateRaw != null || bodyAi.dateMatch != null) {
+      aiSteps = bodyAi.aiSteps != null ? Number(bodyAi.aiSteps) : null;
+      aiStepsRaw = bodyAi.aiStepsRaw != null ? String(bodyAi.aiStepsRaw) : null;
+      aiConfidence = bodyAi.confidence != null ? Number(bodyAi.confidence) : (bodyAi.aiConfidence != null ? Number(bodyAi.aiConfidence) : null);
+      dateInImageRaw = bodyAi.dateRaw != null ? String(bodyAi.dateRaw) : (bodyAi.Date_In_Image != null ? String(bodyAi.Date_In_Image) : null);
+      dateNormalized = bodyAi.dateNormalized != null ? String(bodyAi.dateNormalized) : null;
+      const dm = bodyAi.dateMatch ?? bodyAi.Date_Match;
+      dateMatch = dm === true || dm === 'TRUE' ? true : dm === false || dm === 'FALSE' ? false : null;
+      alertFlag = bodyAi.alertFlag === 'FALSE' || bodyAi.Alert_Flag === 'FALSE' ? 'FALSE' : 'TRUE';
+      alertReason = bodyAi.alertReason ?? bodyAi.Alert_Reason ?? alertReason;
+      // ถ้า client บอกว่า alert=false และ dateMatch true + stepsExact → จะได้ Approved
+    } else if (isTyphoonConfigured()) {
+      // fallback: ถ้า client ไม่ได้ส่ง AI มา ให้ server ลองอ่านเอง (กันกรณีเรียกตรง)
       try {
-        const dataUrl = imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}`;
-        const ai = await analyzeStepsImage(dataUrl, String(dateThai), 'auto');
-        finalAiSteps = ai.steps;
-        finalAiConf = ai.confidence;
-        finalDateInImage = ai.dateInImage || '';
-        finalDateMatch = ai.dateMatch;
-        finalNotes = ai.notes;
-        aiProvider = ai.provider;
-        aiModel = ai.model;
-        // เงื่อนไข Auto-Approve สเปคใหม่ 1.2: Steps ตรง 100% AND Date ตรง 100% AND confidence >=0.8 AND ไม่มี alert อื่น
-        const stepsExact = ai.steps != null && Number(ai.steps) === Number(steps);
-        const dateExact = ai.dateMatch === true;
-        const autoOk = isAutoApprovable(ai.steps, Number(steps), ai.dateMatch, ai.confidence);
-        // ถ้าไม่เข้าเงื่อนไข auto → ต้อง Pending พร้อมเหตุผลชัดเจน
-        if (!stepsExact && ai.steps != null) {
-          finalAlertReasons = [...ai.alertReasons, `จำนวนก้าวที่กรอก (${Number(steps).toLocaleString()}) ไม่ตรงกับที่ AI อ่าน (${Number(ai.steps).toLocaleString()}) — ต้องตรง 100%`];
-          finalAlert = true;
-        } else if (!dateExact) {
-          finalAlertReasons = [...ai.alertReasons];
-          finalAlert = true;
-        } else {
-          finalAlertReasons = [...ai.alertReasons];
-          finalAlert = ai.alert;
+        const ty = await analyzeStepsImageWithTyphoon(String(imageBase64), { timeoutMs: 20000 });
+        dateInImageRaw = ty.dateRaw ?? null;
+        aiConfidence = ty.confidence ?? null;
+        if (ty.steps != null) {
+          aiSteps = Number(ty.steps);
+          aiStepsRaw = ty.stepsRaw ?? String(ty.steps);
+        } else if (ty.rawText) {
+          const ext = extractStepsFromText(ty.rawText);
+          aiSteps = ext.steps;
+          aiStepsRaw = ext.raw;
         }
-        // แม้ steps/date ตรง แต่ถ้า confidence ต่ำหรือมี alert เรื่องตัดต่อ/สูงผิดปกติ ก็ยัง Pending
-        if (autoOk && !finalAlert) {
-          serverStatus = 'Approved';
-        } else {
-          serverStatus = 'Pending';
-          if (!finalAlert) { finalAlert = true; }
-          // เติมเหตุผลถ้ายังไม่มี
-          if (finalAlertReasons.length === 0) finalAlertReasons = ['ไม่เข้าเงื่อนไขอนุมัติอัตโนมัติ — รอเจ้าหน้าที่ต่างฝ่ายตรวจ'];
-        }
+        dateNormalized = dateInImageRaw ? normalizeOcrDate(dateInImageRaw, String(dateThai)) : null;
+        dateMatch = dateInImageRaw ? isDateMatch(dateInImageRaw, String(dateThai)) : null;
       } catch (e) {
-        console.warn('image-upload server AI failed, fallback to Pending:', e);
-        finalAlert = true;
-        finalAlertReasons = [...finalAlertReasons, 'AI ตรวจไม่สำเร็จ — รอตรวจสอบ manual (ต่างฝ่าย)'];
-        serverStatus = 'Pending';
+        console.warn('image-upload Typhoon fallback failed:', e);
       }
-    } else if (!hasAiKeys()) {
-      // ไม่มีคีย์ AI — ต้องให้มนุษย์ต่างฝ่ายตรวจ
-      finalAlert = true;
-      finalAlertReasons = ['ไม่มีการตรวจ AI (ไม่มีคีย์) — รอเจ้าหน้าที่ต่างฝ่ายตรวจ'];
-      serverStatus = 'Pending';
-    } else if (alert === false && finalAlertReasons.length === 0) {
-      // client บอกว่าไม่ alert และไม่มี server AI — ถือว่า manual pending ไว้ก่อน แต่ถ้าไม่มี alert จริงก็อนุมัติ
-      serverStatus = 'Pending';
     }
+
+    // ตัดสิน Strict 0% tolerance
+    const inputStepsNum = Number(steps);
+    const stepsExact = aiSteps != null ? aiSteps === inputStepsNum : null;
+    const conf = aiConfidence ?? (aiSteps != null && dateNormalized ? 0.7 : 0.3);
+
+    // ถ้าไม่มีข้อมูล AI เลย → Pending
+    if (aiSteps == null && dateMatch == null && !bodyAi.aiSteps) {
+      alertFlag = 'TRUE';
+      alertReason = dateInImageRaw ? 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ' : 'AI อ่านไม่สำเร็จ — รอตรวจสอบ manual';
+    } else if (bodyAi.alertReason == null && bodyAi.Alert_Reason == null) {
+      // คำนวณ alert เองถ้า client ไม่ได้ส่งมา
+      if (aiSteps == null) {
+        alertFlag = 'TRUE';
+        alertReason = 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ';
+      } else if (stepsExact === false) {
+        alertFlag = 'TRUE';
+        alertReason = `ก้าวไม่ตรงกัน (กรอก ${inputStepsNum.toLocaleString()} vs อ่าน ${aiSteps.toLocaleString()}) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else if (dateMatch === false) {
+        alertFlag = 'TRUE';
+        alertReason = `วันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก (${String(dateThai)} vs ในภาพ "${dateInImageRaw}" → ${dateNormalized || 'อ่านไม่ได้'})`;
+      } else if (dateMatch == null) {
+        alertFlag = 'TRUE';
+        alertReason = `อ่านวันที่ในภาพไม่ชัดเจน ("${dateInImageRaw || '—'}") — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else if (conf < 0.85) {
+        alertFlag = 'TRUE';
+        alertReason = `ความมั่นใจต่ำ (${Math.round(conf * 100)}%) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else {
+        alertFlag = 'FALSE';
+        alertReason = '';
+      }
+    }
+
+    const autoApprove = alertFlag === 'FALSE' && stepsExact === true && dateMatch === true && conf >= 0.85;
+    const serverStatus: 'Approved' | 'Pending' = autoApprove ? 'Approved' : 'Pending';
 
     const gasRes = await fetch(GAS_API_URL, {
       method: 'POST',
@@ -156,26 +169,34 @@ export async function POST(request: NextRequest) {
         Record_Method: 'ภาพถ่าย',
         Status: serverStatus,
         Image_Base64: extractBase64(imageBase64),
-        AI_Steps: finalAiSteps != null ? Number(finalAiSteps) : '',
-        AI_Confidence: finalAiConf != null ? Number(finalAiConf) : '',
-        Date_In_Image: finalDateInImage,
-        Date_Match: finalDateMatch === true ? 'TRUE' : finalDateMatch === false ? 'FALSE' : '',
-        Alert_Flag: finalAlert ? 'TRUE' : 'FALSE',
-        Alert_Reason: finalAlertReasons.join('; '),
-        Notes: finalNotes,
+        AI_Steps: aiSteps != null ? String(aiSteps) : (aiStepsRaw || ''),
+        AI_Confidence: aiConfidence != null ? String(aiConfidence) : String(conf),
+        Date_In_Image: dateInImageRaw || dateNormalized || '',
+        Date_Match: dateMatch === true ? 'TRUE' : dateMatch === false ? 'FALSE' : '',
+        Alert_Flag: alertFlag,
+        Alert_Reason: alertReason,
+        Notes: aiStepsRaw ? `AIอ่าน: ${aiStepsRaw} | วันที่ดิบ: ${dateInImageRaw || '—'}` : '',
       }),
     });
 
     const gasJson = await gasRes.json().catch(() => ({}));
     if (!gasRes.ok || gasJson.error) {
       console.error('GAS add-step failed:', gasRes.status, gasJson);
-      return NextResponse.json(
-        { error: gasJson.error || `GAS error: ${gasRes.status}` },
-        { status: gasRes.ok ? 500 : gasRes.status }
-      );
+      return NextResponse.json({ error: gasJson.error || `GAS error: ${gasRes.status}` }, { status: gasRes.ok ? 500 : gasRes.status });
     }
 
-    return NextResponse.json({ ...gasJson, aiStatus: serverStatus, aiAlert: finalAlert, aiModel, aiProvider, aiConfidence: finalAiConf });
+    return NextResponse.json({
+      ...gasJson,
+      aiStatus: serverStatus,
+      aiSteps,
+      aiStepsRaw,
+      aiConfidence,
+      dateInImageRaw,
+      dateNormalized,
+      dateMatch,
+      alertFlag,
+      alertReason,
+    });
   } catch (error) {
     console.error('image-upload error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

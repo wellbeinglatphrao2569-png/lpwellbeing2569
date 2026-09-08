@@ -7,7 +7,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { fetchData, postDataJson } from "@/services/api";
 import Modal from "@/components/ui/Modal";
 import ProofImage from "@/components/ProofImage";
-import type { User, StepsLog, AiImageAnalysis } from "@/types";
+import AiBatchSummaryPopup, { BatchAiItem } from "@/components/ui/AiBatchSummaryPopup";
+import type { User, StepsLog } from "@/types";
 import { displayName, profileImageUrl } from "@/utils/personnel";
 import { useProjectWindow } from "@/hooks/useProjectWindow";
 
@@ -47,23 +48,13 @@ function compressImage(file: File, maxDim=1024, quality=0.72): Promise<string> {
 function getUserKey(u: User): string { return String((u as any).User_ID || u.Personnel_ID || '').trim(); }
 function isPendingUser(u: User): boolean { return !String((u as any).User_ID || '').trim(); }
 
-// Typhoon เดี่ยว — ไม่ต้องกระจายหลายโมเดลแล้ว
-type ProviderKey = 'typhoon' | 'typhoon-preview';
-const PROVIDERS: ProviderKey[] = ['typhoon'];
-function hashUid(s: string): number { let h=0; for(let i=0;i<s.length;i++) h=(h*31 + s.charCodeAt(i))|0; return Math.abs(h); }
-function getProviderForUid(uid: string): ProviderKey { return 'typhoon'; }
-function providerLabel(p: ProviderKey): string { return p==='typhoon-preview' ? 'Typhoon OCR (preview)' : 'Typhoon OCR'; }
-function providerBadgeClass(p: ProviderKey | string): string {
-  if(p==='typhoon-preview') return 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 border-violet-200';
-  if(p==='typhoon') return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200';
-  return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200';
-}
+
 
 interface FileItem {
   id: string;
   file: File;
   preview: string;
-  aiResult: AiImageAnalysis | null;
+  // aiResult ถูกล้างออก
   manualSteps: string;
   targetDate: string;
   isProcessing?: boolean;
@@ -97,6 +88,10 @@ export default function BatchStepsPage(){
   const [gridImages, setGridImages] = useState<Record<string, Record<string, { preview:string, file: File }>>>({});
   const gridFileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const { window: projectWindow, isInWindow } = useProjectWindow();
+  // AI batch popup
+  const [showBatchAiPopup, setShowBatchAiPopup] = useState(false);
+  const [batchAiItems, setBatchAiItems] = useState<BatchAiItem[]>([]);
+  const [batchAiAnalyzing, setBatchAiAnalyzing] = useState(false);
 
   const weekMonday = useMemo(()=> getMonday(new Date(weekStart)),[weekStart]);
   const weekDays: string[] = useMemo(()=> Array.from({length:7},(_,i)=>{ const d=new Date(weekMonday); d.setDate(d.getDate()+i); return toIsoLocal(d); }),[weekMonday]);
@@ -196,7 +191,7 @@ export default function BatchStepsPage(){
         const preview = await compressImage(f);
         const usedTargets = new Set([...current, ...newItems].map(x=>x.targetDate));
         let defaultDate = weekDays.find(d=> !usedTargets.has(d) && (allowOverwrite || !existingMap.has(`${userId}|${d}`))) || weekDays.find(d=> !usedTargets.has(d)) || weekDays[0];
-        newItems.push({ id: `${Date.now()}_${i}_${Math.random().toString(36).slice(2,6)}`, file:f, preview, aiResult:null, manualSteps:'', targetDate: defaultDate });
+        newItems.push({ id: `${Date.now()}_${i}_${Math.random().toString(36).slice(2,6)}`, file:f, preview, manualSteps:'', targetDate: defaultDate } as any);
       }catch(e){
         setResultPopup({type:'error', title:'อ่านรูปไม่สำเร็จ', message: e instanceof Error? e.message:'อ่านไฟล์รูปไม่สำเร็จ'});
       }
@@ -240,154 +235,11 @@ export default function BatchStepsPage(){
     return weekDays.find(d=> !usedInBatch.has(d)) || weekDays[0];
   }
 
-  async function handleAiForUser(userId:string){
-    const items = userFiles[userId]||[];
-    const pending = items.filter(f=> !f.aiResult);
-    if(pending.length===0){
-      setResultPopup({type:'error', title:'ไม่มีรูปที่รอประมวลผล', message:'กรุณาอัปโหลดรูปก่อน'});
-      return;
-    }
-    const targetUser = users.find(u=> String(u.User_ID)===userId || String((u as any).Personnel_ID)===userId);
-    const userName = targetUser ? displayName(targetUser) : userId;
-    // ใช้โมเดลเดียว (Gemini) สำหรับทุกคน — สลับเฉพาะเมื่อขัดข้อง/429/เกินโควตา (fallback ที่เซิร์ฟเวอร์จัดการให้)
-    const providerForThisUser: ProviderKey = 'typhoon';
-    setAiProcessing(true);
-    setProcessingUserId(userId);
-    setAiProgress({total: pending.length, done: 0, percent: 0, currentUserName: `${userName} [${providerLabel(providerForThisUser)}]`});
-    const usedInBatch = new Set<string>();
-    // mark already processed files' targetDate as used
-    for(const f of items){ if(f.aiResult) usedInBatch.add(f.targetDate); }
-    if(!allowOverwrite){
-      for(const d of weekDays){ if(existingMap.has(`${userId}|${d}`)) usedInBatch.add(d); }
-    }
-    try{
-      for(let idx=0; idx<pending.length; idx++){
-        const fileItem = pending[idx];
-        // mark processing
-        setUserFiles(prev=>{
-          const arr=[...(prev[userId]||[])];
-          return {...prev, [userId]: arr.map(f=> f.id===fileItem.id? {...f, isProcessing:true}: f)};
-        });
-        setAiProgress({total: pending.length, done: idx, percent: Math.round((idx/pending.length)*100), currentUserName: `${userName} [${providerLabel(providerForThisUser)}]`, currentFileName: fileItem.file.name});
-        // call single image analyze — ส่ง preferredProvider เพื่อให้คนนี้วิ่งบน AI ตัวเดียวตลอด
-        const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate, preferredProvider: providerForThisUser }) });
-        const data = await res.json().catch(()=>({}));
-        if(!res.ok){
-          throw new Error(data.error||'AI ประมวลผลล้มเหลว');
-        }
-        const r: AiImageAnalysis = {
-          steps: data.steps ?? null,
-          dateInImage: data.dateInImage ?? null,
-          dateRaw: data.dateRaw ?? null,
-          dateMatch: data.dateMatch ?? null,
-          confidence: data.confidence ?? 0,
-          notes: data.notes ?? '',
-          alert: !!data.alert,
-          alertReasons: data.alertReasons ?? [],
-          provider: (data.provider as any) ?? 'typhoon',
-           model: data.model ?? 'typhoon-ocr',
-        };
-        const targetDate = pickTargetDateForResult(userId, r.dateInImage, usedInBatch);
-        usedInBatch.add(targetDate);
-        let notes=r.notes||'';
-        if(r.dateMatch===false) notes=(notes?notes+' | ':'')+'AI พบวันที่ในภาพไม่ตรงกับวันที่คาดหวัง — บันทึกลง '+targetDate+' โดยมีหมายเหตุว่า จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง';
-        else if(r.dateMatch===null) notes=(notes?notes+' | ':'')+'ไม่พบวันที่ชัดเจนในภาพ — AI บันทึกลง '+targetDate+' พร้อมหมายเหตุว่า จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง';
-        const withNotes={...r, notes} as AiImageAnalysis;
-        setUserFiles(prev=>{
-          const arr=[...(prev[userId]||[])];
-          return {...prev, [userId]: arr.map(f=> f.id===fileItem.id? {...f, aiResult:withNotes, manualSteps: r.steps!=null? String(r.steps): f.manualSteps, targetDate, isProcessing:false}: f)};
-        });
-        setAiProgress({total: pending.length, done: idx+1, percent: Math.round(((idx+1)/pending.length)*100), currentUserName: userName, currentFileName: fileItem.file.name});
-      }
-    }catch(err){
-      setResultPopup({type:'error', title:'AI ประมวลผลล้มเหลว', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
-      // clear processing flag
-      setUserFiles(prev=>{
-        const arr=[...(prev[userId]||[])];
-        return {...prev, [userId]: arr.map(f=> ({...f, isProcessing:false}))};
-      });
-    }finally{
-      setAiProcessing(false);
-      setProcessingUserId(null);
-      setTimeout(()=> setAiProgress(null), 800);
-    }
-  }
 
-  async function handleAiAll(){
-    const pendingUsers = filteredUsers.filter(u=>{
-      const uid=getUserKey(u);
-      const arr=userFiles[uid]||[];
-      return arr.some(f=> !f.aiResult);
-    });
-    const totalPending = pendingUsers.reduce((sum,u)=> sum + (userFiles[getUserKey(u)]||[]).filter(f=>!f.aiResult).length, 0);
-    if(totalPending===0){
-      setResultPopup({type:'error', title:'ไม่มีรูปให้ประมวลผล', message:'กรุณาอัปโหลดรูปอย่างน้อย 1 รูปในตาราง (1 ช่อง/คน, สูงสุด 7 ภาพ/คน) ก่อนกดปุ่ม AI ประมวลผล' });
-      return;
-    }
-    setAiProcessing(true);
-    const globalDoneRef = { value: 0 };
-    setAiProgress({total: totalPending, done: 0, percent: 0, currentUserName: 'เริ่มต้น...'});
-    const updateGlobalProgress = (userName:string, fileName:string) => {
-      setAiProgress({total: totalPending, done: globalDoneRef.value, percent: Math.round((globalDoneRef.value/totalPending)*100), currentUserName: userName, currentFileName: fileName});
-    };
-    try{
-      const CONCURRENCY = 6; // ประมวลผลพร้อมกัน 6 คน — ใช้โมเดลเดียว (Gemini) สลับเฉพาะเมื่อขัดข้อง/429
-      const processOneUser = async (u: User, globalIndex: number) => {
-        const uid=getUserKey(u);
-        const pending = (userFiles[uid]||[]).filter(f=> !f.aiResult);
-        if(pending.length===0) return;
-        const userName=displayName(u);
-        const assignedProvider: ProviderKey = 'typhoon';
-        const usedInBatch = new Set<string>();
-        for(const f of (userFiles[uid]||[])){ if(f.aiResult) usedInBatch.add(f.targetDate); }
-        if(!allowOverwrite){ for(const d of weekDays){ if(existingMap.has(`${uid}|${d}`)) usedInBatch.add(d); } }
-        for(let idx=0; idx<pending.length; idx++){
-          const fileItem = pending[idx];
-          setUserFiles(prev=>{ const arr=[...(prev[uid]||[])]; return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, isProcessing:true}: f)}; });
-          updateGlobalProgress(`${userName} [${providerLabel(assignedProvider)}]`, fileItem.file.name);
-          const res = await fetch('/api/steps/image-analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: fileItem.preview, expectedDate: fileItem.targetDate, preferredProvider: assignedProvider }) });
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok) throw new Error(data.error||'AI ประมวลผลล้มเหลว');
-          const r: AiImageAnalysis = {
-            steps: data.steps ?? null,
-            dateInImage: data.dateInImage ?? null,
-            dateRaw: data.dateRaw ?? null,
-            dateMatch: data.dateMatch ?? null,
-            confidence: data.confidence ?? 0,
-            notes: data.notes ?? '',
-            alert: !!data.alert,
-            alertReasons: data.alertReasons ?? [],
-            provider: (data.provider as any) ?? 'typhoon',
-          model: data.model ?? 'typhoon-ocr',
-          };
-          const targetDate = pickTargetDateForResult(uid, r.dateInImage, usedInBatch);
-          usedInBatch.add(targetDate);
-          let notes=r.notes||'';
-          if(r.dateMatch===false) notes=(notes?notes+' | ':'')+'AI พบวันที่ไม่ตรง — บันทึกลง '+targetDate+' พร้อมหมายเหตุรวมสัปดาห์ถูกต้อง';
-          else if(r.dateMatch===null) notes=(notes?notes+' | ':'')+'ไม่พบวันที่ — บันทึกลง '+targetDate+' พร้อมหมายเหตุรวมสัปดาห์ถูกต้อง';
-          const withNotes={...r, notes} as AiImageAnalysis;
-          setUserFiles(prev=>{ const arr=[...(prev[uid]||[])]; return {...prev, [uid]: arr.map(f=> f.id===fileItem.id? {...f, aiResult:withNotes, manualSteps: r.steps!=null? String(r.steps): f.manualSteps, targetDate, isProcessing:false}: f)}; });
-          globalDoneRef.value++;
-          updateGlobalProgress(userName, fileItem.file.name);
-        }
-      };
-      for(let i=0; i<pendingUsers.length; i+=CONCURRENCY){
-        const batch = pendingUsers.slice(i, i+CONCURRENCY);
-        setProcessingUserId(getUserKey(batch[0]));
-        await Promise.all(batch.map((u, bi) => processOneUser(u, i + bi)));
-      }
-    }catch(err){
-      setResultPopup({type:'error', title:'AI ประมวลผลล้มเหลว', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
-    }finally{
-      setAiProcessing(false);
-      setProcessingUserId(null);
-      setTimeout(()=> setAiProgress(null), 800);
-    }
-  }
 
   const totalFiles = useMemo(()=> Object.values(userFiles).reduce((s,a)=>s+a.length,0),[userFiles]);
-  const totalPending = useMemo(()=> Object.values(userFiles).reduce((s,a)=>s+a.filter(f=>!f.aiResult).length,0),[userFiles]);
-  const totalReady = useMemo(()=> Object.values(userFiles).reduce((s,a)=>s+a.filter(f=> f.aiResult || f.manualSteps).length,0),[userFiles]);
+  const totalPending = useMemo(()=> 0,[userFiles]);
+  const totalReady = useMemo(()=> Object.values(userFiles).reduce((s,a)=>s+a.filter(f=> f.manualSteps && parseInt(f.manualSteps,10)>0).length,0),[userFiles]);
 
   async function handleSave(){
     setConfirmSave(false);
@@ -471,8 +323,8 @@ export default function BatchStepsPage(){
     }
     for(const [uid, arr] of Object.entries(userFiles)){
       for(const f of arr){
-        // server-only mode: อนุญาต manualSteps โดยไม่ต้องมี aiResult
-        const stepsNum=parseInt(f.manualSteps||String(f.aiResult?.steps||''),10);
+        // manual mode
+        const stepsNum=parseInt(f.manualSteps||'',10);
         if(!stepsNum || stepsNum<=0){
           setResultPopup({type:'error', title:'จำนวนก้าวไม่ถูกต้อง', message:`${displayName(users.find(u=>String(u.User_ID)===uid)||null)} วันที่ ${f.targetDate} — กรุณาใส่ก้าวมากกว่า 0`});
           return;
@@ -500,90 +352,107 @@ export default function BatchStepsPage(){
         }
       }
     }
-    // เตรียม payload ก่อนแล้วค่อยแสดง popup กำลังบันทึก + AI
-    const payloadStepsPre: any[] = [];
+     // เตรียม payloadSteps แบบไม่มี AI ก่อน เพื่อเรียก Typhoon ต่อรายการแล้วโชว์ popup รวม
+    const payloadCandidates: any[] = [];
     for(const [uid, arr] of Object.entries(userFiles)){
       for(const f of arr){
-        const stepsNum=parseInt(f.manualSteps||String(f.aiResult?.steps||''),10);
-        if(stepsNum>0) payloadStepsPre.push({ uid, day: f.targetDate });
+        const stepsNum=parseInt(f.manualSteps||'',10);
+        payloadCandidates.push({ _uid: uid, _day: f.targetDate, _preview: f.preview, _steps: stepsNum, _display: displayName(users.find(u=> getUserKey(u)===uid)||null) || uid });
       }
     }
     for(const [uid, days] of Object.entries(gridInputs)){
       for(const [d, v] of Object.entries(days)){
         if(!weekDays.includes(d)) continue;
-        const n=parseInt(v,10);
-        if(n>0 && gridImages[uid]?.[d]) payloadStepsPre.push({ uid, day:d });
+        const stepsNum=parseInt(v,10);
+        if(!stepsNum || stepsNum<=0) continue;
+        const img = gridImages[uid]?.[d];
+        if(!img) continue;
+        const already = payloadCandidates.some(p=> p._uid===uid && p._day===d);
+        if(already && !allowOverwrite) continue;
+        if(already) {
+          const idx = payloadCandidates.findIndex(p=> p._uid===uid && p._day===d);
+          if(idx>=0) payloadCandidates.splice(idx,1);
+        }
+        payloadCandidates.push({ _uid: uid, _day: d, _preview: img.preview, _steps: stepsNum, _display: displayName(users.find(u=> getUserKey(u)===uid)||null) || uid });
       }
     }
-    const totalToSave = payloadStepsPre.length || 1;
+    if(payloadCandidates.length===0){
+      setResultPopup({type:'error', title:'ไม่มีข้อมูลพร้อมบันทึก', message:'กรุณากรอกจำนวนก้าวในตาราง 7 วันพร้อมแนบภาพ หรือโยนไฟล์แล้วใส่จำนวนก้าว'});
+      return;
+    }
+    // เรียก AI ต่อรายการ (batch 3 concurrent) แล้วรวมสรุป popup
+    setBatchAiAnalyzing(true);
+    setShowBatchAiPopup(true);
+    setBatchAiItems([]);
+    const analyzed: BatchAiItem[] = [];
+    // concurrency 3
+    const queue = [...payloadCandidates];
+    let idxRun = 0;
+    const runOne = async (item: any) => {
+      try {
+        const res = await fetch('/api/ai/analyze-steps', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imageBase64: item._preview, expectedDate: item._day, inputSteps: item._steps }) });
+        const data = await res.json().catch(()=>({}));
+        if (!res.ok) throw new Error(data.error||'AI fail');
+        analyzed.push({
+          uid: item._uid, displayName: item._display, day: item._day, inputSteps: item._steps, preview: item._preview,
+          aiSteps: data.aiSteps ?? null, aiStepsRaw: data.aiStepsRaw ?? null, dateRaw: data.dateRaw ?? null, dateNormalized: data.dateNormalized ?? null,
+          dateMatch: data.dateMatch ?? null, confidence: data.confidence ?? null, stepsExact: data.stepsExact ?? null,
+          alert: !!data.alert, alertReason: data.alertReason || '', expectedDate: item._day, rawText: data.rawText,
+        });
+      } catch (e) {
+        analyzed.push({
+          uid: item._uid, displayName: item._display, day: item._day, inputSteps: item._steps, preview: item._preview,
+          aiSteps: null, aiStepsRaw: null, dateRaw: null, dateNormalized: null, dateMatch: null, confidence: null, stepsExact: null,
+          alert: true, alertReason: e instanceof Error ? e.message : 'AI อ่านไม่สำเร็จ — รอตรวจสอบ', expectedDate: item._day,
+        });
+      }
+      idxRun++; setBatchAiItems([...analyzed]);
+    };
+    // process in batches of 3
+    for (let i=0; i<queue.length; i+=3) {
+      await Promise.all(queue.slice(i,i+3).map(runOne));
+    }
+    setBatchAiAnalyzing(false);
+    // รอให้ผู้ใช้ยืนยันใน popup — ถ้าไม่ยืนยันจะไม่อัพโหลด
+    // เก็บ analyzed ไว้เพื่อส่งต่อไปเมื่อยืนยัน
+    (globalThis as any).__batchAnalyzed = analyzed;
+    (globalThis as any).__payloadCandidates = payloadCandidates;
+    return;
+  }
+
+  async function handleBatchConfirm(){
+    const analyzed: BatchAiItem[] = (globalThis as any).__batchAnalyzed || [];
+    const payloadCandidates: any[] = (globalThis as any).__payloadCandidates || [];
+    if(payloadCandidates.length===0) return;
+    setShowBatchAiPopup(false);
+    const mapAi = new Map<string, BatchAiItem>();
+    for(const a of analyzed) mapAi.set(`${a.uid}|${a.day}`, a);
+    const totalToSave = payloadCandidates.length;
     setSaving(true);
-    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: 'Typhoon OCR' });
-    // อนิเมชัน % ระหว่างรอเซิร์ฟเวอร์ประมวลผล AI
+    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: 'กำลังอัปโหลด' });
     let simPercent = 0;
-    const modelsCycle = ['Typhoon OCR', 'Typhoon OCR (preview)'];
-    let modelIdx = 0;
     const simTimer = setInterval(()=>{
       simPercent = Math.min(90, simPercent + Math.random()*6 + 2);
-      modelIdx = (modelIdx+1)%modelsCycle.length;
-      setSavingProgress(prev=> prev ? { ...prev, percent: Math.round(simPercent), model: modelsCycle[modelIdx], done: Math.round((simPercent/100)*prev.total) } : prev);
+      setSavingProgress(prev=> prev ? { ...prev, percent: Math.round(simPercent), done: Math.round((simPercent/100)*prev.total) } : prev);
     }, 450);
     try{
       const payloadSteps: any[] = [];
-      for(const [uid, arr] of Object.entries(userFiles)){
-        for(const f of arr){
-          const stepsNum=parseInt(f.manualSteps||String(f.aiResult?.steps||''),10);
-          const r=f.aiResult;
-          let notes=r?.notes||'';
-          if(r?.dateMatch===null || r?.dateMatch===false){
-            if(!notes.includes('จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง')){
-              notes=(notes?notes+' ':'')+'(หมายเหตุ: จำนวนก้าวอาจไม่ตรงตามวันที่กำหนด แต่จำนวนภาพรวมทั้งสัปดาห์ถือว่าถูกต้อง)';
-            }
-          }
-          payloadSteps.push({
-            User_ID: uid,
-            Day: f.targetDate,
-            Steps_Count: stepsNum,
-            Image_Base64: f.preview,
-            AI_Steps: r?.steps ?? '',
-            AI_Confidence: r?.confidence ?? '',
-            Date_In_Image: r?.dateInImage ?? '',
-            Date_Match: r?.dateMatch===true? 'TRUE': r?.dateMatch===false? 'FALSE':'',
-            Alert_Flag: r?.alert? 'TRUE':'FALSE',
-            Alert_Reason: r?.alertReasons? r.alertReasons.join('; '):'',
-            Notes: notes
-          });
-        }
-      }
-      // เพิ่มข้อมูลจากตาราง 7 วัน (hybrid)
-      for(const [uid, days] of Object.entries(gridInputs)){
-        for(const [d, v] of Object.entries(days)){
-          if(!weekDays.includes(d)) continue;
-          const stepsNum=parseInt(v,10);
-          if(!stepsNum || stepsNum<=0) continue;
-          const img = gridImages[uid]?.[d];
-          if(!img) continue;
-          // กันซ้ำกับ userFiles ที่บันทึกซ้ำวันเดียวกัน — ให้ grid ทับถ้าชนกัน (แจ้งเตือนแล้ว)
-          const already = payloadSteps.some(p=> p.User_ID===uid && p.Day===d);
-          if(already && !allowOverwrite) continue;
-          if(already) {
-            // ลบตัวเก่าให้เหลือล่าสุด (grid)
-            const idx = payloadSteps.findIndex(p=> p.User_ID===uid && p.Day===d);
-            if(idx>=0) payloadSteps.splice(idx,1);
-          }
-          payloadSteps.push({
-            User_ID: uid,
-            Day: d,
-            Steps_Count: stepsNum,
-            Image_Base64: img.preview,
-            AI_Steps: '',
-            AI_Confidence: '',
-            Date_In_Image: '',
-            Date_Match: '',
-            Alert_Flag: 'FALSE',
-            Alert_Reason: '',
-            Notes: 'บันทึกผ่านตาราง 7 วัน (hybrid) — AI จะตรวจหลังบันทึก'
-          });
-        }
+      for(const c of payloadCandidates){
+        const ai = mapAi.get(`${c._uid}|${c._day}`);
+        payloadSteps.push({
+          User_ID: c._uid,
+          Day: c._day,
+          Steps_Count: c._steps,
+          Image_Base64: c._preview,
+          AI_Steps: ai?.aiSteps != null ? String(ai.aiSteps) : (ai?.aiStepsRaw || ''),
+          AI_Confidence: ai?.confidence != null ? String(ai.confidence) : '',
+          Date_In_Image: ai?.dateRaw || ai?.dateNormalized || '',
+          Date_Match: ai?.dateMatch === true ? 'TRUE' : ai?.dateMatch === false ? 'FALSE' : '',
+          Date_Normalized: ai?.dateNormalized || '',
+          Alert_Flag: ai?.alert ? 'TRUE' : 'FALSE',
+          Alert_Reason: ai?.alertReason || '',
+          Notes: ai?.aiStepsRaw ? `AIอ่าน: ${ai.aiStepsRaw} | วันที่ดิบ: ${ai.dateRaw || '—'}` : ''
+        });
       }
       // ตรวจว่าจะมีการเขียนทับหรือไม่ — แจ้งเตือนตามสเปค 2.2
       const willOverwrite = payloadSteps.some(p=> existingMap.has(`${p.User_ID}|${p.Day}`));
@@ -591,7 +460,7 @@ export default function BatchStepsPage(){
         setResultPopup({type:'error', title:'มีวันที่ซ้ำ', message:'บางวันมีข้อมูลอนุมัติแล้ว — หากต้องการแทนที่ให้ติ๊ก "อนุญาตแทนที่วันที่บันทึกแล้ว" หรือบันทึกจะข้ามรายการเหล่านั้น'});
         // ยังให้ GAS ตัดสินใจข้ามเอง
       }
-      const res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user.User_ID, Logged_Department: actorDepartment, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: payloadSteps }) });
+      const res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user!.User_ID, Logged_Department: actorDepartment, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: payloadSteps }) });
       const data = await res.json().catch(()=>({}));
       clearInterval(simTimer);
       if(data?.aiApproved !== undefined || data?.aiPending !== undefined){
@@ -700,7 +569,7 @@ export default function BatchStepsPage(){
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">บันทึกนับก้าวแบบกลุ่ม (เจ้าหน้าที่ นสส.)</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">ตาราง: <strong>1 ช่องโยนไฟล์/คน</strong> — โยนได้สูงสุด 7 ภาพ/คน/สัปดาห์ ต่อสัปดาห์ — กด <strong>AI ประมวลผล</strong> พร้อมกัน แล้วแสดงค่าทันที (แก้ไขได้ก่อนบันทึก)</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">ตาราง: <strong>1 ช่องโยนไฟล์/คน</strong> — โยนได้สูงสุด 7 ภาพ/คน/สัปดาห์ — กรอกจำนวนก้าวและแนบภาพ แล้วบันทึก</p>
         </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 rounded-xl border">
           ฝ่ายคุณ: <strong className="text-emerald-700 dark:text-emerald-400">{user?.Department || '—'}</strong> {mode2Count>0 && <span className="ml-2 px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 font-bold">Mode 2: {mode2Count} คน</span>}
@@ -908,7 +777,8 @@ export default function BatchStepsPage(){
         </div>
       </GlassCard>
 
-      <ConfirmPopup open={confirmSave} title="ยืนยันบันทึกแบบกลุ่ม" message={`คุณกำลังจะบันทึก ${totalReady} รายการ สัปดาห์ ${formatWeekRangeThai(weekMonday)} — ${allowOverwrite? 'โหมดแทนที่เปิดอยู่ จะเขียนทับวันที่ซ้ำ':'จะข้ามวันที่บันทึกซ้ำ'} แน่ใจหรือไม่?`} variant="primary" loading={saving} onConfirm={handleSave} onClose={()=> setConfirmSave(false)} />
+      <ConfirmPopup open={confirmSave} title="ยืนยันบันทึกแบบกลุ่ม — จะให้ AI ตรวจก่อน" message={`คุณกำลังจะบันทึก ${totalReady} รายการ สัปดาห์ ${formatWeekRangeThai(weekMonday)} — ระบบจะให้ AI อ่านภาพทุกใบก่อน แล้วโชว์สรุปให้ยืนยันอีกครั้ง ${allowOverwrite? '(โหมดแทนที่เปิดอยู่ จะเขียนทับวันที่ซ้ำ)':'(จะข้ามวันที่บันทึกซ้ำ)'} แน่ใจหรือไม่?`} variant="primary" loading={saving} onConfirm={handleSave} onClose={()=> setConfirmSave(false)} />
+      <AiBatchSummaryPopup open={showBatchAiPopup} items={batchAiItems} weekLabel={formatWeekRangeThai(weekMonday)} loading={batchAiAnalyzing} onClose={()=> setShowBatchAiPopup(false)} onConfirm={handleBatchConfirm} />
       {resultPopup && <ResultPopup open={!!resultPopup} type={resultPopup.type} title={resultPopup.title} message={resultPopup.message} confirmLabel="ตกลง" onClose={()=> setResultPopup(null)} />}
 
       {/* Popup กำลังบันทึก + ตรวจสอบด้วย AI — แสดงชื่อโมเดลและความคืบหน้า */}

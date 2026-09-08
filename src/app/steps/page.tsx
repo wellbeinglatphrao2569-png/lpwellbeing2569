@@ -4,12 +4,12 @@ import GlassCard from '@/components/ui/GlassCard';
 import ProgressRing from '@/components/ui/ProgressRing';
 import ProofImage from '@/components/ProofImage';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
-import Modal from '@/components/ui/Modal';
+import AiVerificationPopup, { AiVerificationResult } from '@/components/ui/AiVerificationPopup';
 import { toThaiDateShort } from '@/utils/thaiDate';
 import { profileImageUrl } from '@/utils/personnel';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postData } from '@/services/api';
-import type { StepsLog, User, AiImageAnalysis } from '@/types';
+import type { StepsLog, User } from '@/types';
 import * as GF from '@/lib/google-fitness';
 import { useProjectWindow } from '@/hooks/useProjectWindow';
 import RankingInfoModal from '@/components/ui/RankingInfoModal';
@@ -174,23 +174,19 @@ export default function StepsPage() {
   const [logMethod, setLogMethod] = useState<'google-fit' | 'image-upload'>('google-fit');
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
-  const [savingAiProgress, setSavingAiProgress] = useState<{ percent: number; model: string } | null>(null);
   const [confirmSave, setConfirmSave] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [aiProcessing, setAiProcessing] = useState(false);
-  const [aiProcessingModel, setAiProcessingModel] = useState('Typhoon OCR');
-  const [aiProgressState, setAiProgressState] = useState<{percent:number, model:string}|null>(null);
-  const [showAiResultPopup, setShowAiResultPopup] = useState(false);
-  const [aiExtractedSteps, setAiExtractedSteps] = useState<number | null>(null);
-  const [aiResult, setAiResult] = useState<AiImageAnalysis | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiResult, setAiResult] = useState<AiVerificationResult | null>(null);
+  const [showAiPopup, setShowAiPopup] = useState(false);
   const [googleFitSteps, setGoogleFitSteps] = useState<number | null>(null);
   const [fetchingGf, setFetchingGf] = useState(false);
   const [gfConnecting, setGfConnecting] = useState(false);
   const [gfErrorMessage, setGfErrorMessage] = useState<string | null>(null);
   const [gfVersion, setGfVersion] = useState(0);
   const [gfLinkedUser, setGfLinkedUser] = useState<{ userId: string; userName: string } | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { window: projectWindow, isInWindow } = useProjectWindow();
 
@@ -530,103 +526,76 @@ export default function StepsPage() {
     }
   }
 
-  async function handleAiProcess() {
-    if (!imageFile || !imagePreview) return;
-    if (!stepInput || Number(stepInput) <= 0) { setAiError('กรุณากรอกจำนวนก้าวก่อนให้ AI ตรวจสอบ'); return; }
-    setAiProcessing(true);
-    setAiExtractedSteps(null);
-    setAiResult(null);
-    setAiError(null);
-    const modelsCycleAi = ['Typhoon OCR', 'Typhoon OCR (preview)'];
-    let aiModelIdx = 0;
-    setAiProcessingModel(modelsCycleAi[0]);
-    setAiProgressState({percent: 0, model: modelsCycleAi[0]});
-    let pct = 0;
-    const aiModelTimer = setInterval(() => {
-      aiModelIdx = (aiModelIdx + 1) % modelsCycleAi.length;
-      setAiProcessingModel(modelsCycleAi[aiModelIdx]);
-      pct = Math.min(88, pct + Math.random()*7 + 2);
-      setAiProgressState({percent: Math.round(pct), model: modelsCycleAi[aiModelIdx]});
-    }, 400);
-    try {
-      const res = await fetch('/api/steps/image-analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: imagePreview, expectedDate: logDate, expectedSteps: Number(stepInput) }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'AI อ่านภาพล้มเหลว');
-      setAiProgressState({percent: 100, model: data.model || modelsCycleAi[aiModelIdx]});
-      await new Promise(r=> setTimeout(r, 400));
-      setAiResult(data);
-      setAiExtractedSteps(data.steps);
-      if (data.model) setAiProcessingModel(String(data.model));
-      setShowAiResultPopup(true);
-    } catch (err) {
-      setAiError(err instanceof Error ? err.message : 'AI อ่านภาพล้มเหลว');
-    } finally {
-      clearInterval(aiModelTimer);
-      setTimeout(()=> setAiProgressState(null), 800);
-      setAiProcessing(false);
-    }
-  }
 
   function resetSteps() {
     setGoogleFitSteps(null);
-    setAiExtractedSteps(null);
-    setAiResult(null);
-    setAiError(null);
     setStepInput('');
   }
 
-  const requestSave = () => {
+  const requestSave = async () => {
     if (!user) return;
-    if (isMode2) { setAiError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
-    if (isProjectFrozen(toIsoLocal(new Date()))) { setAiError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร'); return; }
-    if (projectWindow && !isInWindow(logDate)) { setAiError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`); return; }
-    const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || aiExtractedSteps);
+    if (isMode2) { setSubmitError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
+    if (isProjectFrozen(toIsoLocal(new Date()))) { setSubmitError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร'); return; }
+    if (projectWindow && !isInWindow(logDate)) { setSubmitError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`); return; }
+    const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || 0);
     if (!steps || steps <= 0) return;
     if (logMethod === 'image-upload' && !imagePreview) {
-      setAiError('ไม่พบรูปภาพ — โปรดเลือกไฟล์รูปก่อนบันทึก');
+      setSubmitError('ไม่พบรูปภาพ — โปรดเลือกไฟล์รูปก่อนบันทึก');
       return;
     }
-    setConfirmSave(true);
+    // Google Fit บันทึกตรง ไม่ต้องผ่าน AI
+    if (logMethod === 'google-fit') {
+      setConfirmSave(true);
+      return;
+    }
+    // image-upload: ให้ AI ประมวลผลก่อน แล้วค่อยยืนยันครั้งที่ 2
+    if (!imagePreview) return;
+    setAiAnalyzing(true);
+    setAiResult(null);
+    setShowAiPopup(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch('/api/ai/analyze-steps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: imagePreview, expectedDate: logDate, inputSteps: steps }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'AI ประมวลผลไม่สำเร็จ');
+      setAiResult(data as AiVerificationResult);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'AI ประมวลผลไม่สำเร็จ';
+      // fallback: ยังให้ยืนยันได้ (จะบันทึกเป็น Pending)
+      setAiResult({
+        aiSteps: null, aiStepsRaw: null, dateRaw: null, dateNormalized: null, dateMatch: null,
+        confidence: null, stepsExact: null, alert: true, alertReason: `${msg} — จะบันทึกเป็นรอตรวจสอบ`, expectedDate: logDate, inputSteps: steps,
+      });
+    } finally {
+      setAiAnalyzing(false);
+    }
   };
 
   async function handleSave() {
     setConfirmSave(false);
+    setShowAiPopup(false);
     if (!user) return;
-    if (isMode2) { setAiError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
-    if (isProjectFrozen(toIsoLocal(new Date()))) { setAiError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze)'); return; }
-    const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || aiExtractedSteps);
+    if (isMode2) { setSubmitError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
+    if (isProjectFrozen(toIsoLocal(new Date()))) { setSubmitError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze)'); return; }
+    const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || 0);
     if (!steps || steps <= 0) return;
     if (projectWindow && !isInWindow(logDate)) {
-      setAiError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`);
+      setSubmitError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`);
       return;
     }
     setSaving(true);
-    setAiError(null);
-    let simTimer: any = null;
-    if (logMethod === 'image-upload') {
-      setSavingAiProgress({ percent: 0, model: 'Typhoon OCR' });
-      let pct = 0;
-      const models = ['Typhoon OCR', 'Typhoon OCR (preview)'];
-      let mi = 0;
-      simTimer = setInterval(() => {
-        pct = Math.min(88, pct + Math.random()*7 + 2);
-        mi = (mi+1)%models.length;
-        setSavingAiProgress({ percent: Math.round(pct), model: models[mi] });
-      }, 420);
-    }
+    setSubmitError(null);
 
     let res: { success?: boolean; error?: string } | null = null;
 
     if (logMethod === 'image-upload') {
       if (!imagePreview) {
-        if(simTimer) clearInterval(simTimer);
         setSaving(false);
-        setSavingAiProgress(null);
-        setAiError('ไม่พบรูปภาพ — โปรดเลือกไฟล์รูปก่อนบันทึก');
+        setSubmitError('ไม่พบรูปภาพ — โปรดเลือกไฟล์รูปก่อนบันทึก');
         return;
       }
       try {
@@ -638,30 +607,24 @@ export default function StepsPage() {
             userId: user.User_ID,
             steps,
             dateThai: logDate,
-            aiSteps: aiResult?.steps ?? null,
-            aiConfidence: aiResult?.confidence ?? null,
-            dateInImage: aiResult?.dateInImage ?? null,
-            dateMatch: aiResult?.dateMatch ?? null,
-            alert: aiResult?.alert ?? false,
-            alertReasons: aiResult?.alertReasons ?? [],
+            // ส่งผล AI ที่ประมวลผลแล้วไปด้วย (ถ้ามี)
+            aiSteps: aiResult?.aiSteps ?? null,
+            aiStepsRaw: aiResult?.aiStepsRaw ?? null,
+            confidence: aiResult?.confidence ?? null,
+            dateRaw: aiResult?.dateRaw ?? null,
+            dateNormalized: aiResult?.dateNormalized ?? null,
+            dateMatch: aiResult?.dateMatch,
+            alertFlag: aiResult?.alert ? 'TRUE' : 'FALSE',
+            alertReason: aiResult?.alertReason ?? '',
           }),
         });
         const data = await uploadRes.json().catch(() => ({}));
-        if (simTimer) { clearInterval(simTimer); setSavingAiProgress({ percent: 100, model: data.aiModel || 'Typhoon OCR' }); await new Promise(r=> setTimeout(r, 600)); setSavingAiProgress(null); }
         if (!uploadRes.ok || !data.success) {
           throw new Error(data.error || 'บันทึกไม่สำเร็จ');
         }
-        // แจ้งผล AI หลังบันทึก — ถ้า Approved จะนับคะแนนทันที, ถ้า Pending จะแจ้งให้รอต่างฝ่ายตรวจสอบ
-        if (data.aiStatus === 'Approved') {
-          setAiError(null);
-        } else if (data.aiStatus === 'Pending') {
-          // ไม่ถือเป็น error แต่ให้ผู้ใช้รู้ว่าส่งต่อต่างฝ่ายตรวจ
-        }
         res = data;
       } catch (err) {
-        if(simTimer) clearInterval(simTimer);
-        setSavingAiProgress(null);
-        setAiError(err instanceof Error ? err.message : 'บันทึกไม่สำเร็จ');
+        setSubmitError(err instanceof Error ? err.message : 'บันทึกไม่สำเร็จ');
         setSaving(false);
         return;
       }
@@ -687,23 +650,18 @@ export default function StepsPage() {
       setImagePreview(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       setLogDate(new Date().toISOString().split('T')[0]);
-      // ให้ประวัติกระโดดไปสัปดาห์ของวันที่เพิ่งบันทึก แล้วดึงข้อมูลใหม่+รีเฟรชหนึ่งครั้ง
       setHistoryWeekDate(savedWeek);
       try { localStorage.setItem('steps_historyWeek', savedWeek); } catch {}
       await loadData();
       await loadDeptUsers();
       setSaving(false);
-      setSavingAiProgress(null);
-      if (simTimer) clearInterval(simTimer);
       setTimeout(() => window.location.reload(), 700);
       return;
     }
     setSaving(false);
-    setSavingAiProgress(null);
-    if (simTimer) clearInterval(simTimer);
   }
 
-  const activeSteps = logMethod === 'google-fit' ? googleFitSteps : (stepInput ? parseInt(stepInput) : aiExtractedSteps);
+  const activeSteps = logMethod === 'google-fit' ? googleFitSteps : (stepInput ? parseInt(stepInput) : null);
   const isCurrentDate = logDate === todayStr;
   const isMode2 = String(user?.Step_Record_Mode || '1') === '2';
   const frozen = isProjectFrozen(toIsoLocal(new Date()));
@@ -726,7 +684,7 @@ export default function StepsPage() {
       </div>
       {hasPending && (
         <div className="rounded-xl border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/15 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-          ℹ️ มีรายการที่รอตรวจสอบ (Pending) — จะถูกนับเข้าอันดับหลัง AI/ต่างฝ่ายอนุมัติเท่านั้น (Google Fit นับทันที)
+          ℹ️ มีรายการที่รอตรวจสอบ (Pending) — จะถูกนับเข้าอันดับหลังเจ้าหน้าที่ตรวจสอบ (Google Fit นับทันที)
         </div>
       )}
       {/* Header */}
@@ -1059,7 +1017,7 @@ export default function StepsPage() {
                         const dataUrl = await compressImage(file);
                         setImagePreview(dataUrl);
                       } catch (err) {
-                        setAiError(err instanceof Error ? err.message : 'อ่านรูปไม่สำเร็จ');
+                        setSubmitError(err instanceof Error ? err.message : 'อ่านรูปไม่สำเร็จ');
                       }
                     }
                   }}
@@ -1075,112 +1033,12 @@ export default function StepsPage() {
                   <div>
                     <label className="font-medium text-gray-700 dark:text-gray-300 text-sm block mb-1.5">กรอกจำนวนก้าวที่เห็นในภาพ <span className="text-red-500">*</span></label>
                     <input type="number" value={stepInput} onChange={e=> setStepInput(e.target.value)} placeholder="เช่น 12345" className="w-full p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-bold text-gray-900 dark:text-white" min="0" />
-                    <p className="text-[11px] text-gray-400 mt-1">กรอกก่อนให้ AI ตรวจสอบว่าตรงกับภาพหรือไม่</p>
+                    <p className="text-[11px] text-gray-400 mt-1">กรอกจำนวนก้าวตามที่เห็นในภาพ</p>
                   </div>
                 )}
-                {imageFile && aiExtractedSteps === null && (
-                  <button onClick={handleAiProcess} disabled={aiProcessing || !stepInput || Number(stepInput) <= 0}
-                    className="w-full py-2.5 rounded-xl font-bold text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                    {aiProcessing ? <>
-                      <span className="loading loading-spinner loading-xs text-purple-500"></span>
-                      AI กำลังประมวลผล...
-                    </> : <><span className="material-symbols-outlined text-lg">auto_awesome</span> AI อ่านค่าจำนวนก้าวจากภาพ</>}
-                  </button>
-                )}
-                {aiProcessing && aiProgressState && (
-                  <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-800 shadow-2xl p-6">
-                      <div className="flex items-center gap-3 mb-4">
-                        <span className="loading loading-spinner loading-md text-purple-600"></span>
-                        <div>
-                          <h3 className="font-bold text-gray-900 dark:text-white">กำลังตรวจสอบด้วย AI</h3>
-                          <p className="text-xs text-gray-500">โมเดล: <span className="font-bold text-purple-600">{aiProgressState.model}</span></p>
-                        </div>
-                      </div>
-                      <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden border">
-                        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 h-4 rounded-full transition-all duration-400 flex items-center justify-end pr-2" style={{width: `${aiProgressState.percent}%`}}>
-                          <span className="text-[11px] font-bold text-white">{aiProgressState.percent}%</span>
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3 text-center leading-relaxed">เนื่องจากใช้ Model AI รูปแบบฟรี จึงอาจทำให้ประมวลผลใช้เวลาสักหน่อย<br/>รออีกอึดใจเดียว ฮึบ ๆ ✊</p>
-                    </div>
-                  </div>
-                )}
-                {aiError && (
+                {submitError && (
                   <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
-                    <p className="text-sm text-red-600 dark:text-red-400">{aiError}</p>
-                  </div>
-                )}
-                {aiResult !== null && (
-                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm text-gray-600 dark:text-gray-400">จำนวนก้าวที่ AI อ่านได้</p>
-                      <button onClick={() => { setAiExtractedSteps(null); setStepInput(''); setAiResult(null); }} className="text-xs text-red-400 hover:text-red-500 font-medium">ล้างค่า</button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-3xl font-black text-purple-600 dark:text-purple-400 flex-1 text-center">{aiExtractedSteps?.toLocaleString() ?? '—'}</span>
-                    </div>
-
-                    {aiResult && (
-                      <div className="mt-3 space-y-2 text-xs">
-                        {/* วันที่ในภาพ */}
-                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/50 border">
-                          <span className="material-symbols-outlined text-base text-gray-500">calendar_today</span>
-                          <span className="text-gray-600 dark:text-gray-400">วันที่ในภาพ:</span>
-                          {aiResult.dateMatch === true ? (
-                            <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 font-bold">
-                              <span className="material-symbols-outlined text-sm">check_circle</span>
-                              {aiResult.dateInImage ? toThaiDateShort(aiResult.dateInImage) : 'ตรงกัน'}
-                            </span>
-                          ) : aiResult.dateMatch === false ? (
-                            <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-bold">
-                              <span className="material-symbols-outlined text-sm">cancel</span>
-                              ไม่ตรงกับ {toThaiDateShort(logDate)}
-                            </span>
-                          ) : (
-                            <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-bold">
-                              <span className="material-symbols-outlined text-sm">help</span>
-                              ไม่พบวันที่ในภาพ
-                            </span>
-                          )}
-                        </div>
-                        {/* ความมั่นใจ */}
-                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/50 border">
-                          <span className="material-symbols-outlined text-base text-gray-500">auto_awesome</span>
-                          <span className="text-gray-600 dark:text-gray-400">ความมั่นใจ AI:</span>
-                          <span className="ml-auto font-bold text-gray-900 dark:text-white">{Math.round(aiResult.confidence * 100)}%</span>
-                        </div>
-                        {/* โมเดลที่ใช้ */}
-                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/50 border">
-                          <span className="material-symbols-outlined text-base text-gray-500">smart_toy</span>
-                          <span className="text-gray-600 dark:text-gray-400">โมเดลที่ใช้:</span>
-                          <span className="ml-auto font-bold text-purple-700 dark:text-purple-300 text-[11px]">{(aiResult as any).model || aiResult.provider} {(aiResult as any).provider ? `(${(aiResult as any).provider})` : ''}</span>
-                        </div>
-                        {aiResult.notes && (
-                          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-white/60 dark:bg-gray-800/50 border">
-                            <span className="material-symbols-outlined text-base text-gray-500">notes</span>
-                            <span className="text-gray-600 dark:text-gray-400">{aiResult.notes}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* ⚠️ โน้ตแจ้งเตือนความผิดปกติ */}
-                    {aiResult?.alert && (
-                      <div className="mt-3 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800">
-                        <p className="flex items-center gap-1.5 text-sm font-bold text-red-700 dark:text-red-400">
-                          <span className="material-symbols-outlined text-lg">warning</span>
-                          ตรวจพบความผิดปกติ — จนท.นสส. จะตรวจสอบก่อนยืนยัน
-                        </p>
-                        <ul className="mt-1.5 ml-5 list-disc text-xs text-red-600 dark:text-red-400 space-y-0.5">
-                          {aiResult.alertReasons.map((r, i) => <li key={i}>{r}</li>)}
-                        </ul>
-                      </div>
-                    )}
-
-                    <p className="text-[10px] text-gray-400 mt-1">สามารถแก้ไขจำนวนก้าวได้</p>
-                    <input type="number" value={stepInput || aiExtractedSteps?.toString() || ''} onChange={e => setStepInput(e.target.value)}
-                      className="w-full mt-2 p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-xl font-bold text-gray-900 dark:text-white text-center" min="0" />
+                    <p className="text-sm text-red-600 dark:text-red-400">{submitError}</p>
                   </div>
                 )}
               </>
@@ -1647,67 +1505,24 @@ export default function StepsPage() {
       <ConfirmPopup
         open={confirmSave}
         title="ยืนยันการบันทึกก้าวเดิน"
-        message={`คุณกำลังจะบันทึก ${(activeSteps || 0).toLocaleString()} ก้าว สำหรับวันที่ ${logDate}${logMethod === 'image-upload' ? ' (จากรูปภาพ จะให้ AI ตรวจสอบก่อน — ถ้าชัดเจนตรงกันจะอนุมัติทันที ไม่ชัดเจนจะส่งต่อให้ต่างฝ่ายตรวจ)' : ' (จาก Google Fit)'} แน่ใจหรือไม่?`}
+        message={`คุณกำลังจะบันทึก ${(activeSteps || 0).toLocaleString()} ก้าว สำหรับวันที่ ${logDate}${logMethod === 'image-upload' ? ' (จากรูปภาพ — รอเจ้าหน้าที่ตรวจสอบก่อนนับคะแนน)' : ' (จาก Google Fit)'} แน่ใจหรือไม่?`}
         loading={saving}
         onConfirm={handleSave}
         onClose={() => { if (!saving) setConfirmSave(false); }}
       />
 
-      {saving && savingAiProgress && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 shadow-2xl p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="loading loading-spinner loading-md text-emerald-600"></span>
-              <div>
-                <h3 className="font-bold text-gray-900 dark:text-white">กำลังบันทึกและตรวจสอบด้วย AI</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">โมเดล: <span className="font-bold text-purple-600 dark:text-purple-400">{savingAiProgress.model}</span></p>
-              </div>
-            </div>
-            <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden border">
-              <div className="bg-gradient-to-r from-emerald-500 to-purple-600 h-4 rounded-full transition-all duration-500 flex items-center justify-end pr-2" style={{width: `${savingAiProgress.percent}%`}}>
-                <span className="text-[11px] font-bold text-white">{savingAiProgress.percent}%</span>
-              </div>
-            </div>
-            <p className="text-[11px] text-gray-400 mt-2">AI กำลังอ่านจำนวนก้าวและวันที่ในภาพ — ถ้าชัดเจนตรงกันจะอนุมัติและนับคะแนนทันที</p>
-          </div>
-        </div>
-      )}
-      {showAiResultPopup && aiResult && (
-        <Modal open={showAiResultPopup} onClose={()=> setShowAiResultPopup(false)}>
-          <div className="p-2">
-            <div className="w-12 h-12 mx-auto rounded-full bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center mb-3">
-              <span className="material-symbols-outlined text-2xl text-purple-600">smart_toy</span>
-            </div>
-            <h3 className="text-lg font-bold text-center text-gray-900 dark:text-white">ผลการตรวจสอบ AI</h3>
-            <p className="text-xs text-center text-gray-500 mt-1">โมเดล: <span className="font-bold text-purple-600">{(aiResult as any).model || aiProcessingModel}</span> · ความมั่นใจ {Math.round(aiResult.confidence*100)}%</p>
-            <div className="mt-4 space-y-2 text-sm">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border">
-                <span className="text-gray-500">จำนวนก้าวที่กรอก</span>
-                <span className="font-black text-gray-900 dark:text-white">{Number(stepInput).toLocaleString()} ก้าว</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50 dark:bg-purple-900/20 border">
-                <span className="text-gray-500">AI อ่านได้</span>
-                <span className="font-black text-purple-600">{aiResult.steps !== null ? aiResult.steps.toLocaleString() + ' ก้าว' : 'อ่านไม่ได้'}</span>
-              </div>
-              <div className={`flex items-center justify-between p-3 rounded-xl border ${aiResult.dateMatch===true ? 'bg-emerald-50 border-emerald-200' : aiResult.dateMatch===false ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
-                <span className="text-gray-500">วันที่ในภาพ</span>
-                <span className={`font-bold text-xs px-2 py-1 rounded-full ${aiResult.dateMatch===true ? 'bg-emerald-100 text-emerald-700' : aiResult.dateMatch===false ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                  {aiResult.dateInImage ? toThaiDateShort(aiResult.dateInImage) : aiResult.dateRaw || 'ไม่พบวันที่'} {aiResult.dateMatch===true ? '✓ ตรง' : aiResult.dateMatch===false ? '✗ ไม่ตรง' : '· ไม่ชัด'}
-                </span>
-              </div>
-              {aiResult.notes && <p className="text-xs text-gray-500 bg-gray-50 dark:bg-gray-700/30 p-3 rounded-xl border">{aiResult.notes}</p>}
-              {aiResult.alert && <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 text-xs text-amber-700"><p className="font-bold flex items-center gap-1"><span className="material-symbols-outlined text-sm">warning</span> ผลตรวจสอบ</p><ul className="list-disc ml-5 mt-1 space-y-0.5">{aiResult.alertReasons.map((r,i)=><li key={i}>{r}</li>)}</ul></div>}
-              <div className={`p-3 rounded-xl text-center font-bold text-sm ${!aiResult.alert ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                {aiResult.steps !== null && Number(stepInput) === aiResult.steps && aiResult.dateMatch===true && !aiResult.alert ? '✓ ตรงกัน — พร้อมบันทึก' : 'กรุณาตรวจสอบก่อนบันทึก'}
-              </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={()=> setShowAiResultPopup(false)} className="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-sm">แก้ไขจำนวนก้าว</button>
-              <button onClick={()=> { setShowAiResultPopup(false); requestSave(); }} className="flex-[1.5] py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white font-bold text-sm flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-base">save</span> บันทึก</button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <AiVerificationPopup
+        open={showAiPopup}
+        preview={imagePreview}
+        inputSteps={activeSteps ?? null}
+        expectedDate={logDate}
+        result={aiResult}
+        loading={aiAnalyzing}
+        onConfirm={handleSave}
+        onClose={() => { if (!aiAnalyzing && !saving) setShowAiPopup(false); }}
+        onEdit={() => setShowAiPopup(false)}
+      />
+
       <RankingInfoModal open={showInfo} onClose={() => setShowInfo(false)} />
     </div>
   );

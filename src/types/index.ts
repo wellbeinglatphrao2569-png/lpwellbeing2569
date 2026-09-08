@@ -18,6 +18,7 @@ export interface StepsLog {
   Alert_Flag?: string | boolean; Alert_Reason?: string; Auditor_ID?: string; Reviewed_At?: string;
   Notes?: string;
 }
+/** @deprecated คง interface ไว้เพื่อรองรับข้อมูลเก่าเท่านั้น จะเริ่มต้นใหม่ภายหลัง */
 export interface AiImageAnalysis {
   steps: number | null;
   dateInImage: string | null;
@@ -27,7 +28,7 @@ export interface AiImageAnalysis {
   notes: string;
   alert: boolean;
   alertReasons: string[];
-  provider?: 'gemini' | 'openrouter' | 'typhoon';
+  provider?: string;
   model?: string;
 }
 export type SweetFreeOtherReason = 'ลาป่วย' | 'ลากิจ' | 'ลาพักผ่อน' | 'อบรมนอกสถานที่' | string;

@@ -170,12 +170,25 @@ export async function POST(request: NextRequest) {
     if (tyFormattedDate && /^\d{4}-\d{2}-\d{2}$/.test(tyFormattedDate)) {
       dateNormalized = tyFormattedDate;
       dateMatch = tyFormattedDate === expected;
-      // ถ้า Typhoon ยังให้ is_date_matched มา (สคีมาก่อน) ให้ยึด
       if (tyIsMatched != null) dateMatch = tyIsMatched;
     } else {
       dateNormalized = dateRaw ? normalizeOcrDate(dateRaw, expected) : null;
       dateMatch = dateRaw ? isDateMatch(dateRaw, expected) : null;
       if (tyIsMatched != null) dateMatch = tyIsMatched;
+    }
+    if (dateMatch === false || dateNormalized == null) {
+      const combinedForDate = [rawText, dateRaw, tyVisualEvidence].filter(Boolean).join(' ');
+      const candidates = combinedForDate.match(/\d{1,2}\s*[ก-๙\.]{1,10}\s*(?:\d{2,4})?|Today|วันนี้|Yesterday|เมื่อวาน|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}/gi) || [];
+      for (const cand of candidates) {
+        const norm = normalizeOcrDate(cand.trim(), expected);
+        if (norm === expected) {
+          dateRaw = cand.trim();
+          dateNormalized = norm;
+          dateMatch = true;
+          if (confidence == null || confidence < 0.85) confidence = 0.85;
+          break;
+        }
+      }
     }
 
     // ตัดสิน alert — ยึด status จาก Typhoon เป็นหลัก (passed/flagged_for_review) + Strict 0% tolerance เทียบ inputSteps

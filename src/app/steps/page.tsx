@@ -134,8 +134,8 @@ function normalizeDateKey(value: unknown): string {
   return s;
 }
 
-/** ย่อขนาดภาพเป็น JPEG (ลดขนาดเพื่อเร่ง AI + กัน payload ใหญ่) */
-function compressImage(file: File, maxDim = 1024, quality = 0.72): Promise<string> {
+/** ย่อขนาดภาพเป็น JPEG — สำหรับ AI ใช้คุณภาพสูงขึ้นเพื่ออ่านตัวหนังสือเล็ก (พ. 2 ก.ย.) ได้ชัด */
+function compressImage(file: File, maxDim = 1280, quality = 0.88): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -1013,9 +1013,10 @@ export default function StepsPage() {
                   <input ref={fileInputRef} type="file" accept="image/*" onChange={async e => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      setImageFile(file); resetSteps();
+                      setImageFile(file); resetSteps(); setSubmitError(null);
                       try {
-                        const dataUrl = await compressImage(file);
+                        // ส่งภาพคุณภาพสูงให้ AI (1280/0.88) แต่ preview ใช้ขนาดเดียวกันเพื่อลดเบลอตัวหนังสือเล็ก
+                        const dataUrl = await compressImage(file, 1280, 0.88);
                         setImagePreview(dataUrl);
                       } catch (err) {
                         setSubmitError(err instanceof Error ? err.message : 'อ่านรูปไม่สำเร็จ');

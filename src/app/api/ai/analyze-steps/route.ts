@@ -228,21 +228,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ตัดสิน alert — ยึด status จาก Typhoon เป็นหลัก (passed/flagged_for_review) + Strict 0% tolerance เทียบ inputSteps
     const stepsExact = aiSteps != null && inputNum != null ? aiSteps === inputNum : null;
-    const conf = confidence ?? (aiSteps != null && dateNormalized ? 0.7 : 0.3);
+    // ถ้า Typhoon ไม่ส่ง confidence มา แต่ก้าวและวันที่ตรงกันพอดี ให้ถือว่ามั่นใจสูง (ไม่ควร 70% แล้ว flag)
+    let conf: number;
+    if (confidence != null) conf = confidence;
+    else if (stepsExact === true && dateMatch === true) conf = 0.96;
+    else if (aiSteps != null && dateNormalized) conf = 0.85;
+    else conf = 0.3;
 
-    // ถ้า Typhoon บอก status ชัดเจน ให้ใช้เลย
     let alert: boolean;
     let alertReason: string;
-    if (tyStatus === 'passed' && stepsExact !== false && dateMatch !== false) {
+    // เคสตรงกันพอดี: ไม่ต้องดู confidence ว่า 70% — ให้ผ่านเลย (จะได้ไม่สับสน)
+    if (stepsExact === true && dateMatch === true) {
+      alert = false;
+      alertReason = '';
+      if (conf < 0.85) conf = 0.95;
+    } else if (tyStatus === 'passed' && stepsExact !== false && dateMatch !== false) {
       alert = false;
       alertReason = tyReasoning || '';
     } else if (tyStatus === 'flagged_for_review') {
       alert = true;
       alertReason = tyReasoning || 'AI ประเมินให้ส่งตรวจสอบ — ภาพเบลอ/ไม่พบวันที่/วันที่ไม่ตรง';
     } else {
-      // fallback logic เดิม
       if (aiSteps == null) {
         alert = true;
         alertReason = tyReasoning || 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ นสส. ตรวจสอบ';
@@ -264,7 +271,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const finalConfidence = confidence ?? conf;
+    const finalConfidence = conf;
 
     return NextResponse.json({
       success: true,

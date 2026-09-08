@@ -60,9 +60,27 @@ export function extractStepsFromText(text: string): { steps: number | null; raw:
   }
   if (best) return { steps: best.n, raw: best.raw };
 
-  // 2) หาคำว่า steps / step (อังกฤษ)
+  // 2) หาคำว่า TOTAL / steps (อังกฤษ) — Priority: TOTAL ก่อน average
+  // a) TOTAL ... 9,009 steps (และ Yesterday) — ยอดหลัก
+  const totalRegex = /TOTAL[^\d]*([\d,]{1,10})\s*steps?/gi;
+  let totalBest: { n: number; raw: string } | null = null;
+  while ((m = totalRegex.exec(src)) !== null) {
+    const raw = 'TOTAL ' + m[1].trim() + ' steps';
+    const n = cleanNumber(m[1]);
+    if (n != null && n > 0 && n < 1000000) {
+      if (!totalBest || n > totalBest.n) totalBest = { n, raw };
+    }
+  }
+  if (totalBest) return { steps: totalBest.n, raw: totalBest.raw };
+  // b) steps ทั่วไป — แต่กัน average "average of 10,734 steps"
   const stepEnRegex = /([\d, ]{2,10})\s*steps?/gi;
+  let avgFound = false;
+  // ถ้าเจอ average ให้ข้าม
+  if (/average of/i.test(src)) avgFound = true;
   while ((m = stepEnRegex.exec(src)) !== null) {
+    // ข้ามถ้าอยู่หลังคำว่า average
+    const before = src.slice(Math.max(0, m.index - 30), m.index);
+    if (/average/i.test(before)) continue;
     const raw = m[1].trim() + ' steps';
     const n = cleanNumber(m[1]);
     if (n != null && n > 0 && n < 1000000) {
@@ -71,18 +89,25 @@ export function extractStepsFromText(text: string): { steps: number | null; raw:
   }
   if (best) return { steps: best.n, raw: best.raw };
 
-  // 3) fallback: ตัวเลขใหญ่สุดในข้อความ (4-6 หลัก, >100) — สมมติว่าเป็นก้าว
+  // 3) fallback: ตัวเลขใหญ่สุดในข้อความ — แต่กรอง average และวันที่
   const numRegex = /(\d[\d, ]{2,8})/g;
   let fallback: { n: number; raw: string } | null = null;
   while ((m = numRegex.exec(src)) !== null) {
     const n = cleanNumber(m[1]);
     if (n != null && n >= 100 && n < 500000) {
-      // กรองเลขวันที่/ปี (เช่น 2569, 2026, 8, 12) — ต้อง >=100 และไม่ใช่ปี พ.ศ./ค.ศ. ที่ขึ้นต้นด้วย 25/20 ถ้า 4 หลักและ 2000-2700 ให้ข้ามถ้าไม่มีบริบทก้าว
-      // แต่ถ้ามีหลายตัวเลข ให้เลือกตัวใหญ่สุดที่ไม่อยู่ในช่วงปี
       const isYear = n >= 2400 && n <= 2700;
       if (isYear) continue;
+      // ข้ามเลขที่อยู่หลังคำว่า average of
+      const before = src.slice(Math.max(0, m.index - 30), m.index);
+      if (/average/i.test(before)) continue;
       if (!fallback || n > fallback.n) fallback = { n, raw: m[1].trim() };
     }
+  }
+  // ถ้า fallback ได้ 10,734 แต่มี TOTAL 9,009 ในข้อความ ให้เลือก TOTAL แทน (เพราะ fallback ไม่รู้ context)
+  const totalMatch = src.match(/TOTAL[^\d]*([\d,]{1,10})/i);
+  if (totalMatch) {
+    const n = cleanNumber(totalMatch[1]);
+    if (n != null && n >= 100) return { steps: n, raw: 'TOTAL ' + totalMatch[1].trim() };
   }
   if (fallback) return { steps: fallback.n, raw: fallback.raw };
 

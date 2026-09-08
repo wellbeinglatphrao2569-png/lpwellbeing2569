@@ -4,7 +4,9 @@ import GlassCard from "@/components/ui/GlassCard";
 import ConfirmPopup from "@/components/ui/ConfirmPopup";
 import ResultPopup from "@/components/ui/ResultPopup";
 import { useAuth } from "@/hooks/useAuth";
-import { fetchData } from "@/services/api";
+import { fetchData, postDataJson } from "@/services/api";
+import Modal from "@/components/ui/Modal";
+import ProofImage from "@/components/ProofImage";
 import type { User, StepsLog, AiImageAnalysis } from "@/types";
 import { displayName, profileImageUrl } from "@/utils/personnel";
 import { useProjectWindow } from "@/hooks/useProjectWindow";
@@ -87,6 +89,9 @@ export default function BatchStepsPage(){
   const [overwriteWarning, setOverwriteWarning] = useState(false);
   const [zoomPreview, setZoomPreview] = useState<{ src: string; name: string } | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [clearTarget, setClearTarget] = useState<{ uid: string; day: string; recordId: string } | null>(null);
+  const [clearReason, setClearReason] = useState('');
+  const [clearing, setClearing] = useState(false);
   // ตาราง 7 วัน: กรอกเลข + แนบภาพต่อวัน (hybrid)
   const [gridInputs, setGridInputs] = useState<Record<string, Record<string, string>>>({});
   const [gridImages, setGridImages] = useState<Record<string, Record<string, { preview:string, file: File }>>>({});
@@ -131,6 +136,17 @@ export default function BatchStepsPage(){
     const pending=new Map<string, StepsLog>();
     for(const [k,v] of latest){ if(String(v.Status)==='Pending') pending.set(k,v); }
     return pending;
+  },[stepsData]);
+  const deletedMap = useMemo(()=>{
+    const latest=new Map<string, StepsLog>();
+    for(const log of stepsData){
+      const key=`${String(log.User_ID)}|${normalizeDateKey(log.Date_Thai)}`;
+      const cur=latest.get(key);
+      if(!cur || String(log.Recorded_At||'') >= String(cur.Recorded_At||'')) latest.set(key, log);
+    }
+    const deleted=new Map<string, StepsLog>();
+    for(const [k,v] of latest){ if(String(v.Status)==='Deleted') deleted.set(k,v); }
+    return deleted;
   },[stepsData]);
 
   const filteredUsers = useMemo(()=>{
@@ -643,6 +659,25 @@ export default function BatchStepsPage(){
       return next;
     });
   }
+  async function handleClearPersisted() {
+    if (!clearTarget || !user) return;
+    if (!clearReason.trim()) { setResultPopup({type:'error', title:'ต้องระบุเหตุผล', message:'กรุณาระบุเหตุผลที่ล้างข้อมูล'}); return; }
+    setClearing(true);
+    try {
+      const res:any = await postDataJson('delete-step', { Record_ID: clearTarget.recordId, Logged_By: String((user as any).User_ID || ''), Delete_Reason: clearReason.trim() });
+      if (res?.success) {
+        setClearTarget(null); setClearReason('');
+        // ล้าง local state ของวันนั้นด้วย
+        clearGridImage(clearTarget.uid, clearTarget.day);
+        setGridInputs(prev=> { const n={...prev}; if(n[clearTarget.uid]) { const c={...n[clearTarget.uid]}; delete c[clearTarget.day]; n[clearTarget.uid]=c; if(Object.keys(c).length===0) delete n[clearTarget.uid]; } return n; });
+        await load();
+        setResultPopup({type:'success', title:'ล้างข้อมูลสำเร็จ', message:`ล้างข้อมูล ${clearTarget.day} เรียบร้อย — เหตุผล: ${clearReason}`});
+      } else {
+        setResultPopup({type:'error', title:'ล้างไม่สำเร็จ', message: res?.message || 'เกิดข้อผิดพลาด'});
+      }
+    } catch(e:any){ setResultPopup({type:'error', title:'ล้างไม่สำเร็จ', message: e?.message || 'เกิดข้อผิดพลาด'}); }
+    setClearing(false);
+  }
 
   if(loading) return <div className="flex items-center justify-center py-20"><span className="loading loading-spinner loading-lg text-emerald-600"></span></div>;
 
@@ -789,8 +824,12 @@ export default function BatchStepsPage(){
                     {weekDays.map(d=>{
                       const existing = existingMap.get(`${uid}|${d}`);
                       const pending = pendingMap.get(`${uid}|${d}`);
+                      const deleted = deletedMap.get(`${uid}|${d}`);
                       const hasExisting = !!existing;
                       const hasPending = !!pending;
+                      const hasDeleted = !!deleted;
+                      const persisted = (existing || pending || deleted) as any;
+                      const persistedImageId = persisted?.Image_Drive_ID ? String(persisted.Image_Drive_ID) : '';
                       const img = gridImages[uid]?.[d];
                       const disabled = locked || !uid;
                       const bgClass = hasPending ? 'bg-amber-50 dark:bg-amber-900/20' : hasExisting ? 'bg-emerald-50/30 dark:bg-emerald-900/10' : '';
@@ -810,14 +849,23 @@ export default function BatchStepsPage(){
                                 <button onClick={()=> clearGridImage(uid,d)} className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center text-xs leading-none shadow-md hover:bg-red-600">✕</button>
                                 <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-black/70 text-white text-[9px] whitespace-nowrap">คลิกดูเต็ม</span>
                               </div>
+                            ) : persistedImageId ? (
+                              <div className="relative group w-28 h-20 rounded-lg overflow-hidden border-2 border-emerald-200 dark:border-emerald-700 shadow-sm">
+                                <ProofImage fileId={persistedImageId} alt={`${displayName(users.find(x=> getUserKey(x)===uid) || null)} — ${d}`} onClick={(src)=> setZoomPreview({ src, name: `${displayName(users.find(x=> getUserKey(x)===uid) || null)} — ${d} (บันทึกแล้ว)` })} />
+                                <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] whitespace-nowrap">บันทึกแล้ว</span>
+                              </div>
                             ) : (
                               <label className={`inline-flex items-center gap-1 px-3 py-2 rounded-full text-xs font-medium border cursor-pointer shadow-sm ${disabled? 'opacity-40 pointer-events-none bg-gray-100' : 'bg-white dark:bg-gray-700 hover:bg-emerald-50 border-gray-200 dark:border-gray-600 hover:border-emerald-300'}`}>
                                 <span className="material-symbols-outlined text-sm">image</span> แนบภาพ
                                 <input type="file" accept="image/*" className="hidden" onChange={e=> handleGridImage(uid,d,e.target.files)} disabled={disabled} ref={el=>{ if(el) gridFileInputs.current[`${uid}|${d}`]=el; }} />
                               </label>
                             )}
-                            {hasPending && !gridInputs[uid]?.[d] && <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-0.5"><span className="material-symbols-outlined text-xs">hourglass_top</span>{Number(pending.Steps_Count).toLocaleString()} รอตรวจ</span>}
-                            {!hasPending && hasExisting && !gridInputs[uid]?.[d] && <span className="text-[10px] text-emerald-600 font-medium">{Number(existing.Steps_Count).toLocaleString()} ก้าว ✓</span>}
+                            {hasDeleted && <span className="text-[10px] text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded inline-flex items-center gap-1">ถูกลบ: {deleted.Reject_Reason || 'ไม่ระบุเหตุผล'}<span className="text-[9px]">· ไม่แสดงผู้ลบ</span></span>}
+                            {hasPending && !gridInputs[uid]?.[d] && !hasDeleted && <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-0.5"><span className="material-symbols-outlined text-xs">hourglass_top</span>{Number(pending.Steps_Count).toLocaleString()} รอตรวจ</span>}
+                            {!hasPending && hasExisting && !gridInputs[uid]?.[d] && !hasDeleted && <span className="text-[10px] text-emerald-600 font-medium">{Number(existing.Steps_Count).toLocaleString()} ก้าว ✓</span>}
+                            {(hasExisting || hasPending || hasDeleted) && !img && (
+                              <button onClick={() => { const rec: any = existing || pending || deleted; if(rec) { setClearTarget({uid, day:d, recordId: String(rec.Record_ID)}); setClearReason(''); } }} className="text-[10px] text-gray-400 hover:text-red-500 underline underline-offset-2">ล้างข้อมูล</button>
+                            )}
                           </div>
                         </td>
                       );
@@ -885,6 +933,28 @@ export default function BatchStepsPage(){
             <button onClick={()=> setZoomPreview(null)} className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-gray-700 flex items-center justify-center shadow">✕</button>
           </div>
         </div>
+      )}
+      {clearTarget && (
+        <Modal open={!!clearTarget} onClose={()=> { setClearTarget(null); setClearReason(''); }}>
+          <div className="text-center py-2">
+            <div className="w-12 h-12 mx-auto rounded-full flex items-center justify-center mb-3 bg-red-50 dark:bg-red-900/20 text-red-500">
+              <span className="material-symbols-outlined text-2xl">warning</span>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">ยืนยันล้างข้อมูล</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">ล้างข้อมูลวันที่ {clearTarget.day} ใช่หรือไม่? ต้องระบุเหตุผล</p>
+            <div className="mt-4 text-left">
+              <label className="text-sm font-bold text-gray-700 dark:text-gray-300">เหตุผลที่ล้าง <span className="text-red-500">*</span></label>
+              <textarea value={clearReason} onChange={e=> setClearReason(e.target.value)} placeholder="ระบุเหตุผล เช่น ข้อมูลซ้ำ, รูปผิดคน, วันที่ไม่ตรง..." className="mt-1 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" rows={3} />
+              <p className="text-[11px] text-gray-400 mt-1">เหตุผลจะแสดงในตารางโดยไม่แสดงชื่อผู้ลบ (ต่างฝ่าย)</p>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={()=> { setClearTarget(null); setClearReason(''); }} disabled={clearing} className="btn-ghost flex-1 justify-center disabled:opacity-50">ยกเลิก</button>
+              <button onClick={handleClearPersisted} disabled={clearing || !clearReason.trim()} className="flex-[2] justify-center h-[42px] rounded-xl font-bold text-sm bg-red-600 hover:bg-red-500 text-white disabled:opacity-50 flex items-center justify-center gap-2">
+                {clearing ? <><span className="loading loading-spinner loading-sm"></span> กำลังล้าง...</> : 'ยืนยันล้าง'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
     </div>

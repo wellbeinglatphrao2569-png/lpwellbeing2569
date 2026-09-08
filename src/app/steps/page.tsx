@@ -1375,9 +1375,10 @@ export default function StepsPage() {
                   const approved = latestUserSteps.get(day.ds);
                   const latestAny = latestAnyUserSteps.get(day.ds);
                   const total = approved ? (Number(approved.Steps_Count) || 0) : 0;
-                  const hasPending = dayLogs.some(s => s.Status !== 'Approved' && s.Status !== 'Rejected');
+                  const hasPending = dayLogs.some(s => s.Status === 'Pending');
                   const hasRejected = dayLogs.some(s => s.Status === 'Rejected');
-                  const newerUnapproved = latestAny && latestAny.Status !== 'Approved';
+                  const hasDeleted = dayLogs.some(s => s.Status === 'Deleted');
+                  const newerUnapproved = latestAny && latestAny.Status !== 'Approved' && latestAny.Status !== 'Deleted';
                   // หลักฐานภาพหน้าจอที่ใหม่ที่สุดของวัน (ถ้ามี) — แสดงใต้ข้อความวิธีนำเข้าในคอลัมน์ "นำเข้าข้อมูลแบบ"
                   const proofLog = dayLogs
                     .filter(s => s.Image_Drive_ID && String(s.Image_Drive_ID).trim() !== '')
@@ -1389,6 +1390,11 @@ export default function StepsPage() {
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                       อนุมัติแล้ว
+                    </span>
+                  ) : hasDeleted && !hasPending ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-500" />
+                      ถูกลบ
                     </span>
                   ) : hasRejected && !hasPending ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400">
@@ -1416,6 +1422,7 @@ export default function StepsPage() {
                           <span className={`text-lg font-bold ${
                             approved ? 'text-emerald-600 dark:text-emerald-400' :
                             latestAny!.Status === 'Rejected' ? 'text-red-500 dark:text-red-400' :
+                            latestAny!.Status === 'Deleted' ? 'text-gray-500 dark:text-gray-400' :
                             'text-amber-600 dark:text-amber-400'
                           }`}>
                             {(approved ? total : (Number(latestAny!.Steps_Count) || 0)).toLocaleString()}
@@ -1430,13 +1437,18 @@ export default function StepsPage() {
                         )}
                         {!approved && latestAny && (
                           <>
-                            <span className={`block text-[10px] font-normal mt-0.5 ${latestAny.Status === 'Rejected' ? 'text-red-500 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                              {latestAny.Status === 'Rejected' ? 'ไม่ได้รับการอนุมัติ — ยังไม่นับรวม' : 'รอการอนุมัติ — ยังไม่นับรวม'}
+                            <span className={`block text-[10px] font-normal mt-0.5 ${latestAny.Status === 'Rejected' ? 'text-red-500 dark:text-red-400' : latestAny.Status === 'Deleted' ? 'text-gray-500 dark:text-gray-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                              {latestAny.Status === 'Rejected' ? 'ไม่ได้รับการอนุมัติ — ยังไม่นับรวม' : latestAny.Status === 'Deleted' ? 'ถูกลบ — ยังไม่นับรวม' : 'รอการอนุมัติ — ยังไม่นับรวม'}
                             </span>
                             {latestAny.Status === 'Rejected' && (latestAny as any).Reject_Reason && (
                               <span className="block text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-2 py-1 mt-1 leading-snug">
                                 <span className="font-bold">เหตุผล:</span> {(latestAny as any).Reject_Reason}
                                 {(latestAny as any).Auditor_ID && <span className="text-gray-400"> · ตรวจโดย {(latestAny as any).Auditor_ID}</span>}
+                              </span>
+                            )}
+                            {latestAny.Status === 'Deleted' && (latestAny as any).Reject_Reason && (
+                              <span className="block text-[11px] text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 mt-1 leading-snug">
+                                <span className="font-bold">ถูกลบ:</span> {(latestAny as any).Reject_Reason} <span className="text-[10px] text-gray-400">· ไม่แสดงผู้ลบ</span>
                               </span>
                             )}
                           </>
@@ -1469,6 +1481,11 @@ export default function StepsPage() {
                           {hasRejected && !hasPending && latestAny && (latestAny as any).Reject_Reason && (
                             <span className="text-[11px] text-red-600 dark:text-red-400 leading-snug max-w-[220px] line-clamp-2" title={(latestAny as any).Reject_Reason}>
                               เหตุผล: {(latestAny as any).Reject_Reason}
+                            </span>
+                          )}
+                          {hasDeleted && !hasPending && latestAny && (latestAny as any).Reject_Reason && (
+                            <span className="text-[11px] text-gray-600 dark:text-gray-400 leading-snug max-w-[220px] line-clamp-2" title={(latestAny as any).Reject_Reason}>
+                              ถูกลบ: {(latestAny as any).Reject_Reason} <span className="text-[10px]">· ไม่แสดงผู้ลบ</span>
                             </span>
                           )}
                           {hasRejected && !hasPending && latestAny && (latestAny as any).Auditor_ID && (

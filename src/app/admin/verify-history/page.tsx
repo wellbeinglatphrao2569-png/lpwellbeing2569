@@ -4,6 +4,7 @@ import { Fragment, useState, useEffect, useMemo } from 'react';
 import GlassCard from '@/components/ui/GlassCard';
 import ProofImage from '@/components/ProofImage';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
+import Modal from '@/components/ui/Modal';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postDataJson } from '@/services/api';
 import type { StepsLog, User } from '@/types';
@@ -35,6 +36,9 @@ function StatusBadge({ status }: { status?: string }) {
   }
   if (status === 'Rejected') {
     return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400">ไม่อนุมัติ</span>;
+  }
+  if (status === 'Deleted') {
+    return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">ถูกลบ</span>;
   }
   return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400">รอตรวจสอบ</span>;
 }
@@ -144,9 +148,9 @@ export default function VerifyHistoryPage() {
     return steps
       .filter(s => {
         const st = String(s.Status || '').trim();
-        // ประวัติ = เฉพาะที่ตรวจแล้ว (Approved/Rejected) — แสดงทุกวิธี: ภาพถ่ายรายคน/กลุ่ม, Google Fit, เจ้าหน้าที่บันทึกให้ ฯลฯ
+        // ประวัติ = เฉพาะที่ตรวจแล้ว (Approved/Rejected/Deleted) — แสดงทุกวิธี
         // ตัด Pending ออก (อยู่ในหน้า verify-steps)
-        return st === 'Approved' || st === 'Rejected';
+        return st === 'Approved' || st === 'Rejected' || st === 'Deleted';
       })
       .map(s => {
         const u = userMap.get(String(s.User_ID));
@@ -259,14 +263,17 @@ export default function VerifyHistoryPage() {
   const selAuditor = sel && !isAiReviewer(sel) ? (userMap.get(String(sel.Auditor_ID)) || users.find(u=> String(u.User_ID)===String(sel.Auditor_ID) || String(u.Personnel_ID)===String(sel.Auditor_ID)) || null) : null;
   const selIsAiAuditor = !!sel && isAiReviewer(sel);
   const [confirmDelete, setConfirmDelete] = useState<HistoryItem | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
   const [deleting, setDeleting] = useState(false);
 
   async function handleDelete(item: HistoryItem) {
     if (!isAdmin || !user) return;
+    if (!deleteReason.trim()) { alert('กรุณาระบุเหตุผลที่ลบ'); return; }
     setDeleting(true);
-    const res: any = await postDataJson('delete-step', { Record_ID: item.Record_ID, Logged_By: (user as any).User_ID });
+    const res: any = await postDataJson('delete-step', { Record_ID: item.Record_ID, Logged_By: (user as any).User_ID, Delete_Reason: deleteReason.trim() });
     setDeleting(false);
     setConfirmDelete(null);
+    setDeleteReason('');
     if (res?.success) {
       setSelected(null);
       load();
@@ -467,14 +474,18 @@ export default function VerifyHistoryPage() {
                             })()}
                             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
                               <div>
-                                ตรวจสอบโดย <span className="font-bold inline-flex items-center gap-1">{isAiAuditor ? <><AiBadge /> <span>AI (ระบบอัตโนมัติ)</span></> : (auditor ? `${displayName(auditor)}${auditor.Department ? ` (${auditor.Department})` : ''}` : (item.Auditor_ID || '—'))}</span>
-                                {reviewedAtRaw && <span> เมื่อวันที่ {safeThaiDate(reviewedAtRaw)} เวลา {formatThaiTime(reviewedAtRaw)}</span>}
-                                {!reviewedAtRaw && !isAiAuditor && <span> — ยังไม่มีเวลาตรวจ</span>}
-                                {item.Status === 'Rejected' && item.Reject_Reason && (
-                                  <span className="text-red-500"> · เหตุผล: {item.Reject_Reason}</span>
+                                {item.Status === 'Deleted' ? (
+                                  <span className="text-gray-500">ถูกลบ: <span className="font-bold text-gray-700 dark:text-gray-300">{item.Reject_Reason || 'ไม่ระบุเหตุผล'}</span> <span className="text-[10px] font-normal text-gray-400">· ไม่แสดงชื่อผู้ลบ (ต่างฝ่าย)</span></span>
+                                ) : (
+                                  <>ตรวจสอบโดย <span className="font-bold inline-flex items-center gap-1">{isAiAuditor ? <><AiBadge /> <span>AI (ระบบอัตโนมัติ)</span></> : (auditor ? `${displayName(auditor)}${auditor.Department ? ` (${auditor.Department})` : ''}` : (item.Auditor_ID || '—'))}</span>
+                                  {reviewedAtRaw && <span> เมื่อวันที่ {safeThaiDate(reviewedAtRaw)} เวลา {formatThaiTime(reviewedAtRaw)}</span>}
+                                  {!reviewedAtRaw && !isAiAuditor && <span> — ยังไม่มีเวลาตรวจ</span>}
+                                  {item.Status === 'Rejected' && item.Reject_Reason && (
+                                    <span className="text-red-500"> · เหตุผล: {item.Reject_Reason}</span>
+                                  )}</>
                                 )}
                               </div>
-                              <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(item); }} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
+                              <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(item); setDeleteReason(''); }} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
                                 <span className="material-symbols-outlined text-sm">delete</span> ลบ
                               </button>
                             </div>
@@ -593,20 +604,27 @@ export default function VerifyHistoryPage() {
               )}
 
               <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-300">
-                <p><span className="text-gray-400">ผลการตรวจสอบ:</span> {sel.Status === 'Approved' ? <span className="font-bold text-emerald-600 dark:text-emerald-400">อนุมัติ</span> : <span className="font-bold text-red-600 dark:text-red-400">ไม่อนุมัติ</span>}</p>
+                <p><span className="text-gray-400">ผลการตรวจสอบ:</span> {sel.Status === 'Approved' ? <span className="font-bold text-emerald-600 dark:text-emerald-400">อนุมัติ</span> : sel.Status === 'Deleted' ? <span className="font-bold text-gray-600 dark:text-gray-300">ถูกลบ</span> : <span className="font-bold text-red-600 dark:text-red-400">ไม่อนุมัติ</span>}</p>
                 <p className="mt-1"><span className="text-gray-400">วันที่นับก้าว:</span> <span className="font-bold">{safeThaiDate(sel.Date_Thai)}</span></p>
-                <p className="mt-1"><span className="text-gray-400">ตรวจสอบโดย:</span> <span className="font-bold inline-flex items-center gap-1">{selIsAiAuditor ? <><AiBadge /> AI (ระบบอัตโนมัติ)</> : (selAuditor ? `${displayName(selAuditor)}${selAuditor.Department ? ` (${selAuditor.Department})` : ''}` : (sel.Auditor_ID || '—'))}</span>
-                  {(() => {
-                    const raw = sel.Reviewed_At && String(sel.Reviewed_At).trim() !== '' ? sel.Reviewed_At : (selIsAiAuditor ? (sel.Recorded_At || '') : '');
-                    return raw ? <span> เมื่อวันที่ {safeThaiDate(raw)} เวลา {formatThaiTime(raw)}</span> : null;
-                  })()}
-                </p>
+                {sel.Status === 'Deleted' ? (
+                  <p className="mt-1 text-gray-600 dark:text-gray-300"><span className="text-gray-400">เหตุผลที่ลบ:</span> <span className="font-bold">{sel.Reject_Reason || 'ไม่ระบุเหตุผล'}</span> <span className="text-[11px] text-gray-400">· ไม่แสดงชื่อผู้ลบ (ต่างฝ่าย)</span></p>
+                ) : (
+                  <p className="mt-1"><span className="text-gray-400">ตรวจสอบโดย:</span> <span className="font-bold inline-flex items-center gap-1">{selIsAiAuditor ? <><AiBadge /> AI (ระบบอัตโนมัติ)</> : (selAuditor ? `${displayName(selAuditor)}${selAuditor.Department ? ` (${selAuditor.Department})` : ''}` : (sel.Auditor_ID || '—'))}</span>
+                    {(() => {
+                      const raw = sel.Reviewed_At && String(sel.Reviewed_At).trim() !== '' ? sel.Reviewed_At : (selIsAiAuditor ? (sel.Recorded_At || '') : '');
+                      return raw ? <span> เมื่อวันที่ {safeThaiDate(raw)} เวลา {formatThaiTime(raw)}</span> : null;
+                    })()}
+                  </p>
+                )}
                 {sel.Status === 'Rejected' && sel.Reject_Reason && (
                   <p className="mt-1 text-red-500"><span className="text-gray-400">เหตุผลที่ไม่อนุมัติ:</span> <span className="font-bold">{sel.Reject_Reason}</span></p>
                 )}
+                {sel.Status === 'Deleted' && sel.Reject_Reason && (
+                  <p className="mt-1 text-gray-500"><span className="text-gray-400">เหตุผลที่ลบ:</span> <span className="font-bold">{sel.Reject_Reason}</span></p>
+                )}
               </div>
               <div className="flex justify-end pt-2">
-                <button onClick={() => setConfirmDelete(sel)} disabled={deleting} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
+                <button onClick={() => { setConfirmDelete(sel); setDeleteReason(''); }} disabled={deleting} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/30">
                   <span className="material-symbols-outlined text-base">delete</span> {String(sel.Record_Method||'').toLowerCase().includes('google') ? 'ลบข้อมูล Google Fit นี้เพื่อให้ซิงค์ใหม่ได้' : 'ลบข้อมูลนี้ (พร้อมรูป) เพื่อให้กรอกใหม่ได้'}
                 </button>
               </div>
@@ -614,7 +632,26 @@ export default function VerifyHistoryPage() {
           </div>
         </div>
       )}
-      <ConfirmPopup open={!!confirmDelete} title="ยืนยันการลบ" message={`คุณกำลังจะลบประวัติก้าวของ "${confirmDelete?.userName || ''}" วันที่ ${confirmDelete ? safeThaiDate(confirmDelete.Date_Thai) : ''} จำนวน ${confirmDelete ? Number(confirmDelete.Steps_Count).toLocaleString() : ''} ก้าว ${confirmDelete?.Image_Drive_ID ? 'พร้อมรูปภาพ' : String(confirmDelete?.Record_Method||'').toLowerCase().includes('google') ? '(Google Fit)' : ''} — ลบแล้วต้องกรอกใหม่ แน่ใจหรือไม่?`} variant="danger" loading={deleting} onConfirm={() => confirmDelete && handleDelete(confirmDelete)} onClose={() => setConfirmDelete(null)} />
+      <Modal open={!!confirmDelete} onClose={() => { setConfirmDelete(null); setDeleteReason(''); }}>
+        <div className="text-center py-2">
+          <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4 bg-red-50 dark:bg-red-900/20 text-red-500">
+            <span className="material-symbols-outlined text-3xl">warning</span>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">ยืนยันการลบ</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">คุณกำลังจะลบประวัติก้าวของ &quot;{confirmDelete?.userName || ''}&quot; วันที่ {confirmDelete ? safeThaiDate(confirmDelete.Date_Thai) : ''} จำนวน {confirmDelete ? Number(confirmDelete.Steps_Count).toLocaleString() : ''} ก้าว {confirmDelete?.Image_Drive_ID ? 'พร้อมรูปภาพ' : String(confirmDelete?.Record_Method||'').toLowerCase().includes('google') ? '(Google Fit)' : ''} — ลบแล้วต้องกรอกใหม่</p>
+          <div className="mt-4 text-left">
+            <label className="text-sm font-bold text-gray-700 dark:text-gray-300">เหตุผลที่ลบ <span className="text-red-500">*</span></label>
+            <textarea value={deleteReason} onChange={e=> setDeleteReason(e.target.value)} placeholder="ระบุเหตุผลที่ลบ เช่น รูปไม่ชัด, ข้อมูลซ้ำ, วันที่ไม่ตรง..." className="mt-1 w-full p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500" rows={3} />
+            <p className="text-[11px] text-gray-400 mt-1">เหตุผลนี้จะแสดงในตารางโดยไม่แสดงชื่อผู้ลบ (ต่างฝ่าย)</p>
+          </div>
+          <div className="flex gap-3 mt-6">
+            <button onClick={() => { setConfirmDelete(null); setDeleteReason(''); }} disabled={deleting} className="btn-ghost flex-1 justify-center disabled:opacity-50">ยกเลิก</button>
+            <button onClick={() => confirmDelete && handleDelete(confirmDelete)} disabled={deleting || !deleteReason.trim()} className="flex-[2] justify-center h-[42px] rounded-xl font-bold text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white">
+              {deleting ? <><span className="loading loading-spinner loading-sm"></span> กำลังลบ...</> : 'ยืนยันลบ'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

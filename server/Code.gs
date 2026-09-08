@@ -2538,7 +2538,16 @@ function deleteStepLog_(data) {
       console.warn('deleteStepLog_ trash file failed', imageId, e);
     }
   }
-  sheet.deleteRow(rowIndex+1);
+  // Soft delete: keep row but mark as Deleted with reason, hide auditor for privacy (แสดงเฉพาะเหตุผลใน UI)
+  const statusCol = col('Status');
+  const rejectReasonCol = col('Reject_Reason');
+  const auditorCol = col('Auditor_ID');
+  const reviewedAtCol = col('Reviewed_At');
+  const deleteReason = String(data.Delete_Reason || data.Reject_Reason || 'ถูกลบโดยเจ้าหน้าที่').trim().slice(0,500) || 'ถูกลบโดยเจ้าหน้าที่';
+  if (statusCol > 0) sheet.getRange(rowIndex+1, statusCol, 1, 1).setValue('Deleted');
+  if (rejectReasonCol > 0) sheet.getRange(rowIndex+1, rejectReasonCol, 1, 1).setValue(deleteReason);
+  if (auditorCol > 0) sheet.getRange(rowIndex+1, auditorCol, 1, 1).setValue('');
+  if (reviewedAtCol > 0) sheet.getRange(rowIndex+1, reviewedAtCol, 1, 1).setValue(getTimestamp_());
   // Audit Log
   try {
     ensureHeaders_('Audit_Log', AUDIT_HEADERS);

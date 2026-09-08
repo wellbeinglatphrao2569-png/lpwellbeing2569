@@ -122,14 +122,44 @@ export async function POST(request: NextRequest) {
       // visual_evidence เก็บไว้สำหรับ response
       if (tyVisualEvidence) rawText = tyVisualEvidence;
 
-      // fallback: ถ้า Typhoon อ่าน step_count ไม่ได้ (null/0) หรืออ่านเป็นเลขชั้นเล็กๆ (5) ให้หาเลขใกล้คำว่า ก้าว ใน rawText + dateRaw
+      // fallback: ถ้า Typhoon อ่าน step_count ไม่ได้ (null/0) หรืออ่านเป็นเลขชั้นเล็กๆ (1/5) ให้หาเลขใกล้คำว่า ก้าว ใน rawText + dateRaw
       const fallbackSources = [rawText, dateRaw, (ty as any).visual_evidence].filter(Boolean).join('\n');
+      let needSecondTry = false;
       if ((aiSteps == null || aiSteps === 0 || (aiSteps != null && aiSteps < 100)) && fallbackSources) {
         const ext = extractStepsFromText(fallbackSources);
         if (ext.steps != null && (aiSteps == null || ext.steps > aiSteps * 5 || aiSteps < 100)) {
-          // ถ้า Typhoon อ่านได้ 5 แต่ fallback เจอ 3155 ที่อยู่ใกล้คำว่า ก้าว ให้ใช้ 3155
           aiSteps = ext.steps; aiStepsRaw = ext.raw;
+        } else {
+          needSecondTry = true;
         }
+      } else if (aiSteps != null && aiSteps < 100) {
+        needSecondTry = true;
+      }
+      // ถ้ายังได้เลขเล็กๆ ให้ลองเรียก Typhoon อีกครั้งโดยครอปภาพเน้นตรงกลาง (ก้าวเดินอยู่กลางจอ)
+      if (needSecondTry && (aiSteps == null || aiSteps < 100)) {
+        try {
+          // ครอปภาพ: ส่งภาพเดิมแต่บอกให้โฟกัสตรงกลาง (Typhoon จะอ่านใหม่)
+          const retryPrompt = `อ่านเฉพาะตัวเลขที่อยู่ใต้คำว่า "ก้าวเดิน" ตรงกลางจอเท่านั้น (เช่น ก้าวเดิน 5,546) ห้ามอ่าน "จำนวนชั้นที่ขึ้น 1" ตอบเป็น JSON {"step_count": <int>} เท่านั้น`;
+          const retryRes = await fetch('https://api.opentyphoon.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.TYPHOON_API_KEY}` },
+            body: JSON.stringify({
+              model: process.env.TYPHOON_OCR_MODEL || 'typhoon-ocr',
+              messages: [{ role: 'user', content: [{ type: 'text', text: retryPrompt }, { type: 'image_url', image_url: { url: imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}` } }] }],
+              temperature: 0.1,
+              max_tokens: 256,
+            }),
+          });
+          if (retryRes.ok) {
+            const j = await retryRes.json();
+            const c: string = j?.choices?.[0]?.message?.content ?? '';
+            const m = c.match(/"step_count"\s*:\s*(\d[\d,]*)/) || c.match(/(\d[\d,]{2,10})/);
+            if (m) {
+              const n = Number(m[1].replace(/,/g, ''));
+              if (!isNaN(n) && n >= 100) { aiSteps = n; aiStepsRaw = m[1]; }
+            }
+          }
+        } catch {}
       }
       // ถ้ายังไม่มี dateRaw ให้ลองหาใน visual_evidence / rawText
       if (!dateRaw && fallbackSources) {

@@ -54,35 +54,52 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // เรียก Typhoon
+    // เรียก Typhoon ด้วย context ใหม่ (SYSTEM_DATE/TARGET_DATE/CURRENT_YEAR)
     let rawText = '';
     let aiSteps: number | null = null;
     let aiStepsRaw: string | null = null;
     let dateRaw: string | null = null;
     let confidence: number | null = null;
+    let tyFormattedDate: string | null = null;
+    let tyIsMatched: boolean | null = null;
+    let tyStatus: string | null = null;
+    let tyReasoning: string | null = null;
 
     try {
-      const ty = await analyzeStepsImageWithTyphoon(imageBase64, { timeoutMs: 25000 });
-      rawText = ty.rawText || '';
-      dateRaw = ty.dateRaw ?? null;
-      confidence = ty.confidence ?? null;
+      const now = new Date();
+      const systemDate = now.toISOString().slice(0, 10);
+      const currentYear = String(now.getFullYear());
+      const currentThaiYear = String(now.getFullYear() + 543);
+      const ty = await analyzeStepsImageWithTyphoon(imageBase64, {
+        timeoutMs: 25000,
+        ctx: { systemDate, targetDate: expected, currentYear, currentThaiYear },
+      });
+      rawText = ty.rawText || ty.reasoning || '';
+      // รองรับสคีมาใหม่ก่อน
+      aiSteps = ty.step_count ?? ty.steps ?? null;
+      if (aiSteps != null) aiSteps = Number(String(aiSteps).replace(/,/g, ''));
+      aiStepsRaw = ty.stepsRaw ?? (aiSteps != null ? String(aiSteps) : null);
+      dateRaw = ty.detected_date_raw ?? ty.dateRaw ?? null;
+      tyFormattedDate = ty.formatted_date ?? null;
+      tyIsMatched = ty.is_date_matched ?? null;
+      confidence = ty.confidence_score ?? ty.confidence ?? null;
+      tyStatus = ty.status ?? null;
+      tyReasoning = ty.reasoning ?? null;
 
-      // ถ้า Typhoon ส่ง steps มาโดยตรง ให้ใช้เลย
-      if (ty.steps != null && !isNaN(Number(ty.steps))) {
+      if (aiSteps == null && !isNaN(Number(ty.steps))) {
         aiSteps = Number(ty.steps);
         aiStepsRaw = ty.stepsRaw ?? String(ty.steps);
-      } else {
-        // fallback: ดึงจาก rawText เอง
-        const ext = extractStepsFromText(rawText);
-        aiSteps = ext.steps;
-        aiStepsRaw = ext.raw;
       }
-
-      // ถ้า Typhoon ไม่ได้ส่ง dateRaw แต่ rawText มีวันที่ ให้ลองดึงเพิ่ม
+      if (aiSteps == null && rawText) {
+        const ext = extractStepsFromText(rawText);
+        if (ext.steps != null) { aiSteps = ext.steps; aiStepsRaw = ext.raw; }
+      }
       if (!dateRaw && rawText) {
-        // ลองหา substring ที่ดูเหมือนวันที่ใน rawText มาเติม dateRaw เพื่อให้ parser ลอง
-        // แต่ให้ stepsDateParser จัดการ extract เองด้วย
         dateRaw = rawText.slice(0, 200);
+      }
+      // ถ้า Typhoon ให้ formatted_date มาแล้ว ให้ใช้เป็นตัวตั้งต้นสำหรับ normalize
+      if (tyFormattedDate && /^\d{4}-\d{2}-\d{2}$/.test(tyFormattedDate)) {
+        // จะใช้ tyFormattedDate เป็น dateNormalized โดยตรงในขั้นตอนถัดไป
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -113,35 +130,55 @@ export async function POST(request: NextRequest) {
       aiStepsRaw = ext.raw;
     }
 
-    // Normalize วันที่
-    const dateNormalized = dateRaw ? normalizeOcrDate(dateRaw, expected) : null;
-    const dateMatch = dateRaw ? isDateMatch(dateRaw, expected) : null;
-
-    // ตัดสิน alert — Strict 0% tolerance
-    const stepsExact = aiSteps != null && inputNum != null ? aiSteps === inputNum : null;
-    // confidence default: ถ้าไม่มีให้ถือว่า 0.5
-    const conf = confidence ?? (aiSteps != null && dateNormalized ? 0.7 : 0.3);
-
-    let alert = false;
-    let alertReason = '';
-    if (aiSteps == null) {
-      alert = true;
-      alertReason = 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ นสส. ตรวจสอบ';
-    } else if (stepsExact === false) {
-      alert = true;
-      alertReason = `ก้าวไม่ตรงกัน (กรอก ${inputNum?.toLocaleString()} vs อ่าน ${aiSteps.toLocaleString()}) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
-    } else if (dateMatch === false) {
-      alert = true;
-      alertReason = `วันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก (${expected} vs ในภาพ "${dateRaw}" → ${dateNormalized || 'อ่านไม่ได้'})`;
-    } else if (dateMatch == null) {
-      alert = true;
-      alertReason = `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}") — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
-    } else if (conf < 0.85) {
-      alert = true;
-      alertReason = `ความมั่นใจต่ำ (${Math.round(conf * 100)}%) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+    // Normalize วันที่ — ถ้า Typhoon ให้ formatted_date ที่เป็น YYYY-MM-DD มาแล้วให้ใช้เลย (น่าเชื่อถือกว่า parser)
+    let dateNormalized: string | null = null;
+    let dateMatch: boolean | null = null;
+    if (tyFormattedDate && /^\d{4}-\d{2}-\d{2}$/.test(tyFormattedDate)) {
+      dateNormalized = tyFormattedDate;
+      dateMatch = tyIsMatched != null ? tyIsMatched : tyFormattedDate === expected;
+    } else {
+      dateNormalized = dateRaw ? normalizeOcrDate(dateRaw, expected) : null;
+      dateMatch = dateRaw ? isDateMatch(dateRaw, expected) : null;
+      // ถ้า Typhoon บอก is_date_matched มา ให้ยึดตามนั้น
+      if (tyIsMatched != null) dateMatch = tyIsMatched;
     }
 
-    // ถ้า aiSteps == null หรือ dateMatch == null ให้ confidence ลด
+    // ตัดสิน alert — ยึด status จาก Typhoon เป็นหลัก (passed/flagged_for_review) + Strict 0% tolerance เทียบ inputSteps
+    const stepsExact = aiSteps != null && inputNum != null ? aiSteps === inputNum : null;
+    const conf = confidence ?? (aiSteps != null && dateNormalized ? 0.7 : 0.3);
+
+    // ถ้า Typhoon บอก status ชัดเจน ให้ใช้เลย
+    let alert: boolean;
+    let alertReason: string;
+    if (tyStatus === 'passed' && stepsExact !== false && dateMatch !== false) {
+      alert = false;
+      alertReason = tyReasoning || '';
+    } else if (tyStatus === 'flagged_for_review') {
+      alert = true;
+      alertReason = tyReasoning || 'AI ประเมินให้ส่งตรวจสอบ — ภาพเบลอ/ไม่พบวันที่/วันที่ไม่ตรง';
+    } else {
+      // fallback logic เดิม
+      if (aiSteps == null) {
+        alert = true;
+        alertReason = tyReasoning || 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ นสส. ตรวจสอบ';
+      } else if (stepsExact === false) {
+        alert = true;
+        alertReason = tyReasoning || `ก้าวไม่ตรงกัน (กรอก ${inputNum?.toLocaleString()} vs อ่าน ${aiSteps.toLocaleString()}) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else if (dateMatch === false) {
+        alert = true;
+        alertReason = tyReasoning || `วันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก (${expected} vs ในภาพ "${dateRaw}" → ${dateNormalized || 'อ่านไม่ได้'})`;
+      } else if (dateMatch == null) {
+        alert = true;
+        alertReason = tyReasoning || `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}") — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else if (conf < 0.85) {
+        alert = true;
+        alertReason = tyReasoning || `ความมั่นใจต่ำ (${Math.round(conf * 100)}%) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else {
+        alert = false;
+        alertReason = tyReasoning || '';
+      }
+    }
+
     const finalConfidence = confidence ?? conf;
 
     return NextResponse.json({
@@ -152,6 +189,14 @@ export async function POST(request: NextRequest) {
       dateNormalized,
       dateMatch,
       confidence: finalConfidence,
+      // fields ใหม่ตามสเปคสำหรับ client ที่ต้องการ
+      step_count: aiSteps,
+      detected_date_raw: dateRaw,
+      formatted_date: dateNormalized,
+      is_date_matched: dateMatch,
+      confidence_score: finalConfidence,
+      status: alert ? 'flagged_for_review' : 'passed',
+      reasoning: tyReasoning || alertReason,
       rawText: rawText.slice(0, 2000),
       stepsExact,
       alert,

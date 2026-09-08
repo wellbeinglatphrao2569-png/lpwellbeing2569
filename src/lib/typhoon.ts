@@ -14,10 +14,61 @@ export interface TyphoonOcrResult {
   stepsRaw: string | null;
   dateRaw: string | null;
   confidence: number | null;
+  // fields ใหม่ตามสเปคล่าสุด
+  step_count: number | null;
+  detected_date_raw: string | null;
+  formatted_date: string | null;
+  is_date_matched: boolean | null;
+  confidence_score: number | null;
+  status: 'passed' | 'flagged_for_review' | null;
+  reasoning: string | null;
 }
 
 function getApiKey(): string {
   return String(process.env.TYPHOON_API_KEY || '').trim();
+}
+
+export interface TyphoonPromptContext {
+  systemDate: string; // YYYY-MM-DD
+  targetDate: string; // YYYY-MM-DD
+  currentYear: string; // ค.ศ.
+  currentThaiYear: string; // พ.ศ.
+}
+
+function buildPrompt(ctx: TyphoonPromptContext): { system: string; user: string } {
+  const system =
+    'คุณคือระบบ AI OCR พิเศษสำหรับตรวจสอบภาพถ่ายหน้าจอนับก้าว ของแอปพลิเคชัน "ก้าวสร้างสุข" (ใช้สำหรับการบันทึกก้าวรายบุคคล และการบันทึกก้าวแบบกลุ่ม)';
+
+  const user =
+    `[ข้อมูลอ้างอิงจากระบบ]\n` +
+    `- วันที่ปัจจุบันของระบบ (Today System Date): ${ctx.systemDate} (รูปแบบ YYYY-MM-DD)\n` +
+    `- วันที่ผู้ใช้ต้องการบันทึก (Target Record Date): ${ctx.targetDate} (รูปแบบ YYYY-MM-DD)\n` +
+    `- ปีปัจจุบันของระบบ (Current Year): ${ctx.currentYear} (ค.ศ.) / ${ctx.currentThaiYear} (พ.ศ.)\n` +
+    `\n[เงื่อนไขการตรวจสอบ - Checklist]\n` +
+    `1. การอ่านจำนวนก้าว (Steps):\n` +
+    `   - อ่านเฉพาะตัวเลขรวมจำนวนก้าวหลักของวันนั้น (ระวังอย่าสับสนกับ kcal, km, นาที)\n` +
+    `   - ถอดเครื่องหมาย comma ออก (เช่น 3,115 -> 3115)\n` +
+    `2. การอ่านและเทียบเคียงวันที่ (Date Matching):\n` +
+    `   - อ่านวันที่ในภาพ (รองรับ "Today", "วันนี้", "Yesterday", "เมื่อวาน", ตัวย่อวัน เช่น "พ. 2 ก.ย.", หรือตัวย่อเดือนภาษาไทย/อังกฤษ)\n` +
+    `   - หากภาพระบุเฉพาะ วัน/เดือน ให้ถือว่าเป็นปี ${ctx.currentYear}\n` +
+    `   - แปลงวันที่ในภาพให้อยู่ในฟอร์แมต YYYY-MM-DD (ใช้ชื่อตัวแปร formatted_date)\n` +
+    `   - ตรวจสอบว่า formatted_date ตรงกับ ${ctx.targetDate} ที่ผู้ใช้ต้องการบันทึกหรือไม่ (is_date_matched)\n` +
+    `3. ประเมินความถูกต้อง (Verification Decision):\n` +
+    `   - ถ้าอ่านค่าก้าวได้ชัดเจน และ formatted_date ตรงกับ ${ctx.targetDate} ให้สถานะเป็น "passed"\n` +
+    `   - ถ้าภาพเบลอ, อ่านตัวเลขไม่ได้, ไม่พบวันที่, หรือวันที่ไม่ตรงกับ ${ctx.targetDate} ให้สถานะเป็น "flagged_for_review" (เพื่อให้ระบบส่งต่อให้เจ้าหน้าที่ นสส. ฝ่ายอื่นตรวจสอบ)\n` +
+    `\n[รูปแบบผลลัพธ์ที่ต้องการ (JSON)]\n` +
+    `ตอบกลับเฉพาะ JSON Object ตามโครงสร้างนี้เท่านั้น ห้ามใส่ข้อความเกริ่นนำหรือ Markdown อื่น:\n` +
+    `{\n` +
+    `  "step_count": <จำนวนก้าวเป็น integer หรือ null หากอ่านไม่ได้>,\n` +
+    `  "detected_date_raw": "<ข้อความวันที่ที่อ่านได้จริงจากภาพ>",\n` +
+    `  "formatted_date": "<วันที่ในรูป YYYY-MM-DD หรือ null>",\n` +
+    `  "is_date_matched": <true หากตรงกับ TARGET_DATE / false หากไม่ตรง>,\n` +
+    `  "confidence_score": <ระดับความมั่นใจ 0.0 ถึง 1.0>,\n` +
+    `  "status": "<'passed' หรือ 'flagged_for_review'>",\n` +
+    `  "reasoning": "<เหตุผลประกอบสั้นๆ เช่น: ก้าวตรง 3115 แต่วันที่ในภาพไม่ตรงกับวันที่บันทึก>"\n` +
+    `}`;
+
+  return { system, user };
 }
 
 /**
@@ -26,7 +77,7 @@ function getApiKey(): string {
  */
 export async function analyzeStepsImageWithTyphoon(
   imageDataUrl: string,
-  opts?: { timeoutMs?: number }
+  opts?: { timeoutMs?: number; ctx?: TyphoonPromptContext }
 ): Promise<TyphoonOcrResult> {
   const apiKey = getApiKey();
   if (!apiKey) throw new Error('TYPHOON_API_KEY not configured');
@@ -37,17 +88,15 @@ export async function analyzeStepsImageWithTyphoon(
     dataUrl = `data:image/jpeg;base64,${dataUrl}`;
   }
 
-  const systemPrompt =
-    'คุณคือผู้เชี่ยวชาญ OCR ภาษาไทย สำหรับอ่านภาพนับก้าวเดิน (step counter). ' +
-    'ให้อ่านข้อความทั้งหมดในภาพอย่างละเอียด แล้วสรุปเป็น JSON เท่านั้น ห้ามอธิบายเพิ่ม.';
-
-  const userPrompt =
-    'อ่านภาพนี้แล้วดึงข้อมูล 2 อย่าง:\n' +
-    '1) จำนวนก้าว (steps): ตัวเลขที่มีคำว่า ก้าว ต่อท้าย หรือตัวเลขตัวใหญ่กลางจอ ถ้ามีหลายตัวเลขให้เลือกตัวที่น่าจะเป็นจำนวนก้าวมากที่สุด\n' +
-    '2) วันที่ในภาพ (dateRaw): ข้อความวันที่ทุกแบบที่เห็น (ไทยย่อ/เต็ม, อังกฤษย่อ/เต็ม, ตัวเลข, มี/ไม่มีปี, มีวันในสัปดาห์ เช่น พ. 2 ก.ย.)\n' +
-    'ตอบเป็น JSON เท่านั้น รูปแบบ: {"steps": number|null, "stepsRaw": string|null, "dateRaw": string|null, "rawText": string, "confidence": number|null}\n' +
-    'ตัวอย่าง: {"steps": 12345, "stepsRaw": "12,345 ก้าว", "dateRaw": "พ. 2 ก.ย. 2568", "rawText": "12,345 ก้าว\\nพ. 2 ก.ย. 2568", "confidence": 0.92}\n' +
-    'ถ้าหาไม่เจอให้ใส่ null และ confidence ต่ำ เช่น 0.3';
+  const now = new Date();
+  const systemDate = now.toISOString().slice(0, 10);
+  const ctx: TyphoonPromptContext = opts?.ctx ?? {
+    systemDate,
+    targetDate: systemDate,
+    currentYear: String(now.getFullYear()),
+    currentThaiYear: String(now.getFullYear() + 543),
+  };
+  const { system: systemPrompt, user: userPrompt } = buildPrompt(ctx);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 25000);
@@ -92,27 +141,51 @@ export async function analyzeStepsImageWithTyphoon(
 
 function parseTyphoonContent(content: string): TyphoonOcrResult {
   const raw = content.trim();
-  // พยายามหา JSON ใน content
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try {
       const obj = JSON.parse(jsonMatch[0]);
+      // รองรับทั้งสคีมาใหม่ (step_count/detected_date_raw) และเก่า (steps/dateRaw)
+      const stepVal = obj.step_count ?? obj.steps ?? null;
+      const dateRawVal = obj.detected_date_raw ?? obj.dateRaw ?? null;
+      const formatted = obj.formatted_date ?? null;
+      const isMatched = obj.is_date_matched ?? null;
+      const confScore = obj.confidence_score ?? obj.confidence ?? null;
+      const status = obj.status ?? null;
+      const reasoning = obj.reasoning ?? null;
+
+      // ถ้าได้ formatted_date มา ให้ใช้เป็น dateRaw fallback ด้วย ถ้าไม่มี detected_date_raw
+      const finalDateRaw = dateRawVal != null ? String(dateRawVal) : formatted ? String(formatted) : null;
+
       return {
-        rawText: String(obj.rawText ?? raw),
-        steps: obj.steps != null ? Number(obj.steps) : null,
-        stepsRaw: obj.stepsRaw != null ? String(obj.stepsRaw) : null,
-        dateRaw: obj.dateRaw != null ? String(obj.dateRaw) : null,
-        confidence: obj.confidence != null ? Number(obj.confidence) : null,
+        rawText: String(obj.rawText ?? obj.reasoning ?? raw),
+        steps: stepVal != null ? Number(String(stepVal).replace(/,/g, '')) : null,
+        stepsRaw: stepVal != null ? String(stepVal) : null,
+        dateRaw: finalDateRaw,
+        confidence: confScore != null ? Number(confScore) : null,
+        step_count: stepVal != null ? Number(String(stepVal).replace(/,/g, '')) : null,
+        detected_date_raw: finalDateRaw,
+        formatted_date: formatted ? String(formatted) : null,
+        is_date_matched: isMatched != null ? Boolean(isMatched) : null,
+        confidence_score: confScore != null ? Number(confScore) : null,
+        status: status === 'passed' || status === 'flagged_for_review' ? status : null,
+        reasoning: reasoning ? String(reasoning) : null,
       };
     } catch {}
   }
-  // fallback: พยายามดึงตัวเลขจาก raw text
   return {
     rawText: raw,
     steps: null,
     stepsRaw: null,
     dateRaw: null,
     confidence: null,
+    step_count: null,
+    detected_date_raw: null,
+    formatted_date: null,
+    is_date_matched: null,
+    confidence_score: null,
+    status: null,
+    reasoning: null,
   };
 }
 

@@ -1335,7 +1335,7 @@ export default function StepsPage() {
                             )}
                             {latestAny.Status === 'Deleted' && (latestAny as any).Reject_Reason && (
                               <span className="block text-[11px] text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 mt-1 leading-snug">
-                                <span className="font-bold">ถูกลบ:</span> {(latestAny as any).Reject_Reason} <span className="text-[10px] text-gray-400">· ไม่แสดงผู้ลบ</span>
+                                <span className="font-bold">ถูกลบ:</span> {(latestAny as any).Reject_Reason}
                               </span>
                             )}
                           </>
@@ -1372,7 +1372,7 @@ export default function StepsPage() {
                           )}
                           {hasDeleted && !hasPending && latestAny && (latestAny as any).Reject_Reason && (
                             <span className="text-[11px] text-gray-600 dark:text-gray-400 leading-snug max-w-[220px] line-clamp-2" title={(latestAny as any).Reject_Reason}>
-                              ถูกลบ: {(latestAny as any).Reject_Reason} <span className="text-[10px]">· ไม่แสดงผู้ลบ</span>
+                              ถูกลบ: {(latestAny as any).Reject_Reason}
                             </span>
                           )}
                           {hasRejected && !hasPending && latestAny && (latestAny as any).Auditor_ID && (

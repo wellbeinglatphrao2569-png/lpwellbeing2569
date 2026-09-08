@@ -544,6 +544,12 @@ export default function BatchStepsPage(){
   }
   async function handleClearPersisted() {
     if (!clearTarget || !user) return;
+    // บล็อกการล้างหากเป้าหมายเป็น Mode 1 — ต้องให้เจ้าตัวจัดการเอง
+    const targetUser = users.find(u => getUserKey(u) === clearTarget.uid || String((u as any).Personnel_ID) === clearTarget.uid);
+    if (targetUser && String((targetUser as any).Step_Record_Mode || '1') !== '2') {
+      setResultPopup({type:'error', title:'ล้างไม่ได้ — Mode 1 ล็อก', message:`${displayName(targetUser)} อยู่ใน Mode 1 (บันทึกเอง) — ไม่สามารถล้างข้อมูลโดยเจ้าหน้าที่ได้ ต้องให้เจ้าตัวจัดการเอง`});
+      return;
+    }
     if (!clearReason.trim()) { setResultPopup({type:'error', title:'ต้องระบุเหตุผล', message:'กรุณาระบุเหตุผลที่ล้างข้อมูล'}); return; }
     setClearing(true);
     try {
@@ -746,8 +752,11 @@ export default function BatchStepsPage(){
                             {hasDeleted && <span className="text-[10px] text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded inline-flex items-center gap-1">ถูกลบ: {deleted.Reject_Reason || 'ไม่ระบุเหตุผล'}<span className="text-[9px]">· ไม่แสดงผู้ลบ</span></span>}
                             {hasPending && !gridInputs[uid]?.[d] && !hasDeleted && <span className="text-[10px] text-amber-700 dark:text-amber-300 font-bold flex items-center gap-0.5"><span className="material-symbols-outlined text-xs">hourglass_top</span>{Number(pending.Steps_Count).toLocaleString()} รอตรวจ</span>}
                             {!hasPending && hasExisting && !gridInputs[uid]?.[d] && !hasDeleted && <span className="text-[10px] text-emerald-600 font-medium">{Number(existing.Steps_Count).toLocaleString()} ก้าว ✓</span>}
-                            {(hasExisting || hasPending || hasDeleted) && !img && (
+                            {(hasExisting || hasPending || hasDeleted) && !img && !locked && (
                               <button onClick={() => { const rec: any = existing || pending || deleted; if(rec) { setClearTarget({uid, day:d, recordId: String(rec.Record_ID)}); setClearReason(''); } }} className="text-[10px] text-gray-400 hover:text-red-500 underline underline-offset-2">ล้างข้อมูล</button>
+                            )}
+                            {(hasExisting || hasPending || hasDeleted) && !img && locked && (
+                              <span className="text-[10px] text-gray-300 cursor-not-allowed" title="Mode 1 — ล็อก ไม่สามารถล้างข้อมูลได้ ต้องให้เจ้าตัวจัดการเอง">ล้างไม่ได้ (Mode 1)</span>
                             )}
                           </div>
                         </td>

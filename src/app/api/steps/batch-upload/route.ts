@@ -152,19 +152,34 @@ export async function POST(request: NextRequest) {
         if (dateMatch == null && dateRaw) dateMatch = isDateMatch(dateRaw, day);
       } else if (typhoonEnabled && base64Raw) {
         try {
-          const ty = await analyzeStepsImageWithTyphoon(base64Raw, { timeoutMs: 15000 });
-          dateRaw = ty.dateRaw ?? null;
-          aiConf = ty.confidence ?? null;
-          if (ty.steps != null) {
-            aiSteps = Number(ty.steps);
-            aiStepsRaw = ty.stepsRaw ?? String(ty.steps);
+          const now = new Date();
+          const systemDate = now.toISOString().slice(0, 10);
+          const ty = await analyzeStepsImageWithTyphoon(base64Raw, {
+            timeoutMs: 15000,
+            ctx: { systemDate, targetDate: day, currentYear: String(now.getFullYear()), currentThaiYear: String(now.getFullYear() + 543) },
+          });
+          // รองรับสคีมาใหม่
+          const tySteps = (ty as any).step_count ?? ty.steps ?? null;
+          if (tySteps != null) {
+            aiSteps = Number(String(tySteps).replace(/,/g, ''));
+            aiStepsRaw = ty.stepsRaw ?? String(tySteps);
           } else if (ty.rawText) {
             const ext = extractStepsFromText(ty.rawText);
             aiSteps = ext.steps;
             aiStepsRaw = ext.raw;
           }
-          dateNorm = dateRaw ? normalizeOcrDate(dateRaw, day) : null;
-          dateMatch = dateRaw ? isDateMatch(dateRaw, day) : null;
+          dateRaw = (ty as any).detected_date_raw ?? ty.dateRaw ?? null;
+          const tyFmt = (ty as any).formatted_date ?? null;
+          const tyMatched = (ty as any).is_date_matched ?? null;
+          aiConf = (ty as any).confidence_score ?? ty.confidence ?? null;
+          if (tyFmt && /^\d{4}-\d{2}-\d{2}$/.test(tyFmt)) {
+            dateNorm = tyFmt;
+            dateMatch = tyMatched != null ? Boolean(tyMatched) : tyFmt === day;
+          } else {
+            dateNorm = dateRaw ? normalizeOcrDate(dateRaw, day) : null;
+            dateMatch = dateRaw ? isDateMatch(dateRaw, day) : null;
+            if (tyMatched != null) dateMatch = Boolean(tyMatched);
+          }
         } catch (e) {
           console.warn('batch Typhoon failed for', day, e);
         }

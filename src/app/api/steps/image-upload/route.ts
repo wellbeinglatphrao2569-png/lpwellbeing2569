@@ -103,21 +103,36 @@ export async function POST(request: NextRequest) {
       alertReason = bodyAi.alertReason ?? bodyAi.Alert_Reason ?? alertReason;
       // ถ้า client บอกว่า alert=false และ dateMatch true + stepsExact → จะได้ Approved
     } else if (isTyphoonConfigured()) {
-      // fallback: ถ้า client ไม่ได้ส่ง AI มา ให้ server ลองอ่านเอง (กันกรณีเรียกตรง)
       try {
-        const ty = await analyzeStepsImageWithTyphoon(String(imageBase64), { timeoutMs: 20000 });
-        dateInImageRaw = ty.dateRaw ?? null;
-        aiConfidence = ty.confidence ?? null;
-        if (ty.steps != null) {
-          aiSteps = Number(ty.steps);
-          aiStepsRaw = ty.stepsRaw ?? String(ty.steps);
+        const now = new Date();
+        const systemDate = now.toISOString().slice(0, 10);
+        const ty = await analyzeStepsImageWithTyphoon(String(imageBase64), {
+          timeoutMs: 20000,
+          ctx: { systemDate, targetDate: String(dateThai), currentYear: String(now.getFullYear()), currentThaiYear: String(now.getFullYear() + 543) },
+        });
+        const tySteps = (ty as any).step_count ?? ty.steps ?? null;
+        if (tySteps != null) {
+          aiSteps = Number(String(tySteps).replace(/,/g, ''));
+          aiStepsRaw = ty.stepsRaw ?? String(tySteps);
         } else if (ty.rawText) {
           const ext = extractStepsFromText(ty.rawText);
           aiSteps = ext.steps;
           aiStepsRaw = ext.raw;
         }
-        dateNormalized = dateInImageRaw ? normalizeOcrDate(dateInImageRaw, String(dateThai)) : null;
-        dateMatch = dateInImageRaw ? isDateMatch(dateInImageRaw, String(dateThai)) : null;
+        dateInImageRaw = (ty as any).detected_date_raw ?? ty.dateRaw ?? null;
+        const tyFmt = (ty as any).formatted_date ?? null;
+        const tyMatched = (ty as any).is_date_matched ?? null;
+        aiConfidence = (ty as any).confidence_score ?? ty.confidence ?? null;
+        if (tyFmt && /^\d{4}-\d{2}-\d{2}$/.test(tyFmt)) {
+          dateNormalized = tyFmt;
+          dateMatch = tyMatched != null ? Boolean(tyMatched) : tyFmt === String(dateThai);
+        } else {
+          dateNormalized = dateInImageRaw ? normalizeOcrDate(dateInImageRaw, String(dateThai)) : null;
+          dateMatch = dateInImageRaw ? isDateMatch(dateInImageRaw, String(dateThai)) : null;
+          if (tyMatched != null) dateMatch = Boolean(tyMatched);
+        }
+        const tyReason = (ty as any).reasoning ?? null;
+        if (tyReason && !alertReason) alertReason = tyReason;
       } catch (e) {
         console.warn('image-upload Typhoon fallback failed:', e);
       }

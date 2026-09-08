@@ -37,9 +37,21 @@ export function extractStepsFromText(text: string): { steps: number | null; raw:
       if (!best || n > best.n) best = { n, raw };
     }
   }
-  // b) คำว่า ก้าว ก่อนเลข (ก้าวเดิน 4,579)
-  const gaoAfter = /ก้าว[^\d]*([\d, ]{2,10})/g;
+  // b) คำว่า ก้าว ก่อนเลข (ก้าวเดิน 4,579) — ต้องไม่เอาตัวหลังเครื่องหมาย / (เช่น 3,231 /6,000 → เอา 3,231 ไม่เอา 6,000)
+  const gaoAfter = /ก้าว[^\d\/]*([\d, ]{2,10})(?!\s*\/)/g;
+  // c) กรณีพิเศษ "จำนวนก้าว\n3,231\n/6,000" — เลขอยู่ใต้คำว่า จำนวนก้าว โดยตรง (ยอดรวมบนสุด)
+  const jamnanGao = /จำนวนก้าว[^\d]*([\d,]{1,10})(?=\s*\/)/g;
+  let jamnanBest: { n: number; raw: string } | null = null;
+  while ((m = jamnanGao.exec(src)) !== null) {
+    const raw = 'จำนวนก้าว ' + m[1].trim();
+    const n = cleanNumber(m[1]);
+    if (n != null && n > 0 && n < 1000000) {
+      if (!jamnanBest || n > jamnanBest.n) jamnanBest = { n, raw };
+    }
+  }
+  if (jamnanBest) return { steps: jamnanBest.n, raw: jamnanBest.raw };
   while ((m = gaoAfter.exec(src)) !== null) {
+    if (m[0].includes('/')) continue;
     const raw = 'ก้าว ' + m[1].trim();
     const n = cleanNumber(m[1]);
     if (n != null && n > 0 && n < 1000000) {

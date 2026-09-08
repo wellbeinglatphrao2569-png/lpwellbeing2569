@@ -136,16 +136,12 @@ export default function AiVerificationPopup({ open, preview, inputSteps, expecte
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer — เหลือปุ่มแก้ไข 1 ปุ่ม + ยืนยัน */}
         <div className="px-5 py-4 border-t border-gray-200 dark:border-gray-700 flex gap-2 shrink-0">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-sm hover:bg-gray-200 dark:hover:bg-gray-600">
-            {onEdit ? 'แก้ไข' : 'ปิด'}
+          <button onClick={onEdit ?? onClose} disabled={!!loading} className="flex-1 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-sm hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center justify-center gap-1.5">
+            <span className="material-symbols-outlined text-lg">edit</span>
+            แก้ไขยอด
           </button>
-          {onEdit && (
-            <button onClick={onEdit} className="flex-1 py-2.5 rounded-xl bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-bold text-sm">
-              แก้ไขข้อมูล
-            </button>
-          )}
           <button onClick={onConfirm} disabled={!!loading} className={`flex-1 py-2.5 rounded-xl font-bold text-sm text-white flex items-center justify-center gap-1.5 disabled:opacity-50 ${result?.alert ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
             <span className="material-symbols-outlined text-lg">{result?.alert ? 'hourglass' : 'check_circle'}</span>
             {result?.alert ? 'ยืนยันบันทึก (รอตรวจ)' : 'ยืนยันบันทึก'}

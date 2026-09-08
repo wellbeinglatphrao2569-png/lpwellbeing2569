@@ -93,11 +93,27 @@ export async function POST(request: NextRequest) {
       const ocrConfNew = (ty as any).ocr_confidence ?? null;
       tyVisualEvidence = (ty as any).visual_evidence ?? null;
 
-      aiSteps = ty.step_count ?? ty.steps ?? null;
-      if (aiSteps != null) aiSteps = Number(String(aiSteps).replace(/,/g, ''));
-      aiStepsRaw = ty.stepsRaw ?? (aiSteps != null ? String(aiSteps) : null);
-      dateRaw = rawNew != null ? String(rawNew) : (ty.detected_date_raw ?? ty.dateRaw ?? null);
-      tyFormattedDate = parsedNew != null ? String(parsedNew) : (ty.formatted_date ?? null);
+      // treat 0 หรือค่าที่ไม่ใช่ตัวเลขบวกให้เป็น null เพื่อให้ fallback หาเลขใกล้คำว่า ก้าว ได้
+      let rawStepsVal: unknown = ty.step_count ?? ty.steps ?? null;
+      if (rawStepsVal != null && String(rawStepsVal).trim().toLowerCase() === 'null') rawStepsVal = null;
+      if (rawStepsVal != null) {
+        const n = Number(String(rawStepsVal).replace(/,/g, '').trim());
+        aiSteps = !isNaN(n) && n > 0 ? n : null;
+      } else aiSteps = null;
+      aiStepsRaw = aiSteps != null ? String(aiSteps) : (ty.stepsRaw ?? null);
+      // ตัด dateRaw ที่ยาวเกิน (Typhoon บางครั้งส่งทั้งหน้า) ให้เหลือเฉพาะส่วนที่ดูเหมือนวันที่
+      let rawDateCandidate: string | null = rawNew != null ? String(rawNew) : (ty.detected_date_raw ?? ty.dateRaw ?? null);
+      if (rawDateCandidate && rawDateCandidate.length > 80) {
+        // ลองดึง substring ที่ดูเหมือนวันที่ออกมา (เช่น 27 ส.ค. 2569) แทนทั้งหน้า
+        const m = rawDateCandidate.match(/\d{1,2}\s*[ก-๙\.]{2,10}\s*\d{2,4}|\d{1,2}\s*(?:มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)|Today|วันนี้|Yesterday|เมื่อวาน/i);
+        if (m) rawDateCandidate = m[0].trim();
+        else rawDateCandidate = rawDateCandidate.slice(0, 80).trim();
+      }
+      dateRaw = rawDateCandidate;
+      // ถ้า Typhoon ส่ง parsed_date มาแต่เป็นข้อความยาว ให้ตัด
+      let parsedCandidate: string | null = parsedNew != null ? String(parsedNew) : (ty.formatted_date ?? null);
+      if (parsedCandidate && parsedCandidate.length > 20) parsedCandidate = parsedCandidate.slice(0, 20).trim();
+      tyFormattedDate = parsedCandidate && /^\d{4}-\d{2}-\d{2}$/.test(parsedCandidate) ? parsedCandidate : parsedCandidate && /^[^\n]{1,30}$/.test(parsedCandidate) ? parsedCandidate : null;
       // สำหรับสคีมา extraction-only ไม่มี is_date_matched/status ให้คำนวณเอง
       tyIsMatched = ty.is_date_matched ?? null;
       confidence = ocrConfNew != null ? Number(ocrConfNew) : (ty.confidence_score ?? ty.confidence ?? null);
@@ -106,16 +122,16 @@ export async function POST(request: NextRequest) {
       // visual_evidence เก็บไว้สำหรับ response
       if (tyVisualEvidence) rawText = tyVisualEvidence;
 
-      if (aiSteps == null && !isNaN(Number((ty as any).steps))) {
-        aiSteps = Number((ty as any).steps);
-        aiStepsRaw = (ty as any).stepsRaw ?? String((ty as any).steps);
-      }
-      if (aiSteps == null && rawText) {
-        const ext = extractStepsFromText(rawText);
+      // fallback: ถ้า Typhoon อ่าน step_count ไม่ได้ (null/0) ให้หาเลขใกล้คำว่า ก้าว ใน rawText + dateRaw
+      const fallbackSources = [rawText, dateRaw, (ty as any).visual_evidence].filter(Boolean).join('\n');
+      if ((aiSteps == null || aiSteps === 0) && fallbackSources) {
+        const ext = extractStepsFromText(fallbackSources);
         if (ext.steps != null) { aiSteps = ext.steps; aiStepsRaw = ext.raw; }
       }
-      if (!dateRaw && rawText) {
-        dateRaw = rawText.slice(0, 200);
+      // ถ้ายังไม่มี dateRaw ให้ลองหาใน visual_evidence / rawText
+      if (!dateRaw && fallbackSources) {
+        const dateLike = fallbackSources.match(/\d{1,2}\s*[ก-๙\.]{2,10}\s*\d{2,4}|Today|วันนี้|Yesterday|เมื่อวาน/i);
+        if (dateLike) dateRaw = dateLike[0].trim();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -139,12 +155,14 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ถ้า aiSteps ยัง null ให้ลอง extract จาก rawText อีกรอบ
-    if (aiSteps == null && rawText) {
-      const ext = extractStepsFromText(rawText);
-      aiSteps = ext.steps;
-      aiStepsRaw = ext.raw;
+    // fallback อีกรอบ: ถ้ายังไม่ได้เลข ให้หาในทุกแหล่ง + กรณีเลขอยู่ใกล้คำว่า ก้าว (ก้าวเดิน 4,579)
+    if (aiSteps == null || aiSteps === 0) {
+      const combined = [rawText, dateRaw, tyVisualEvidence].filter(Boolean).join(' ');
+      const ext = extractStepsFromText(combined);
+      if (ext.steps != null) { aiSteps = ext.steps; aiStepsRaw = ext.raw; }
     }
+    // ถ้า Typhoon ส่ง step_count เป็น 0 ให้ถือว่า null (จะได้ไม่ขึ้น 0 ก้าว)
+    if (aiSteps === 0) { aiSteps = null; aiStepsRaw = null; }
 
     // Normalize วันที่ — ถ้า Typhoon ให้ parsed_date_from_image ที่เป็น YYYY-MM-DD มาแล้วให้ใช้เลย
     let dateNormalized: string | null = null;

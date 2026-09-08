@@ -122,11 +122,14 @@ export async function POST(request: NextRequest) {
       // visual_evidence เก็บไว้สำหรับ response
       if (tyVisualEvidence) rawText = tyVisualEvidence;
 
-      // fallback: ถ้า Typhoon อ่าน step_count ไม่ได้ (null/0) ให้หาเลขใกล้คำว่า ก้าว ใน rawText + dateRaw
+      // fallback: ถ้า Typhoon อ่าน step_count ไม่ได้ (null/0) หรืออ่านเป็นเลขชั้นเล็กๆ (5) ให้หาเลขใกล้คำว่า ก้าว ใน rawText + dateRaw
       const fallbackSources = [rawText, dateRaw, (ty as any).visual_evidence].filter(Boolean).join('\n');
-      if ((aiSteps == null || aiSteps === 0) && fallbackSources) {
+      if ((aiSteps == null || aiSteps === 0 || (aiSteps != null && aiSteps < 100)) && fallbackSources) {
         const ext = extractStepsFromText(fallbackSources);
-        if (ext.steps != null) { aiSteps = ext.steps; aiStepsRaw = ext.raw; }
+        if (ext.steps != null && (aiSteps == null || ext.steps > aiSteps * 5 || aiSteps < 100)) {
+          // ถ้า Typhoon อ่านได้ 5 แต่ fallback เจอ 3155 ที่อยู่ใกล้คำว่า ก้าว ให้ใช้ 3155
+          aiSteps = ext.steps; aiStepsRaw = ext.raw;
+        }
       }
       // ถ้ายังไม่มี dateRaw ให้ลองหาใน visual_evidence / rawText
       if (!dateRaw && fallbackSources) {
@@ -155,14 +158,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // fallback อีกรอบ: ถ้ายังไม่ได้เลข ให้หาในทุกแหล่ง + กรณีเลขอยู่ใกล้คำว่า ก้าว (ก้าวเดิน 4,579)
-    if (aiSteps == null || aiSteps === 0) {
+    if (aiSteps == null || aiSteps === 0 || (aiSteps != null && aiSteps < 100)) {
       const combined = [rawText, dateRaw, tyVisualEvidence].filter(Boolean).join(' ');
       const ext = extractStepsFromText(combined);
-      if (ext.steps != null) { aiSteps = ext.steps; aiStepsRaw = ext.raw; }
+      if (ext.steps != null && (aiSteps == null || ext.steps > aiSteps * 5 || aiSteps < 100)) { aiSteps = ext.steps; aiStepsRaw = ext.raw; }
     }
-    // ถ้า Typhoon ส่ง step_count เป็น 0 ให้ถือว่า null (จะได้ไม่ขึ้น 0 ก้าว)
-    if (aiSteps === 0) { aiSteps = null; aiStepsRaw = null; }
+    if (aiSteps === 0 || (aiSteps != null && aiSteps < 100 && inputNum != null && inputNum >= 1000)) {
+      // ถ้ายังได้เลขเล็กๆ ทั้งที่ผู้ใช้กรอกเลขใหญ่ ให้ลองหาใหม่แล้วถือว่า null ถ้าหาไม่เจอ
+      const combined = [rawText, dateRaw, tyVisualEvidence].filter(Boolean).join(' ');
+      const ext2 = extractStepsFromText(combined);
+      if (ext2.steps != null && ext2.steps >= 100) { aiSteps = ext2.steps; aiStepsRaw = ext2.raw; }
+      else if (aiSteps != null && aiSteps < 100) { aiSteps = null; aiStepsRaw = null; }
+    }
 
     // Normalize วันที่ — ถ้า Typhoon ให้ parsed_date_from_image ที่เป็น YYYY-MM-DD มาแล้วให้ใช้เลย
     let dateNormalized: string | null = null;

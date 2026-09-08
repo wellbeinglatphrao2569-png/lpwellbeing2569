@@ -25,13 +25,22 @@ export function extractStepsFromText(text: string): { steps: number | null; raw:
   if (!text) return { steps: null, raw: null };
   const src = thaiToArabic(text);
 
-  // 1) หา "ก้าว" pattern — รวมเคสมีจุลภาค/ช่องว่าง
-  // รองรับ "12,345 ก้าว", "12345ก้าว", "12 345 ก้าว"
-  const gaoRegex = /([\d, ]{2,10})\s*ก้าว/g;
+  // 1) หา "ก้าว" pattern — รองรับทั้ง "12,345 ก้าว" และ "ก้าวเดิน 4,579" / "ก้าว 4,579"
   let best: { n: number; raw: string } | null = null;
   let m: RegExpExecArray | null;
-  while ((m = gaoRegex.exec(src)) !== null) {
+  // a) เลขก่อนคำว่า ก้าว
+  const gaoBefore = /([\d, ]{2,10})\s*ก้าว/g;
+  while ((m = gaoBefore.exec(src)) !== null) {
     const raw = m[1].trim() + ' ก้าว';
+    const n = cleanNumber(m[1]);
+    if (n != null && n > 0 && n < 1000000) {
+      if (!best || n > best.n) best = { n, raw };
+    }
+  }
+  // b) คำว่า ก้าว ก่อนเลข (ก้าวเดิน 4,579)
+  const gaoAfter = /ก้าว[^\d]*([\d, ]{2,10})/g;
+  while ((m = gaoAfter.exec(src)) !== null) {
+    const raw = 'ก้าว ' + m[1].trim();
     const n = cleanNumber(m[1]);
     if (n != null && n > 0 && n < 1000000) {
       if (!best || n > best.n) best = { n, raw };

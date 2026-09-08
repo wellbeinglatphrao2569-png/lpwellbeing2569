@@ -57,12 +57,11 @@ function pad2(n: number): string {
 
 function stripWeekday(s: string): string {
   let t = s.trim();
-  // ตัด "วัน" นำหน้า
+  // ตัด "วัน...ที่" นำหน้า เช่น "วันพฤหัสบดีที่ 27 ส.ค. 2569" -> "27 ส.ค. 2569"
+  t = t.replace(/^\s*วัน.*?ที่\s*/i, '');
   t = t.replace(/^\s*วัน\s*/i, '');
   // ตัดคำวันแบบไทยย่อ/เต็ม + จุด
-  // จ., อ., พ., พฤ., ศ., ส., อา. , จันทร์, อังคาร, พุธ, พฤหัสบดี, ศุกร์, เสาร์, อาทิตย์
   t = t.replace(/^\s*(จันทร์|อังคาร|พุธ|พฤหัสบดี|ศุกร์|เสาร์|อาทิตย์|จ\.|อ\.|พ\.|พฤ\.|ศ\.|ส\.|อา\.)\s*/i, '');
-  // เผื่อมีซ้ำสองชั้น เช่น "พ. 2 ก.ย." หลังตัด "พ." แล้วเหลือ "2 ก.ย."
   t = t.trim();
   return t;
 }
@@ -112,13 +111,12 @@ export function normalizeOcrDate(raw: string | null | undefined, expectedDate?: 
     return `${ad}-${pad2(m)}-${pad2(d)}`;
   };
 
-  // 2) ลอง pattern ไทยย่อ: "2 ก.ย. 2569" / "2 ก.ย. 68" / "2 ก.ย." (ไม่มีปี)
-  // รวมแบบไม่มีจุด: "2 กย 2569"
+  // 2) ลอง pattern ไทยย่อ: "2 ก.ย. 2569" / "2 ก.ย. 68" / "2 ก.ย." / "27 ส.ค. 2569" (มีจุด)
   {
-    const m = s.match(/^(\d{1,2})\s+([ก-๙]+\.?)\s*(\d{2,4})?$/i) || s.match(/^(\d{1,2})\s+([ก-๙]+\.?)$/i);
+    const m = s.match(/^(\d{1,2})\s+([ก-๙\.]+)\s*(\d{2,4})?$/i) || s.match(/^(\d{1,2})\s+([ก-๙\.]+)$/i);
     if (m) {
       const d = parseInt(m[1], 10);
-      const monStr = m[2];
+      const monStr = m[2].replace(/\s+/g, '');
       const yStr = m[3];
       let mon = monthFromThaiShort(monStr) ?? monthFromThaiLong(monStr);
       if (mon) {
@@ -207,12 +205,19 @@ export function normalizeOcrDate(raw: string | null | undefined, expectedDate?: 
     }
   }
 
-  // 6) กรณีมีข้อความอื่นปะปน — ลอง extract substring ที่ดูเหมือนวันที่
+  // 6) กรณีมีข้อความอื่นปะปน — ลอง extract substring ที่ดูเหมือนวันที่ (เช่น "27 ส.ค. 2569" ในข้อความยาว)
   {
     if (_depth < 2) {
-      const sub = s.match(/(\d{1,2})\s*[ก-๙]+\.?\s*\d{2,4}/);
+      // ไทยย่อแบบมีจุด เช่น 27 ส.ค. 2569
+      const sub = s.match(/(\d{1,2})\s*[ก-๙\.]+\s*\d{2,4}/);
       if (sub && sub[0] !== s) {
-        const res = normalizeOcrDate(sub[0], expectedDate, _depth + 1);
+        const res = normalizeOcrDate(sub[0].trim(), expectedDate, _depth + 1);
+        if (res) return res;
+      }
+      // แบบไม่มีปี เช่น "27 ส.ค."
+      const sub0 = s.match(/(\d{1,2})\s*[ก-๙\.]+\s*$/);
+      if (sub0 && sub0[0] !== s) {
+        const res = normalizeOcrDate(sub0[0].trim(), expectedDate, _depth + 1);
         if (res) return res;
       }
       const sub2 = s.match(/(\d{1,2})\s+(มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)/);
@@ -223,6 +228,12 @@ export function normalizeOcrDate(raw: string | null | undefined, expectedDate?: 
       const sub3 = s.match(/(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{2,4})/);
       if (sub3 && sub3[0] !== s) {
         const res = normalizeOcrDate(sub3[0], expectedDate, _depth + 1);
+        if (res) return res;
+      }
+      // fallback: หา "27 ส.ค." แบบไม่มีปีในข้อความยาว
+      const sub4 = s.match(/(\d{1,2})\s+[ก-๙\.]+\b/);
+      if (sub4 && sub4[0] !== s) {
+        const res = normalizeOcrDate(sub4[0].trim(), expectedDate, _depth + 1);
         if (res) return res;
       }
     }

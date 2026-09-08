@@ -54,14 +54,17 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // เรียก Typhoon ด้วย context ใหม่ — สกัดข้อความล้วน (Text Extraction Only) แล้ว Backend จะเทียบเอง
+    // เรียก Typhoon ด้วย context ใหม่ (SYSTEM_DATE/TARGET_DATE/CURRENT_YEAR)
     let rawText = '';
     let aiSteps: number | null = null;
     let aiStepsRaw: string | null = null;
-    let dateRaw: string | null = null; // raw_date_text_from_image
-    let confidence: number | null = null; // ocr_confidence
-    let tyParsedDate: string | null = null; // parsed_date_from_image
-    let tyVisual: string | null = null;
+    let dateRaw: string | null = null;
+    let confidence: number | null = null;
+    let tyFormattedDate: string | null = null;
+    let tyIsMatched: boolean | null = null;
+    let tyStatus: string | null = null;
+    let tyReasoning: string | null = null;
+    let tyVisualEvidence: string | null = null;
 
     try {
       const now = new Date();
@@ -72,19 +75,29 @@ export async function POST(request: NextRequest) {
         timeoutMs: 25000,
         ctx: { systemDate, targetDate: expected, currentYear, currentThaiYear },
       });
-      // รองรับสคีมาใหม่ Text Extraction เป็นหลัก
-      aiSteps = (ty as any).step_count ?? ty.steps ?? null;
+      rawText = ty.rawText || ty.reasoning || ty.visual_evidence || '';
+      // รองรับสคีมาล่าสุด (raw_date_text_from_image / parsed_date_from_image) + เก่า
+      const rawNew = (ty as any).raw_date_text_from_image ?? null;
+      const parsedNew = (ty as any).parsed_date_from_image ?? null;
+      const ocrConfNew = (ty as any).ocr_confidence ?? null;
+      tyVisualEvidence = (ty as any).visual_evidence ?? null;
+
+      aiSteps = ty.step_count ?? ty.steps ?? null;
       if (aiSteps != null) aiSteps = Number(String(aiSteps).replace(/,/g, ''));
       aiStepsRaw = ty.stepsRaw ?? (aiSteps != null ? String(aiSteps) : null);
-      dateRaw = (ty as any).raw_date_text_from_image ?? (ty as any).detected_date_raw ?? ty.dateRaw ?? null;
-      tyParsedDate = (ty as any).parsed_date_from_image ?? (ty as any).formatted_date ?? null;
-      confidence = (ty as any).ocr_confidence ?? (ty as any).confidence_score ?? ty.confidence ?? null;
-      tyVisual = (ty as any).visual_evidence ?? (ty as any).reasoning ?? null;
-      rawText = tyVisual || ty.rawText || '';
+      dateRaw = rawNew != null ? String(rawNew) : (ty.detected_date_raw ?? ty.dateRaw ?? null);
+      tyFormattedDate = parsedNew != null ? String(parsedNew) : (ty.formatted_date ?? null);
+      // สำหรับสคีมา extraction-only ไม่มี is_date_matched/status ให้คำนวณเอง
+      tyIsMatched = ty.is_date_matched ?? null;
+      confidence = ocrConfNew != null ? Number(ocrConfNew) : (ty.confidence_score ?? ty.confidence ?? null);
+      tyStatus = ty.status ?? null;
+      tyReasoning = ty.reasoning ?? tyVisualEvidence ?? null;
+      // visual_evidence เก็บไว้สำหรับ response
+      if (tyVisualEvidence) rawText = tyVisualEvidence;
 
-      if (aiSteps == null && !isNaN(Number(ty.steps))) {
-        aiSteps = Number(String(ty.steps).replace(/,/g, ''));
-        aiStepsRaw = ty.stepsRaw ?? String(ty.steps);
+      if (aiSteps == null && !isNaN(Number((ty as any).steps))) {
+        aiSteps = Number((ty as any).steps);
+        aiStepsRaw = (ty as any).stepsRaw ?? String((ty as any).steps);
       }
       if (aiSteps == null && rawText) {
         const ext = extractStepsFromText(rawText);
@@ -122,97 +135,85 @@ export async function POST(request: NextRequest) {
       aiStepsRaw = ext.raw;
     }
 
-    // === Backend Compare Logic ตามสเปคใหม่ — เทียบ parsed_date_from_image กับ userSelectedDate ===
-    // ถ้า Typhoon ให้ parsed_date_from_image มาแล้วใช้เลย, ถ้าไม่ให้ fallback parser เอง
+    // Normalize วันที่ — ถ้า Typhoon ให้ parsed_date_from_image ที่เป็น YYYY-MM-DD มาแล้วให้ใช้เลย
     let dateNormalized: string | null = null;
-    if (tyParsedDate && /^\d{4}-\d{2}-\d{2}$/.test(tyParsedDate)) {
-      dateNormalized = tyParsedDate;
-    } else if (dateRaw) {
-      dateNormalized = normalizeOcrDate(dateRaw, expected);
-    }
-
-    const imageDate = dateNormalized; // parsed_date_from_image
-    const rawTextForLog = dateRaw; // raw_date_text_from_image
-
-    // Comparison Logic ตามโค้ดตัวอย่างที่ให้มา
-    let isApprovedByAI = false;
-    let reviewReason = '';
-    if (!imageDate || !rawTextForLog) {
-      isApprovedByAI = false;
-      reviewReason = 'ไม่พบข้อความวันที่ในรูปภาพ';
-    } else if (imageDate === expected) {
-      isApprovedByAI = true;
-      reviewReason = `วันที่ในภาพ (${rawTextForLog} -> ${imageDate}) ตรงกับวันที่บันทึก`;
+    let dateMatch: boolean | null = null;
+    if (tyFormattedDate && /^\d{4}-\d{2}-\d{2}$/.test(tyFormattedDate)) {
+      dateNormalized = tyFormattedDate;
+      dateMatch = tyFormattedDate === expected;
+      // ถ้า Typhoon ยังให้ is_date_matched มา (สคีมาก่อน) ให้ยึด
+      if (tyIsMatched != null) dateMatch = tyIsMatched;
     } else {
-      isApprovedByAI = false;
-      reviewReason = `วันที่ในภาพ (${rawTextForLog} -> ${imageDate}) ไม่ตรงกับวันที่ผู้ใช้เลือก (${expected})`;
+      dateNormalized = dateRaw ? normalizeOcrDate(dateRaw, expected) : null;
+      dateMatch = dateRaw ? isDateMatch(dateRaw, expected) : null;
+      if (tyIsMatched != null) dateMatch = tyIsMatched;
     }
 
+    // ตัดสิน alert — ยึด status จาก Typhoon เป็นหลัก (passed/flagged_for_review) + Strict 0% tolerance เทียบ inputSteps
     const stepsExact = aiSteps != null && inputNum != null ? aiSteps === inputNum : null;
     const conf = confidence ?? (aiSteps != null && dateNormalized ? 0.7 : 0.3);
 
-    // สกัดข้อความล้วน: ก้าวต้องอ่านได้ + วันที่ตรง + conf>=0.8 ถึง passed
+    // ถ้า Typhoon บอก status ชัดเจน ให้ใช้เลย
     let alert: boolean;
     let alertReason: string;
-    let finalStatus: 'passed' | 'flagged_for_review';
-    if (aiSteps == null) {
-      alert = true;
-      alertReason = 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ';
-      finalStatus = 'flagged_for_review';
-    } else if (!isApprovedByAI) {
-      alert = true;
-      alertReason = reviewReason;
-      finalStatus = 'flagged_for_review';
-    } else if ((confidence ?? conf) < 0.8) {
-      alert = true;
-      alertReason = `ความมั่นใจต่ำ (${Math.round((confidence ?? conf) * 100)}%) — ${reviewReason}`;
-      finalStatus = 'flagged_for_review';
-    } else if (stepsExact === false) {
-      // ก้าวไม่ตรงที่กรอก — ยังให้ผ่านวันที่ แต่ต้อง flagged เพื่อให้เจ้าหน้าที่เทียบก้าว
-      alert = true;
-      alertReason = `ก้าวไม่ตรงกัน (กรอก ${inputNum?.toLocaleString()} vs อ่าน ${aiSteps.toLocaleString()}) — ${reviewReason}`;
-      finalStatus = 'flagged_for_review';
-    } else {
+    if (tyStatus === 'passed' && stepsExact !== false && dateMatch !== false) {
       alert = false;
-      alertReason = reviewReason;
-      finalStatus = 'passed';
+      alertReason = tyReasoning || '';
+    } else if (tyStatus === 'flagged_for_review') {
+      alert = true;
+      alertReason = tyReasoning || 'AI ประเมินให้ส่งตรวจสอบ — ภาพเบลอ/ไม่พบวันที่/วันที่ไม่ตรง';
+    } else {
+      // fallback logic เดิม
+      if (aiSteps == null) {
+        alert = true;
+        alertReason = tyReasoning || 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ นสส. ตรวจสอบ';
+      } else if (stepsExact === false) {
+        alert = true;
+        alertReason = tyReasoning || `ก้าวไม่ตรงกัน (กรอก ${inputNum?.toLocaleString()} vs อ่าน ${aiSteps.toLocaleString()}) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else if (dateMatch === false) {
+        alert = true;
+        alertReason = tyReasoning || `วันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก (${expected} vs ในภาพ "${dateRaw}" → ${dateNormalized || 'อ่านไม่ได้'})`;
+      } else if (dateMatch == null) {
+        alert = true;
+        alertReason = tyReasoning || `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}") — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else if (conf < 0.85) {
+        alert = true;
+        alertReason = tyReasoning || `ความมั่นใจต่ำ (${Math.round(conf * 100)}%) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+      } else {
+        alert = false;
+        alertReason = tyReasoning || '';
+      }
     }
-
-    // ถ้ามี visual_evidence จาก Typhoon ให้ใช้เป็น reasoning
-    const reasoning = tyVisual || reviewReason;
 
     const finalConfidence = confidence ?? conf;
 
     return NextResponse.json({
       success: true,
-      // legacy fields สำหรับ popup เดิม
       aiSteps,
       aiStepsRaw,
-      dateRaw: rawTextForLog,
+      dateRaw,
       dateNormalized,
-      dateMatch: isApprovedByAI,
+      dateMatch,
       confidence: finalConfidence,
-      // fields ใหม่ตามสเปคสกัดข้อความล้วน
-      raw_date_text_from_image: rawTextForLog,
-      parsed_date_from_image: dateNormalized,
       step_count: aiSteps,
-      ocr_confidence: finalConfidence,
-      visual_evidence: tyVisual,
-      // fields เทียบเคียงสำหรับ Backend routing
-      expectedDate: expected,
-      inputSteps: inputNum,
-      isApprovedByAI,
-      reviewReason,
+      detected_date_raw: dateRaw,
       formatted_date: dateNormalized,
-      is_date_matched: isApprovedByAI,
+      // fields สคีมาล่าสุด (extraction-only)
+      raw_date_text_from_image: dateRaw,
+      parsed_date_from_image: dateNormalized,
+      ocr_confidence: finalConfidence,
+      visual_evidence: tyVisualEvidence || rawText.slice(0, 500),
+      is_date_matched: dateMatch,
       confidence_score: finalConfidence,
-      status: finalStatus,
-      reasoning,
-      rawText: (tyVisual || rawText).slice(0, 2000),
+      status: alert ? 'flagged_for_review' : 'passed',
+      reasoning: tyReasoning || alertReason,
+      rawText: rawText.slice(0, 2000),
       stepsExact,
       alert,
       alertReason,
-    } as any);
+      expectedDate: expected,
+      inputSteps: inputNum,
+    });
   } catch (error) {
     console.error('analyze-steps error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

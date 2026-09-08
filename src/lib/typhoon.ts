@@ -7,14 +7,14 @@
 const TYPHOON_API_URL = 'https://api.opentyphoon.ai/v1/chat/completions';
 const TYPHOON_OCR_MODEL = process.env.TYPHOON_OCR_MODEL || 'typhoon-ocr';
 
-// จำนวนก้าว OCR result — รองรับทุกสคีมาที่เคยใช้ (legacy + สกัดข้อความล้วน)
+// จำนวนก้าว OCR result
 export interface TyphoonOcrResult {
   rawText: string;
   steps: number | null;
   stepsRaw: string | null;
   dateRaw: string | null;
   confidence: number | null;
-  // สคีมา Checklist แบบเก่า (passed/flagged)
+  // fields ใหม่ตามสเปคล่าสุด (extraction-only)
   step_count: number | null;
   detected_date_raw: string | null;
   formatted_date: string | null;
@@ -22,7 +22,7 @@ export interface TyphoonOcrResult {
   confidence_score: number | null;
   status: 'passed' | 'flagged_for_review' | null;
   reasoning: string | null;
-  // สคีมาใหม่ — สกัดข้อความล้วน (Text Extraction Only)
+  // fields สกัดข้อความล้วน (ล่าสุด)
   raw_date_text_from_image: string | null;
   parsed_date_from_image: string | null;
   ocr_confidence: number | null;
@@ -47,8 +47,6 @@ function buildPrompt(ctx: TyphoonPromptContext): { system: string; user: string 
   const user =
     `[ข้อมูลอ้างอิงปีสำหรับกรณีภาพไม่ระบุปี]\n` +
     `- ปีปัจจุบัน (Current Year): ${ctx.currentYear} (ค.ศ.) / ${ctx.currentThaiYear} (พ.ศ.)\n` +
-    `- วันที่ปัจจุบันของระบบ (SYSTEM_DATE): ${ctx.systemDate} (YYYY-MM-DD)\n` +
-    `- วันที่ผู้ใช้ต้องการบันทึก (TARGET_DATE): ${ctx.targetDate} — ใช้อ้างอิงเฉพาะกรณี Today/Yesterday (ไม่ต้องตัดสิน passed/flagged เอง ให้ส่ง raw + parsed กลับมาเท่านั้น)\n` +
     `\n[ภารกิจของคุณ]\n` +
     `1. ค้นหาข้อความวันที่ที่ปรากฏอยู่ในรูปภาพจริงๆ (Visual Text)\n` +
     `   - อ่านข้อความทุกรูปแบบ เช่น "Today", "วันนี้", "เมื่อวาน", "พ. 2 ก.ย.", "2 ก.ย.", "02/09/2026", "2 กุมภาพันธ์"\n` +
@@ -146,35 +144,38 @@ function parseTyphoonContent(content: string): TyphoonOcrResult {
   if (jsonMatch) {
     try {
       const obj = JSON.parse(jsonMatch[0]);
-      // สคีมาใหม่หลัก: raw_date_text_from_image / parsed_date_from_image / step_count / ocr_confidence / visual_evidence
-      const rawDateNew = obj.raw_date_text_from_image ?? obj.detected_date_raw ?? obj.dateRaw ?? null;
-      const parsedDateNew = obj.parsed_date_from_image ?? obj.formatted_date ?? null;
+      // รองรับทั้งสคีมาล่าสุด (raw_date_text_from_image) และเก่า (step_count/detected_date_raw/steps)
       const stepVal = obj.step_count ?? obj.steps ?? null;
-      const confVal = obj.ocr_confidence ?? obj.confidence_score ?? obj.confidence ?? null;
-      const visual = obj.visual_evidence ?? obj.reasoning ?? null;
-      // legacy fallback
-      const legacyDateRaw = obj.detected_date_raw ?? obj.dateRaw ?? rawDateNew;
-      const legacyFmt = obj.formatted_date ?? parsedDateNew;
-
-      const finalDateRaw = rawDateNew != null ? String(rawDateNew) : legacyDateRaw ? String(legacyDateRaw) : null;
-      const finalParsed = parsedDateNew ? String(parsedDateNew) : legacyFmt ? String(legacyFmt) : null;
+      const rawDateNew = obj.raw_date_text_from_image ?? null;
+      const rawDateOld = obj.detected_date_raw ?? obj.dateRaw ?? null;
+      const finalRawDate = rawDateNew != null ? String(rawDateNew) : rawDateOld != null ? String(rawDateOld) : null;
+      const parsedNew = obj.parsed_date_from_image ?? null;
+      const formattedOld = obj.formatted_date ?? null;
+      const finalParsed = parsedNew != null ? String(parsedNew) : formattedOld ? String(formattedOld) : null;
+      const confNew = obj.ocr_confidence ?? null;
+      const confOld = obj.confidence_score ?? obj.confidence ?? null;
+      const finalConf = confNew != null ? Number(confNew) : confOld != null ? Number(confOld) : null;
+      const visual = obj.visual_evidence ?? null;
+      const isMatched = obj.is_date_matched ?? null;
+      const status = obj.status ?? null;
+      const reasoning = obj.reasoning ?? obj.visual_evidence ?? null;
 
       return {
-        rawText: String(obj.rawText ?? visual ?? raw),
+        rawText: String(obj.rawText ?? obj.reasoning ?? obj.visual_evidence ?? raw),
         steps: stepVal != null ? Number(String(stepVal).replace(/,/g, '')) : null,
         stepsRaw: stepVal != null ? String(stepVal) : null,
-        dateRaw: finalDateRaw,
-        confidence: confVal != null ? Number(confVal) : null,
+        dateRaw: finalRawDate,
+        confidence: finalConf,
         step_count: stepVal != null ? Number(String(stepVal).replace(/,/g, '')) : null,
-        detected_date_raw: finalDateRaw,
+        detected_date_raw: finalRawDate,
         formatted_date: finalParsed,
-        is_date_matched: obj.is_date_matched != null ? Boolean(obj.is_date_matched) : null,
-        confidence_score: confVal != null ? Number(confVal) : null,
-        status: obj.status === 'passed' || obj.status === 'flagged_for_review' ? obj.status : null,
-        reasoning: visual ? String(visual) : obj.reasoning ? String(obj.reasoning) : null,
-        raw_date_text_from_image: finalDateRaw,
+        is_date_matched: isMatched != null ? Boolean(isMatched) : null,
+        confidence_score: finalConf,
+        status: status === 'passed' || status === 'flagged_for_review' ? status : null,
+        reasoning: reasoning ? String(reasoning) : null,
+        raw_date_text_from_image: finalRawDate,
         parsed_date_from_image: finalParsed,
-        ocr_confidence: confVal != null ? Number(confVal) : null,
+        ocr_confidence: finalConf,
         visual_evidence: visual ? String(visual) : null,
       };
     } catch {}

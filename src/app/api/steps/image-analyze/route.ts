@@ -6,10 +6,11 @@ export const maxDuration = 60;
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageBase64, expectedDate, preferredProvider, preferredModel, providerHint } = body;
+    const { imageBase64, expectedDate, expectedSteps, preferredProvider, preferredModel, providerHint } = body;
     const hint = String(preferredProvider || providerHint || 'auto').toLowerCase();
     if (!imageBase64) return NextResponse.json({ error: 'Image is required' }, { status: 400 });
     if (!expectedDate) return NextResponse.json({ error: 'expectedDate is required' }, { status: 400 });
+    // ส่ง expectedSteps ให้ Typhoon ตรวจสอบด้วยถ้ามี
     // provider mapping
     let providerHintNorm = hint;
     if (preferredModel && String(preferredModel).includes('preview')) providerHintNorm = 'typhoon-preview';

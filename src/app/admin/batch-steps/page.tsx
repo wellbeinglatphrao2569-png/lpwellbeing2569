@@ -606,6 +606,20 @@ export default function BatchStepsPage(){
       let msg=data.message || `บันทึกสำเร็จ ${saved} รายการ`;
       if(data.aiApproved !== undefined) msg+= `\n✓ AI อนุมัติทันที ${data.aiApproved} รายการ (มั่นใจสูง ตัวเลข+วันที่ชัดเจนตรงกัน — นับคะแนนแล้ว)`;
       if(data.aiPending !== undefined && data.aiPending>0) msg+= `\n⚠ ส่งต่อให้ต่างฝ่ายตรวจ ${data.aiPending} รายการ (สงสัย/ผิดปกติ/ตัดต่อ) — ดูที่เมนูตรวจสอบนับก้าว`;
+      // สรุปรายบุคคล: ชื่อ-สกุล + วันที่แบบย่อ (31 ส.ค. , 1 ก.ย. ... 2569)
+      const byUserSave = new Map<string, string[]>();
+      for (const p of payloadSteps) { const uid=String(p.User_ID); if(!byUserSave.has(uid)) byUserSave.set(uid, []); byUserSave.get(uid)!.push(String(p.Day)); }
+      if (byUserSave.size>0) {
+        msg+= `\n\nจำนวน ${byUserSave.size} ราย ดังนี้`;
+        for (const [uid, days] of byUserSave) {
+          const u = users.find(x=> getUserKey(x)===uid);
+          const name = u ? displayName(u) : uid;
+          const sorted = days.slice().sort();
+          const fmtDays = sorted.map(d=> { const dt=new Date(d); const day=dt.getDate(); const mon=thaiShortMonths[dt.getMonth()]; return `${day} ${mon}`; }).join(' , ');
+          const yearBE = toThaiYear(new Date(sorted[0]));
+          msg+= `\n${name} วันที่ ${fmtDays} ${yearBE}`;
+        }
+      }
       if(skipped>0) msg+=` (ข้าม ${skipped} รายการที่ซ้ำ — จะแสดงเฉพาะจำนวนก้าวล่าสุดที่บันทึก ไม่นับซ้ำรายวัน)`;
       if(errors>0) msg+=` (ผิดพลาด ${errors} รายการ)`;
       if(data.details) msg+= `\n`+ JSON.stringify(data.details).slice(0,500);

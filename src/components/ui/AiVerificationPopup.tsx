@@ -78,60 +78,56 @@ export default function AiVerificationPopup({ open, preview, inputSteps, expecte
 
           {!loading && result && (
             <>
-              {/* สรุปจำนวนก้าว */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl p-3 border bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-600">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">จำนวนก้าวที่กรอก</p>
-                  <p className="text-xl font-black text-gray-900 dark:text-white">{inputSteps != null ? inputSteps.toLocaleString() : '—'} <span className="text-xs font-normal text-gray-400">ก้าว</span></p>
-                </div>
-                <div className={`rounded-xl p-3 border ${stepsMatch === false ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700' : stepsMatch === true ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700'}`}>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">AI อ่านได้</p>
-                  <p className={`text-xl font-black ${stepsMatch === false ? 'text-red-600 dark:text-red-400' : stepsMatch === true ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                    {result.aiSteps != null ? result.aiSteps.toLocaleString() : '—'} <span className="text-xs font-normal text-gray-400">ก้าว</span>
-                  </p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">ดิบ: {result.aiStepsRaw || '—'} {result.confidence != null && `· มั่นใจ ${Math.round(result.confidence*100)}%`}</p>
-                  {stepsMatch === true && <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1"><span className="material-symbols-outlined text-sm">check_circle</span>ตรงกัน</p>}
-                  {stepsMatch === false && <p className="text-xs font-bold text-red-600 dark:text-red-400 mt-1 flex items-center gap-1"><span className="material-symbols-outlined text-sm">cancel</span>ไม่ตรง</p>}
-                  {stepsMatch == null && <p className="text-xs font-bold text-amber-600 dark:text-amber-400 mt-1">อ่านไม่ชัดเจน</p>}
-                </div>
+              {/* เรียงความอธิบายผล — แบบรายบุคคล */}
+              <div className="rounded-xl p-4 bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-800/50 border border-gray-200 dark:border-gray-700 leading-relaxed text-sm text-gray-700 dark:text-gray-300">
+                <p>
+                  ภาพที่คุณอัปโหลดสำหรับวันที่ <strong className="text-gray-900 dark:text-white">{formatThaiDate(expectedDate)}</strong> (<span className="font-mono text-xs">{expectedDate}</span>) ได้รับการตรวจสอบโดย AI เรียบร้อยแล้ว
+                </p>
+                <p className="mt-2">
+                  {result.dateRaw ? (
+                    <>
+                      AI พบข้อความวันที่ในภาพว่า <strong className={dateMatch === true ? 'text-emerald-600' : dateMatch === false ? 'text-red-600' : 'text-amber-600'}>“{result.dateRaw}”</strong> ซึ่งแปลงเป็นสากลได้เป็น <strong>{result.dateNormalized || '—'}</strong> {dateMatch === true ? 'ตรงกับวันที่คุณเลือกบันทึกพอดี' : dateMatch === false ? `ไม่ตรงกับวันที่คุณเลือก (จึงถือว่าไม่ผ่านการเทียบวันที่)` : 'แต่ยังอ่านได้ไม่ชัดเจน จึงต้องให้เจ้าหน้าที่ช่วยดูอีกครั้ง'}
+                    </>
+                  ) : (
+                    <>AI ยังไม่พบข้อความวันที่ที่ชัดเจนในภาพ จึงไม่สามารถเทียบวันที่ได้ — ระบบจะส่งให้เจ้าหน้าที่ช่วยตรวจสอบ</>
+                  )}
+                </p>
+                <p className="mt-2">
+                  {result.aiSteps != null ? (
+                    <>
+                      ส่วนจำนวนก้าว คุณกรอกไว้ <strong>{inputSteps?.toLocaleString()} ก้าว</strong> ในขณะที่ AI อ่านจากภาพได้ <strong className={stepsMatch === true ? 'text-emerald-600' : stepsMatch === false ? 'text-red-600' : 'text-amber-600'}>{result.aiSteps.toLocaleString()} ก้าว</strong> {result.confidence != null && `(ความมั่นใจ ${Math.round(result.confidence*100)}%)`} {stepsMatch === true ? 'ถือว่าตรงกัน' : stepsMatch === false ? 'จึงถือว่าไม่ตรงกัน' : 'แต่ยังอ่านได้ไม่ชัด'}
+                    </>
+                  ) : (
+                    <>ส่วนจำนวนก้าว AI ยังอ่านจากภาพไม่ได้ชัดเจน (อาจเพราะภาพเบลอหรือตัวเลขถูกบัง) — ระบบจึงต้องส่งให้เจ้าหน้าที่ช่วยดู</>
+                  )}
+                </p>
+                <p className="mt-2 font-medium">
+                  {result.alert ? (
+                    <>สรุป: ครั้งนี้ยังไม่ผ่านการตรวจสอบอัตโนมัติ — ระบบจะบันทึกเป็น <strong className="text-amber-600">รอตรวจสอบ (Pending)</strong> และส่งต่อให้เจ้าหน้าที่ นสส. ต่างฝ่ายพิจารณา คุณยังสามารถกด “ยืนยันบันทึก (รอตรวจ)” เพื่อส่งต่อได้เลย หากไม่แน่ใจให้กด “แก้ไขยอด” เพื่อกลับไปแก้ตัวเลขหรือเปลี่ยนภาพก่อน</>
+                  ) : (
+                    <>สรุป: ทั้งวันที่และจำนวนก้าวตรงกันพอดี — ระบบจะบันทึกและ <strong className="text-emerald-600">อนุมัติทันที</strong> โดยไม่ต้องรอเจ้าหน้าที่ตรวจ</>
+                  )}
+                </p>
+                {result.alert && result.alertReason && (
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">เหตุผลเพิ่มเติม: {result.alertReason}</p>
+                )}
               </div>
 
-              {/* สรุปวันที่ */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl p-3 border bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-600">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">วันที่เลือกบันทึก</p>
-                  <p className="text-sm font-bold text-gray-900 dark:text-white">{formatThaiDate(expectedDate)}</p>
-                  <p className="text-xs text-gray-400">{expectedDate}</p>
+              {/* รายละเอียดย่อสำหรับอ้างอิง */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg bg-gray-50 dark:bg-gray-700/30 p-2.5 border border-gray-200 dark:border-gray-600">
+                  <p className="text-gray-400">วันที่เลือก</p><p className="font-bold text-gray-900 dark:text-white">{formatThaiDate(expectedDate)}</p><p className="font-mono text-[11px] text-gray-400">{expectedDate}</p>
                 </div>
-                <div className={`rounded-xl p-3 border ${dateMatch === false ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700' : dateMatch === true ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700'}`}>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">วันที่ในภาพ</p>
-                  <p className={`text-sm font-bold ${dateMatch === false ? 'text-red-600 dark:text-red-400' : dateMatch === true ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                    {result.dateRaw || '— ไม่พบ'}
-                  </p>
-                  <p className="text-xs text-gray-400">normalize: {result.dateNormalized || '—'}</p>
-                  {dateMatch === true && <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1"><span className="material-symbols-outlined text-sm">check_circle</span>ตรงกัน</p>}
-                  {dateMatch === false && <p className="text-xs font-bold text-red-600 dark:text-red-400 mt-1 flex items-center gap-1"><span className="material-symbols-outlined text-sm">cancel</span>ไม่ตรง</p>}
-                  {dateMatch == null && <p className="text-xs font-bold text-amber-600 dark:text-amber-400 mt-1">อ่านไม่ชัดเจน</p>}
+                <div className={`rounded-lg p-2.5 border ${dateMatch === false ? 'bg-red-50 dark:bg-red-900/20 border-red-200' : dateMatch === true ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200'}`}>
+                  <p className="text-gray-400">วันที่ในภาพ (AI)</p><p className="font-bold">{result.dateRaw || '—'}</p><p className="font-mono text-[11px] text-gray-400">{result.dateNormalized || '—'} {dateMatch === true ? '✓' : dateMatch === false ? '✗' : '?'}</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 dark:bg-gray-700/30 p-2.5 border border-gray-200 dark:border-gray-600">
+                  <p className="text-gray-400">ก้าวที่กรอก</p><p className="font-bold text-gray-900 dark:text-white">{inputSteps?.toLocaleString()} ก้าว</p>
+                </div>
+                <div className={`rounded-lg p-2.5 border ${stepsMatch === false ? 'bg-red-50 dark:bg-red-900/20 border-red-200' : stepsMatch === true ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200' : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200'}`}>
+                  <p className="text-gray-400">ก้าวที่ AI อ่าน</p><p className="font-bold">{result.aiSteps != null ? `${result.aiSteps.toLocaleString()} ก้าว` : '—'} <span className="text-[11px] font-normal text-gray-400">{result.confidence != null && `· ${Math.round(result.confidence*100)}%`}</span></p>
                 </div>
               </div>
-
-              {/* Alert */}
-              {result.alert && result.alertReason && (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-2">
-                  <span className="material-symbols-outlined text-lg shrink-0">info</span>
-                  <span>{result.alertReason} — จะบันทึกเป็น <strong>รอตรวจสอบ (Pending)</strong> ให้เจ้าหน้าที่ นสส. ต่างฝ่ายตรวจอีกครั้ง</span>
-                </div>
-              )}
-              {!result.alert && (
-                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
-                  <span className="material-symbols-outlined">verified</span>
-                  ตรงกันเป๊ะ — จะบันทึกและอนุมัติทันที (ไม่ต้องรอตรวจ)
-                </div>
-              )}
-
-              <p className="text-[11px] text-gray-400 text-center leading-relaxed">
-                หากไม่มั่นใจ สามารถกดบันทึกแล้วส่งให้เจ้าหน้าที่ นสส. ฝ่ายอื่นตรวจสอบได้ — ระบบจะแสดงรายละเอียดนี้ที่หน้า ตรวจสอบนับก้าว ด้วย
-              </p>
             </>
           )}
         </div>

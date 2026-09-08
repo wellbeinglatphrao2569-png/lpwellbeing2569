@@ -59,24 +59,31 @@ export default function AiBatchSummaryPopup({ open, items, weekLabel, loading, o
           {!loading && items.length === 0 && (
             <p className="text-center text-sm text-gray-400 py-10">ไม่มีรายการให้ตรวจสอบ</p>
           )}
+          {!loading && (
+            <div className="rounded-xl p-4 bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-800/50 border border-gray-200 dark:border-gray-700 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+              <p>
+                ภาพรวมสัปดาห์ <strong>{weekLabel}</strong> มีทั้งหมด <strong>{items.length} รายการ</strong> ระบบ AI ตรวจสอบแล้วพบว่าตรงกันพอดี <strong className="text-emerald-600">{okCount} รายการ</strong> และต้องส่งให้เจ้าหน้าที่ช่วยดูอีก <strong className="text-amber-600">{alertCount} รายการ</strong>
+              </p>
+              <p className="mt-2">
+                {alertCount === 0
+                  ? 'ทุกภาพมีทั้งวันที่และจำนวนก้าวตรงกับที่กรอกไว้ ระบบจะบันทึกและอนุมัติทันทีโดยไม่ต้องรอตรวจ'
+                  : 'รายการที่ต้องรอตรวจมักเกิดจากวันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก หรือ AI อ่านจำนวนก้าวได้ไม่ชัด/ไม่ตรงกับที่กรอก — ระบบจะบันทึกเป็น รอตรวจสอบ (Pending) ให้เจ้าหน้าที่ นสส. ต่างฝ่ายช่วยพิจารณา'}
+              </p>
+            </div>
+          )}
           {!loading && items.map((it, idx) => (
-            <div key={idx} className={`rounded-xl border p-3 flex gap-3 ${it.alert ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-700' : 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-700'}`}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={it.preview} alt="" className="w-16 h-16 rounded-lg object-cover border bg-white shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{it.displayName} · {formatThaiShort(it.day)}</p>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs mt-1">
-                  <span className={it.stepsExact === false ? 'text-red-600 font-bold' : it.stepsExact === true ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
-                    ก้าว: {it.inputSteps.toLocaleString()} vs AI {it.aiSteps != null ? it.aiSteps.toLocaleString() : '—'} {it.stepsExact === true ? '✓' : it.stepsExact === false ? '✗' : '?'}
-                  </span>
-                  <span className={it.dateMatch === false ? 'text-red-600 font-bold' : it.dateMatch === true ? 'text-emerald-600 font-bold' : 'text-amber-600'}>
-                    วันที่: {it.dateRaw || '—'} → {it.dateNormalized || '—'} {it.dateMatch === true ? '✓' : it.dateMatch === false ? '✗' : '?'}
-                  </span>
-                  {it.confidence != null && <span className="text-gray-400">มั่นใจ {Math.round(it.confidence*100)}%</span>}
+            <div key={idx} className={`rounded-xl border p-3 ${it.alert ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-700' : 'bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-700'}`}>
+              <div className="flex gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={it.preview} alt="" className="w-16 h-16 rounded-lg object-cover border bg-white shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{it.displayName} · {formatThaiShort(it.day)}</p>
+                  <p className="text-xs leading-relaxed mt-1 text-gray-600 dark:text-gray-300">
+                    สำหรับวันที่ <strong>{formatThaiShort(it.day)}</strong> คุณกรอก <strong>{it.inputSteps.toLocaleString()} ก้าว</strong> ส่วน AI อ่านจากภาพได้ <strong className={it.stepsExact === false ? 'text-red-600' : it.stepsExact === true ? 'text-emerald-600' : 'text-amber-600'}>{it.aiSteps != null ? `${it.aiSteps.toLocaleString()} ก้าว` : 'ไม่ชัด'}</strong> {it.confidence != null && `(มั่นใจ ${Math.round(it.confidence*100)}%)`} {it.stepsExact === true ? 'ถือว่าตรงกัน' : it.stepsExact === false ? 'จึงไม่ตรงกัน' : 'จึงยังสรุปไม่ได้'} — ส่วนวันที่ AI เห็นคือ <strong className={it.dateMatch === false ? 'text-red-600' : it.dateMatch === true ? 'text-emerald-600' : 'text-amber-600'}>“{it.dateRaw || '—'}”</strong> แปลงเป็น {it.dateNormalized || '—'} {it.dateMatch === true ? 'ตรงกับวันที่เลือก' : it.dateMatch === false ? 'ไม่ตรงกับวันที่เลือก' : 'จึงเทียบไม่ได้'} {it.alert ? 'จึงต้องรอเจ้าหน้าที่ช่วยตรวจ' : 'จึงผ่านและจะอนุมัติทันที'}
+                  </p>
                 </div>
-                {it.alert && <p className="text-xs text-amber-700 dark:text-amber-300 mt-1 leading-snug flex gap-1"><span className="material-symbols-outlined text-sm shrink-0">info</span>{it.alertReason}</p>}
-                {!it.alert && <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 flex gap-1"><span className="material-symbols-outlined text-sm">verified</span>ตรงเป๊ะ — จะอนุมัติทันที</p>}
               </div>
+              {it.alert && <p className="text-xs text-amber-700 dark:text-amber-300 mt-2 leading-relaxed bg-amber-100/50 dark:bg-amber-900/20 rounded-lg px-2.5 py-1.5">เหตุผล: {it.alertReason}</p>}
             </div>
           ))}
         </div>

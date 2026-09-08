@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    const stack = error instanceof Error ? error.stack?.slice(0, 800) : '';
+    const stack = error instanceof Error ? error.stack?.slice(0, 1200) : '';
     console.error('analyze-steps outer error:', msg, stack);
     return NextResponse.json({
       success: true,
@@ -242,6 +242,7 @@ export async function POST(request: NextRequest) {
       expectedDate: expectedForError,
       inputSteps: inputForError,
       error: msg,
+      stack,
     });
   }
 }

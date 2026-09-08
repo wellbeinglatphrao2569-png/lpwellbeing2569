@@ -79,9 +79,13 @@ function currentADYear(): number {
  * ถ้าไม่มีปี → ใช้ปีปัจจุบัน (พ.ศ. 2569) หรือปีจาก expectedDate
  * return null ถ้า parse ไม่ได้
  */
-export function normalizeOcrDate(raw: string | null | undefined, expectedDate?: string): string | null {
+export function normalizeOcrDate(raw: string | null | undefined, expectedDate?: string, _depth = 0): string | null {
   if (!raw) return null;
-  let s = thaiToArabic(String(raw).trim());
+  if (_depth > 2) return null;
+  // กัน stack overflow จากข้อความยาวมาก (เช่น JSON array จาก Typhoon)
+  let rawStr = String(raw).trim();
+  if (rawStr.length > 300) rawStr = rawStr.slice(0, 300);
+  let s = thaiToArabic(rawStr);
   if (!s) return null;
 
   // 1) strip weekday
@@ -204,22 +208,23 @@ export function normalizeOcrDate(raw: string | null | undefined, expectedDate?: 
   }
 
   // 6) กรณีมีข้อความอื่นปะปน — ลอง extract substring ที่ดูเหมือนวันที่
-  // หา pattern ไทยย่อในข้อความยาว
   {
-    const sub = s.match(/(\d{1,2})\s*[ก-๙]+\.?\s*\d{2,4}/);
-    if (sub) {
-      const res = normalizeOcrDate(sub[0], expectedDate);
-      if (res) return res;
-    }
-    const sub2 = s.match(/(\d{1,2})\s+(มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)/);
-    if (sub2) {
-      const res = normalizeOcrDate(sub2[0], expectedDate);
-      if (res) return res;
-    }
-    const sub3 = s.match(/(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{2,4})/);
-    if (sub3) {
-      const res = normalizeOcrDate(sub3[0], expectedDate);
-      if (res) return res;
+    if (_depth < 2) {
+      const sub = s.match(/(\d{1,2})\s*[ก-๙]+\.?\s*\d{2,4}/);
+      if (sub && sub[0] !== s) {
+        const res = normalizeOcrDate(sub[0], expectedDate, _depth + 1);
+        if (res) return res;
+      }
+      const sub2 = s.match(/(\d{1,2})\s+(มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)/);
+      if (sub2 && sub2[0] !== s) {
+        const res = normalizeOcrDate(sub2[0], expectedDate, _depth + 1);
+        if (res) return res;
+      }
+      const sub3 = s.match(/(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{2,4})/);
+      if (sub3 && sub3[0] !== s) {
+        const res = normalizeOcrDate(sub3[0], expectedDate, _depth + 1);
+        if (res) return res;
+      }
     }
   }
 

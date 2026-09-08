@@ -148,12 +148,33 @@ function toIntOrNull(v: unknown): number | null {
 }
 function parseTyphoonContent(content: string): TyphoonOcrResult {
   const raw = content.trim();
-  // ลบ markdown code fence ถ้ามี
-  const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
+  let cleaned = raw;
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  }
+  // รองรับทั้ง object {...} และ array [{...}] — ถ้าเป็น array ให้เอาองค์ประกอบแรกที่มี step_count
+  const trimmed = cleaned.trim();
+  let jsonStr: string | null = null;
+  let parsedObj: any = null;
+  try {
+    if (trimmed.startsWith('[')) {
+      const arr = JSON.parse(trimmed);
+      if (Array.isArray(arr) && arr.length > 0) {
+        // หาตัวแรกที่มี step_count เป็นตัวเลข
+        const found = arr.find((x: any) => x && (x.step_count != null || x.steps != null)) || arr[0];
+        parsedObj = found;
+        jsonStr = JSON.stringify(found);
+      }
+    } else {
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
+      jsonStr = start >= 0 && end > start ? cleaned.slice(start, end + 1) : null;
+      if (jsonStr) parsedObj = JSON.parse(jsonStr);
+    }
+  } catch {}
+  if (parsedObj) {
     try {
-      const obj = JSON.parse(jsonMatch[0]);
+      const obj = parsedObj;
       const stepVal = obj.step_count ?? obj.steps ?? null;
       const rawDateNew = obj.raw_date_text_from_image ?? null;
       const rawDateOld = obj.detected_date_raw ?? obj.dateRaw ?? null;

@@ -218,10 +218,10 @@ export async function POST(request: NextRequest) {
         alertReason = tyReasoning || 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ นสส. ตรวจสอบ';
       } else if (stepsExact === false) {
         alert = true;
-        alertReason = tyReasoning || `ก้าวไม่ตรงกัน (กรอก ${inputNum?.toLocaleString()} vs อ่าน ${aiSteps.toLocaleString()}) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+        alertReason = tyReasoning || `ก้าวไม่ตรงกัน (กรอก ${inputNum?.toLocaleString()} AI อ่านได้ ${aiSteps.toLocaleString()}) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
       } else if (dateMatch === false) {
         alert = true;
-        alertReason = tyReasoning || `วันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก (${expected} vs ในภาพ "${dateRaw}" → ${dateNormalized || 'อ่านไม่ได้'})`;
+        alertReason = tyReasoning || `วันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก (${expected} AI อ่านได้ "${dateRaw}" → ${dateNormalized || 'อ่านไม่ได้'})`;
       } else if (dateMatch == null) {
         alert = true;
         alertReason = tyReasoning || `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}") — ส่งให้เจ้าหน้าที่ตรวจสอบ`;

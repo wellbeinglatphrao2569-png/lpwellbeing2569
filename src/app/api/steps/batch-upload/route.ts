@@ -194,10 +194,10 @@ export async function POST(request: NextRequest) {
           alertReason = 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ';
         } else if (stepsExact === false) {
           alertFlag = 'TRUE';
-          alertReason = `ก้าวไม่ตรงกัน (กรอก ${userSteps.toLocaleString()} vs อ่าน ${aiSteps.toLocaleString()})`;
+          alertReason = `ก้าวไม่ตรงกัน (กรอก ${userSteps.toLocaleString()} AI อ่านได้ ${aiSteps.toLocaleString()})`;
         } else if (dateMatch === false) {
           alertFlag = 'TRUE';
-          alertReason = `วันที่ในภาพไม่ตรง (${day} vs "${dateRaw}" → ${dateNorm || 'อ่านไม่ได้'})`;
+          alertReason = `วันที่ในภาพไม่ตรง (${day} AI อ่านได้ "${dateRaw}" → ${dateNorm || 'อ่านไม่ได้'})`;
         } else if (dateMatch == null) {
           alertFlag = 'TRUE';
           alertReason = `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}")`;

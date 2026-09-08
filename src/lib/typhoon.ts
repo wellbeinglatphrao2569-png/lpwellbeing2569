@@ -101,6 +101,8 @@ export async function analyzeStepsImageWithTyphoon(
   const timeout = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 25000);
 
   try {
+    // ใช้ single user message เพื่อให้ typhoon-ocr 2B เข้าใจง่าย (ทดสอบแล้ว single message แม่นกว่า)
+    const fullPrompt = systemPrompt + '\n\n' + userPrompt;
     const res = await fetch(TYPHOON_API_URL, {
       method: 'POST',
       headers: {
@@ -110,11 +112,10 @@ export async function analyzeStepsImageWithTyphoon(
       body: JSON.stringify({
         model: TYPHOON_OCR_MODEL,
         messages: [
-          { role: 'system', content: systemPrompt },
           {
             role: 'user',
             content: [
-              { type: 'text', text: userPrompt },
+              { type: 'text', text: fullPrompt },
               { type: 'image_url', image_url: { url: dataUrl } },
             ],
           },
@@ -138,44 +139,54 @@ export async function analyzeStepsImageWithTyphoon(
   }
 }
 
+function toIntOrNull(v: unknown): number | null {
+  if (v == null) return null;
+  const s = String(v).trim().toLowerCase();
+  if (s === 'null' || s === '' || s === 'undefined') return null;
+  const n = Number(s.replace(/,/g, ''));
+  return isNaN(n) || n <= 0 ? null : n;
+}
 function parseTyphoonContent(content: string): TyphoonOcrResult {
   const raw = content.trim();
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  // ลบ markdown code fence ถ้ามี
+  const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try {
       const obj = JSON.parse(jsonMatch[0]);
-      // รองรับทั้งสคีมาล่าสุด (raw_date_text_from_image) และเก่า (step_count/detected_date_raw/steps)
       const stepVal = obj.step_count ?? obj.steps ?? null;
       const rawDateNew = obj.raw_date_text_from_image ?? null;
       const rawDateOld = obj.detected_date_raw ?? obj.dateRaw ?? null;
-      const finalRawDate = rawDateNew != null ? String(rawDateNew) : rawDateOld != null ? String(rawDateOld) : null;
+      const finalRawDate = rawDateNew != null && String(rawDateNew).toLowerCase() !== 'null' ? String(rawDateNew) : rawDateOld != null && String(rawDateOld).toLowerCase() !== 'null' ? String(rawDateOld) : null;
       const parsedNew = obj.parsed_date_from_image ?? null;
       const formattedOld = obj.formatted_date ?? null;
-      const finalParsed = parsedNew != null ? String(parsedNew) : formattedOld ? String(formattedOld) : null;
+      const finalParsed = parsedNew != null && String(parsedNew).toLowerCase() !== 'null' ? String(parsedNew) : formattedOld && String(formattedOld).toLowerCase() !== 'null' ? String(formattedOld) : null;
       const confNew = obj.ocr_confidence ?? null;
       const confOld = obj.confidence_score ?? obj.confidence ?? null;
-      const finalConf = confNew != null ? Number(confNew) : confOld != null ? Number(confOld) : null;
+      const rawConf = confNew ?? confOld;
+      const finalConf = rawConf != null && String(rawConf).toLowerCase() !== 'null' ? Number(rawConf) : null;
       const visual = obj.visual_evidence ?? null;
       const isMatched = obj.is_date_matched ?? null;
       const status = obj.status ?? null;
       const reasoning = obj.reasoning ?? obj.visual_evidence ?? null;
+      const parsedSteps = toIntOrNull(stepVal);
 
       return {
         rawText: String(obj.rawText ?? obj.reasoning ?? obj.visual_evidence ?? raw),
-        steps: stepVal != null ? Number(String(stepVal).replace(/,/g, '')) : null,
-        stepsRaw: stepVal != null ? String(stepVal) : null,
+        steps: parsedSteps,
+        stepsRaw: parsedSteps != null ? String(parsedSteps) : null,
         dateRaw: finalRawDate,
-        confidence: finalConf,
-        step_count: stepVal != null ? Number(String(stepVal).replace(/,/g, '')) : null,
+        confidence: finalConf != null && !isNaN(finalConf) ? finalConf : null,
+        step_count: parsedSteps,
         detected_date_raw: finalRawDate,
         formatted_date: finalParsed,
         is_date_matched: isMatched != null ? Boolean(isMatched) : null,
-        confidence_score: finalConf,
+        confidence_score: finalConf != null && !isNaN(finalConf) ? finalConf : null,
         status: status === 'passed' || status === 'flagged_for_review' ? status : null,
         reasoning: reasoning ? String(reasoning) : null,
         raw_date_text_from_image: finalRawDate,
         parsed_date_from_image: finalParsed,
-        ocr_confidence: finalConf,
+        ocr_confidence: finalConf != null && !isNaN(finalConf) ? finalConf : null,
         visual_evidence: visual ? String(visual) : null,
       };
     } catch {}

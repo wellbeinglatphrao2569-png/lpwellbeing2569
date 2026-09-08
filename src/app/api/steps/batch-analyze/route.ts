@@ -61,6 +61,8 @@ function extractDateFromOcrTextBatch(text: string, expectedDate: string): { date
   const thaiRegex = /(\d{1,2})\s*(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.|มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)\s*(\d{4})?/g;
   let tm; while ((tm = thaiRegex.exec(text)) !== null) { const d=Number(tm[1]); const mName=tm[2]; const yRaw=tm[3]?Number(tm[3]):null; const month=thaiMonthMap[mName]; if(!month) continue; let year=new Date().getFullYear(); if(yRaw){ year=yRaw>=2400?yRaw-543:yRaw; dateRaw=`${d} ${mName} ${tm[3]}`;} else dateRaw=`${d} ${mName}`; dateInImage=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; break; }
   if(!dateInImage){ const engRegex=/(\d{1,2})\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*,?\s*(\d{4})?/gi; let em; while((em=engRegex.exec(text))!==null){ const d=Number(em[1]); const monStr=em[2].toLowerCase(); const yRaw=em[3]?Number(em[3]):null; const map:Record<string,number>={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12}; const month=map[monStr.slice(0,3)]; if(!month) continue; let year=new Date().getFullYear(); if(yRaw){ year=yRaw>=2400?yRaw-543:yRaw; dateRaw=em[0];} else dateRaw=`${em[1]} ${em[2]}`; dateInImage=`${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`; break; } }
+  if(!dateInImage){ const isoRegex = /(\d{4})[\-\/](\d{1,2})[\-\/](\d{1,2})/g; let im; while((im=isoRegex.exec(text))!==null){ let y=Number(im[1]); let m=Number(im[2]); let d=Number(im[3]); if(y>=2400) y-=543; if(m>=1&&m<=12&&d>=1&&d<=31){ dateRaw=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; dateInImage=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; break; } }
+  }
   if(!dateInImage){ const slashRegex=/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/g; let sm; while((sm=slashRegex.exec(text))!==null){ let d=Number(sm[1]); let m=Number(sm[2]); let y=Number(sm[3]); if(m>12 && d<=12){ const tmp=d; d=m; m=tmp; } if(y>=2400) y-=543; if(m>=1&&m<=12&&d>=1&&d<=31){ dateRaw=sm[0]; dateInImage=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; break; } } }
   if(!dateInImage) return { dateInImage: null, dateRaw: dateRaw, dateMatch: null };
   return { dateInImage, dateRaw: dateRaw||dateInImage, dateMatch: dateInImage===expectedDate };
@@ -130,7 +132,7 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
   const { data, mime } = extractBase64(imageBase64);
   const currentYearB = new Date().getFullYear();
   const currentYearBE_B = currentYearB + 543;
-  const ocrPrompt = `คุณคือผู้ช่วยตรวจสอบภาพสำหรับโครงการส่งเสริมสุขภาพ "นับก้าวเดิน" วิเคราะห์ภาพแคปหน้าจอแอปนับก้าว (step counter) อย่างละเอียด ใช้เวลาตรวจสอบอย่างรอบคอบ แล้วตอบเป็น JSON เท่านั้น
+  const ocrPrompt = `คุณคือผู้ช่วยตรวจสอบภาพสำหรับโครงการส่งเสริมสุขภาพ "นับก้าวเดิน" วิเคราะห์ภาพแคปหน้าจอแอปนับก้าว (step counter) อย่างละเอียด ใช้เวลาตรวจสอบอย่างรอบคอบ มองหาวันที่ทุกมุมของภาพ (บน ล่าง หัวตาราง ใต้ตัวเลขก้าว) แล้วตอบเป็น JSON เท่านั้น
 
 โจทย์:
 1. อ่านจำนวนก้าวทั้งหมด (total steps) ที่แสดงในภาพอย่างละเอียด — ดูตัวเลขที่ใหญ่และโดดเด่นที่สุดที่ระบุว่าเป็นจำนวนก้าว แยกแยะระหว่างก้าวรวมทั้งวัน vs ก้าวเป้าหมาย/เฉลี่ย ต้องอ่านเป็นจำนวนเต็มตรงตัว ตรวจตัวเลขไทย-อารบิกและจุลภาคให้ครบ
@@ -138,6 +140,9 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
    กติกาเรื่องปี: แอปส่วนใหญ่ไม่แสดงปีถ้าเป็นปีปัจจุบัน — ถ้าเห็นเฉพาะวัน+เดือน (เช่น "15 ส.ค.", "Aug 15", "31 Jul") โดยไม่มีเลขปี ให้ถือว่าเป็นปีปัจจุบัน ${currentYearB} (ค.ศ.) / ${currentYearBE_B} (พ.ศ.) แล้วแปลงเป็น ${currentYearB}-MM-dd
    ถ้าเห็นเลขปี ให้เทียบ พ.ศ./ค.ศ.: ปี >= 2400 ถือเป็น พ.ศ. ลบ 543 เป็น ค.ศ. (เช่น 2569 → 2026) ปี < 2400 ถือเป็น ค.ศ. ตรงๆ
    กติกา TODAY/Yesterday: ถ้าภาพแสดงคำว่า TODAY, Today, YESTERDAY, Yesterday, เมื่อวาน, เมื่อวานนี้, วันนี้ โดยไม่มีวันที่แบบระบุวันเดือนปีที่ชัดเจน ให้ถือว่าไม่มีวันที่ (dateInImage=null, dateRaw="TODAY"/คำที่เห็น, dateMatch=null) และลด confidence เหลือ 0.4-0.6 พร้อมระบุใน notes ว่า "พบคำว่า TODAY/Yesterday — ไม่มีวันที่ชัดเจน รอเจ้าหน้าที่ นสส. ต่างฝ่ายตรวจสอบ"
+   ตัวอย่าง few-shot:
+   - ภาพมี "12,345 ก้าว 31 ส.ค. 2569" และ expectedDate "2026-08-31" -> {"steps":12345, "dateInImage":"2026-08-31", "dateRaw":"31 ส.ค. 2569", "dateMatch":true, "confidence":0.95, "notes":"ชัดเจน ตรงกัน"}
+   - ภาพมี "8,765 ก้าว 31 July 2026" expected "2026-07-31" -> {"steps":8765, "dateInImage":"2026-07-31", "dateRaw":"31 July 2026", "dateMatch":true, "confidence":0.9}
 3. พิจารณาว่าวันที่ในภาพตรงกับวันที่ที่คาดหวัง "${expectedDate}" (yyyy-MM-dd) หรือไม่ (เทียบปี ค.ศ. แล้ว) ถ้าเป็น TODAY/Yesterday ให้ dateMatch=null เสมอ
 4. ให้คะแนนความมั่นใจ 0.0-1.0 อย่างรอบคอบ — 1.0=มั่นใจสูงมาก ตัวเลข+วันที่ชัดเจนตรงกัน ไม่มีร่องรอยตัดต่อ, <0.8=มีข้อสงสัยเล็กน้อย ถ้าเป็น TODAY/Yesterday หรืออ่านวันที่ไม่ได้ให้ 0.4-0.6
 5. ตรวจสอบความผิดปกติ: ภาพตัดต่อ/แก้ไขตัวเลข/ซ้อนฟอนต์แปลก/ขอบเบลอ/เงาซ้ำ/ตัวเลขไม่ตรงฟอนต์ระบบ — ถ้าสงสัยให้ระบุใน notes และลด confidence เหลือ 0.3-0.6

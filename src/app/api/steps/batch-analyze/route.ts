@@ -12,6 +12,30 @@ const MIN_CONFIDENCE = 0.8;
 const MAX_REASONABLE_STEPS = 200000;
 const MAX_IMAGES = 49;
 
+const TYPHOON_V15_PROMPT_BATCH = `Extract all text from the image.
+
+
+Instructions:
+- Only return the clean Markdown.
+- Do not include any explanation or extra text.
+- You must include all information on the page.
+
+
+Formatting Rules:
+- Tables: Render tables using <table>...</table> in clean HTML format.
+- Equations: Render equations using LaTeX syntax with inline ($...$) and block ($$...$$).
+- Images/Charts/Diagrams: Wrap any clearly defined visual areas (e.g. charts, diagrams, pictures) in:
+
+
+<figure>
+Describe the image's main elements (people, objects, text), note any contextual clues (place, event, culture), mention visible text and its meaning, provide deeper analysis when relevant (especially for financial charts, graphs, or documents), comment on style or architecture if relevant, then give a concise overall summary. Describe in Thai.
+</figure>
+
+
+- Page Numbers: Wrap page numbers in <page_number>...</page_number> (e.g., <page_number>14</page_number>).
+- Checkboxes: Use ☐ for unchecked and ☑ for checked boxes.
+    `;
+
 function isRetryableTyphoon(msg: string): boolean {
   const m = msg.toLowerCase();
   return m.includes('429')||m.includes('500')||m.includes('502')||m.includes('503')||m.includes('404')||m.includes('aborted')||m.includes('timeout')||m.includes('timed out')||m.includes('aborterror');
@@ -70,19 +94,6 @@ async function callTyphoonOCRWithModelBatch(prompt: string, data: string, mime: 
   return text;
 }
 
-async function callTyphoonOCRForBatch(prompt: string, data: string, mime: string): Promise<string> {
-  try {
-    return await callTyphoonOCRWithModelBatch(prompt, data, mime, TYPHOON_MODEL);
-  } catch (e) {
-    const msg = String(e);
-    if (isRetryableTyphoon(msg) && TYPHOON_MODEL_FALLBACK && TYPHOON_MODEL_FALLBACK !== TYPHOON_MODEL) {
-      console.warn(`Typhoon ${TYPHOON_MODEL} failed in batch (${msg}) — fallback to ${TYPHOON_MODEL_FALLBACK}`);
-      return await callTyphoonOCRWithModelBatch(prompt, data, mime, TYPHOON_MODEL_FALLBACK);
-    }
-    throw e;
-  }
-}
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -95,6 +106,7 @@ function extractBase64(imageBase64: string): { data: string; mime: string } {
 
 function parseGeminiJson(text: string) {
   let jsonStr = text.trim();
+  try { const j=JSON.parse(jsonStr); if(j && typeof j.natural_text==='string') jsonStr=j.natural_text; else if(j && typeof j.steps!=='undefined') return { steps: typeof j.steps==='number'?j.steps:j.steps!=null?Number(j.steps):null, dateInImage: j.dateInImage?String(j.dateInImage):null, dateRaw: j.dateRaw?String(j.dateRaw):null, dateMatch: typeof j.dateMatch==='boolean'?j.dateMatch:null, confidence: typeof j.confidence==='number'?j.confidence:Number(j.confidence)||0, notes: j.notes?String(j.notes):'' }; } catch {}
   const fence = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fence) jsonStr = fence[1].trim();
   const brace = jsonStr.match(/\{[\s\S]*\}/);
@@ -110,16 +122,15 @@ function parseGeminiJson(text: string) {
       notes: parsed.notes ? String(parsed.notes) : '',
     };
   } catch {
-    return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: text.slice(0, 200) };
+    return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: jsonStr.slice(0, 300) };
   }
 }
 
 async function analyzeOneImage(imageBase64: string, expectedDate: string, hintInput: string = 'auto', explicitModel: string = '') {
   const { data, mime } = extractBase64(imageBase64);
-  const hint = String(hintInput || 'auto').toLowerCase();
   const currentYearB = new Date().getFullYear();
   const currentYearBE_B = currentYearB + 543;
-  const prompt = `คุณคือผู้ช่วยตรวจสอบภาพสำหรับโครงการส่งเสริมสุขภาพ "นับก้าวเดิน" วิเคราะห์ภาพแคปหน้าจอแอปนับก้าว (step counter) อย่างละเอียด ใช้เวลาตรวจสอบอย่างรอบคอบ แล้วตอบเป็น JSON เท่านั้น
+  const ocrPrompt = `คุณคือผู้ช่วยตรวจสอบภาพสำหรับโครงการส่งเสริมสุขภาพ "นับก้าวเดิน" วิเคราะห์ภาพแคปหน้าจอแอปนับก้าว (step counter) อย่างละเอียด ใช้เวลาตรวจสอบอย่างรอบคอบ แล้วตอบเป็น JSON เท่านั้น
 
 โจทย์:
 1. อ่านจำนวนก้าวทั้งหมด (total steps) ที่แสดงในภาพอย่างละเอียด — ดูตัวเลขที่ใหญ่และโดดเด่นที่สุดที่ระบุว่าเป็นจำนวนก้าว แยกแยะระหว่างก้าวรวมทั้งวัน vs ก้าวเป้าหมาย/เฉลี่ย ต้องอ่านเป็นจำนวนเต็มตรงตัว ตรวจตัวเลขไทย-อารบิกและจุลภาคให้ครบ
@@ -147,57 +158,49 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
   let finalModel = TYPHOON_MODEL;
   let usedFallback = false;
   try {
-    // Typhoon เดี่ยว — ทุก hint วิ่งบน Typhoon OCR
-    if (hint === 'typhoon-ocr-preview' || hint === 'preview') {
-      const m = explicitModel || TYPHOON_MODEL_FALLBACK;
-      text = await callTyphoonOCRWithModelBatch(prompt, data, mime, m);
+    // Typhoon OCR - ส่ง prompt JSON ละเอียดให้ Typhoon โดยตรง
+    const m = explicitModel && explicitModel.includes('typhoon') ? explicitModel : TYPHOON_MODEL;
+    try {
+      text = await callTyphoonOCRWithModelBatch(ocrPrompt, data, mime, m);
       finalModel = m;
-    } else {
-      // auto / typhoon / openrouter (legacy) -> Typhoon OCR
-      try {
-        const m = explicitModel && explicitModel.includes('typhoon') ? explicitModel : TYPHOON_MODEL;
-        text = await callTyphoonOCRWithModelBatch(prompt, data, mime, m);
-        finalModel = m;
-      } catch (e: any) {
-        const msg = String(e);
-        if (isRetryableTyphoon(msg) && TYPHOON_MODEL_FALLBACK !== TYPHOON_MODEL) {
-          text = await callTyphoonOCRWithModelBatch(prompt, data, mime, TYPHOON_MODEL_FALLBACK);
-          finalModel = TYPHOON_MODEL_FALLBACK;
-          usedFallback = true;
-        } else throw e;
-      }
+    } catch (e: any) {
+      const msg = String(e);
+      if (isRetryableTyphoon(msg) && TYPHOON_MODEL_FALLBACK !== m) {
+        text = await callTyphoonOCRWithModelBatch(ocrPrompt, data, mime, TYPHOON_MODEL_FALLBACK);
+        finalModel = TYPHOON_MODEL_FALLBACK;
+        usedFallback = true;
+      } else throw e;
     }
   } catch (e: any) {
-    console.error('analyzeOneImage failed:', e, 'hint', hint);
+    console.error('analyzeOneImage failed:', e, 'hint', hintInput);
     return { steps: null, dateInImage: null, dateRaw: null, dateMatch: null, confidence: 0, notes: '', alert: true, alertReasons: [String(e?.message || e)], provider: finalProvider, model: finalModel };
   }
 
   let parsed = parseGeminiJson(text);
+  // Fallback markdown -> OCR parse
+  let ocrTextForFallback = text;
+  try { const j=JSON.parse(text); if(j && typeof j.natural_text==='string') ocrTextForFallback=j.natural_text; } catch {}
+  const cleanForOcr = ocrTextForFallback.replace(/```/g, '').replace(/<[^>]*>/g, ' ');
+  if (parsed.steps === null) {
+    const s = extractStepsFromOcrTextBatch(cleanForOcr);
+    if (s !== null) { parsed.steps = s; parsed.notes = (parsed.notes ? parsed.notes + ' | ' : '') + `OCR ดึงก้าว ${s.toLocaleString()} จากข้อความ`; if (parsed.confidence===0) parsed.confidence=0.75; }
+  }
+  if (parsed.dateInImage === null) {
+    const d = extractDateFromOcrTextBatch(cleanForOcr, expectedDate);
+    if (d.dateRaw) {
+      parsed.dateInImage = d.dateInImage;
+      parsed.dateRaw = d.dateRaw;
+      parsed.dateMatch = d.dateMatch;
+      if (d.dateMatch===null && d.dateRaw && /today|yesterday|เมื่อวาน|วันนี้/i.test(d.dateRaw)) {
+        parsed.notes = (parsed.notes ? parsed.notes + ' | ' : '') + 'พบคำว่า TODAY/Yesterday — ไม่มีวันที่ชัดเจน รอเจ้าหน้าที่ นสส. ต่างฝ่ายตรวจสอบ';
+        if (parsed.confidence===0 || parsed.confidence>0.6) parsed.confidence=0.5;
+      } else if (d.dateInImage && parsed.confidence===0) parsed.confidence=0.75;
+    }
+  }
+  if (parsed.steps!==null && parsed.confidence===0) parsed.confidence=0.7;
   if (usedFallback) {
     if (parsed.notes) parsed.notes = `[fallback:${finalModel}] ` + parsed.notes;
     else parsed.notes = `ประมวลผลด้วย ${finalProvider} (${finalModel}) หลังโมเดลหลักล้มเหลว`;
-  }
-  // Fallback markdown -> ดึงก้าว/วันที่จาก OCR text โดยตรง
-  if ((parsed.steps === null || parsed.dateInImage === null) && text) {
-    let ocrText = text;
-    try { const j = JSON.parse(text); if (j && typeof j.natural_text === 'string') ocrText = j.natural_text; } catch {}
-    const clean = ocrText.replace(/```/g, '');
-    if (parsed.steps === null) {
-      const s = extractStepsFromOcrTextBatch(clean);
-      if (s !== null) { parsed.steps = s; parsed.notes = (parsed.notes ? parsed.notes + ' | ' : '') + `OCR ดึงก้าว ${s.toLocaleString()} จากข้อความ`; if (parsed.confidence === 0) parsed.confidence = 0.65; }
-    }
-    if (parsed.dateInImage === null) {
-      const d = extractDateFromOcrTextBatch(clean, expectedDate);
-      if (d.dateRaw) {
-        parsed.dateInImage = d.dateInImage;
-        parsed.dateRaw = d.dateRaw;
-        parsed.dateMatch = d.dateMatch;
-        if (d.dateMatch === null && d.dateRaw && /today|yesterday|เมื่อวาน|วันนี้/i.test(d.dateRaw)) {
-          parsed.notes = (parsed.notes ? parsed.notes + ' | ' : '') + 'พบคำว่า TODAY/Yesterday — ไม่มีวันที่ชัดเจน รอเจ้าหน้าที่ นสส. ต่างฝ่ายตรวจสอบ';
-          if (parsed.confidence === 0 || parsed.confidence > 0.6) parsed.confidence = 0.5;
-        } else if (d.dateInImage && parsed.confidence === 0) parsed.confidence = 0.65;
-      }
-    }
   }
 
   const alertReasons: string[] = [];
@@ -210,6 +213,13 @@ async function analyzeOneImage(imageBase64: string, expectedDate: string, hintIn
   else if (parsed.dateMatch === null) alertReasons.push('ไม่พบวันที่ในภาพ / อ่านวันที่ไม่ชัดเจน');
 
   if (parsed.confidence < MIN_CONFIDENCE) alertReasons.push(`AI อ่านจำนวนก้าวไม่ชัดเจน (ความมั่นใจ ${Math.round(parsed.confidence * 100)}%)`);
+
+  // เพิ่ม notes ละเอียด
+  let detailedNotes = parsed.notes || '';
+  if (steps !== null) detailedNotes = (detailedNotes ? detailedNotes + ' | ' : '') + `พบก้าว ${steps.toLocaleString()} ในภาพ`;
+  if (parsed.dateRaw) detailedNotes = (detailedNotes ? detailedNotes + ' | ' : '') + `พบวันที่ "${parsed.dateRaw}" -> ${parsed.dateInImage || 'null'} ${parsed.dateMatch===true?'ตรง':'ไม่ตรง/ไม่ชัด'}`;
+  detailedNotes = (detailedNotes ? detailedNotes + ' | ' : '') + `โมเดล ${finalModel}`;
+  parsed.notes = detailedNotes;
 
   return {
     steps: steps ?? null,

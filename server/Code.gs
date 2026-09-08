@@ -368,6 +368,9 @@ function doGet(e) {
       case 'project-window':
         result = getProjectWindow_();
         break;
+      case 'audit-log':
+        result = getData_('Audit_Log');
+        break;
       default:
         result = { status: 'ok', project: 'ลาดพร้าวสร้างสุข', version: '1.0.0' };
     }
@@ -2538,17 +2541,9 @@ function deleteStepLog_(data) {
       console.warn('deleteStepLog_ trash file failed', imageId, e);
     }
   }
-  // Soft delete: keep row but mark as Deleted with reason, hide auditor for privacy (แสดงเฉพาะเหตุผลใน UI)
-  const statusCol = col('Status');
-  const rejectReasonCol = col('Reject_Reason');
-  const auditorCol = col('Auditor_ID');
-  const reviewedAtCol = col('Reviewed_At');
   const deleteReason = String(data.Delete_Reason || data.Reject_Reason || 'ถูกลบโดยเจ้าหน้าที่').trim().slice(0,500) || 'ถูกลบโดยเจ้าหน้าที่';
-  if (statusCol > 0) sheet.getRange(rowIndex+1, statusCol, 1, 1).setValue('Deleted');
-  if (rejectReasonCol > 0) sheet.getRange(rowIndex+1, rejectReasonCol, 1, 1).setValue(deleteReason);
-  if (auditorCol > 0) sheet.getRange(rowIndex+1, auditorCol, 1, 1).setValue('');
-  if (reviewedAtCol > 0) sheet.getRange(rowIndex+1, reviewedAtCol, 1, 1).setValue(getTimestamp_());
-  // Audit Log
+  sheet.deleteRow(rowIndex+1);
+  // Audit Log — เก็บเหตุผลไว้แสดงในตารางโดยไม่แสดงชื่อผู้ลบ (ต่างฝ่าย)
   try {
     ensureHeaders_('Audit_Log', AUDIT_HEADERS);
     appendData_('Audit_Log', {
@@ -2556,7 +2551,7 @@ function deleteStepLog_(data) {
       Record_ID: recordId,
       Action: 'DELETE_STEP',
       User_ID: String(data.Logged_By || data.Auditor_ID || ''),
-      Detail: 'ลบประวัติก้าว ' + recordId + ' ของ ' + targetUserId + (imageId ? ' + รูป ' + imageId : ''),
+      Detail: 'ลบประวัติก้าว ' + recordId + ' ของ ' + targetUserId + (imageId ? ' + รูป ' + imageId : '') + ' เหตุผล: ' + deleteReason,
       Timestamp: getTimestamp_()
     });
   } catch (e) {}

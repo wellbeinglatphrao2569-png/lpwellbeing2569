@@ -26,11 +26,17 @@ export async function POST(request: NextRequest) {
     if (!Steps || !Array.isArray(Steps) || Steps.length === 0) return NextResponse.json({ error: 'Steps array is required' }, { status: 400 });
     if (!GAS_API_URL) return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
 
-    // ห้วงเวลาบันทึก + Data Freeze
+    // ห้วงเวลาบันทึก + Data Freeze + โหลด users แบบ parallel (เร็วขึ้น ~50%)
+    let win: any = null;
+    let usersList: any[] = [];
+    let usersFetchOk = false;
     try {
-      const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
+      const [winRes, uRes] = await Promise.all([
+        fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store', signal: request.signal }),
+        fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store', signal: request.signal }),
+      ]);
       if (winRes.ok) {
-        const win = await winRes.json();
+        win = await winRes.json().catch(() => null);
         if (win && win.start && win.end) {
           const today = new Date().toISOString().slice(0, 10);
           if (today > String(win.end).slice(0, 10)) {
@@ -44,23 +50,24 @@ export async function POST(request: NextRequest) {
           if (out.length > 0) return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — พบวันที่นอกห้วง: ${out.slice(0, 3).join(', ')}${out.length > 3 ? ' …' : ''}` }, { status: 400 });
         }
       }
+      if (uRes.ok) {
+        const j = await uRes.json().catch(() => null);
+        if (Array.isArray(j)) { usersList = j; usersFetchOk = true; }
+      }
     } catch (e) {
-      console.warn('batch-upload window check failed', e);
+      if ((e as Error)?.name === 'AbortError') return NextResponse.json({ error: 'คำขอถูกยกเลิก' }, { status: 499 });
+      console.warn('batch-upload window/users check failed', e);
+      // fallback แยกถ้า parallel ล้มเหลว
+      if (usersList.length === 0) {
+        try {
+          const uRes2 = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
+          if (uRes2.ok) { const j2 = await uRes2.json(); if (Array.isArray(j2)) { usersList = j2; usersFetchOk = true; } }
+        } catch {}
+      }
     }
 
     // ตรวจสิทธิ์ฝ่าย
     let actorDept = String(Logged_Department || '').trim();
-    let usersList: any[] = [];
-    let usersFetchOk = false;
-    try {
-      const uRes = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
-      if (uRes.ok) {
-        const j = await uRes.json();
-        if (Array.isArray(j)) { usersList = j; usersFetchOk = true; }
-      }
-    } catch (e) {
-      console.warn('batch-upload: fetch users for dept check failed', e);
-    }
     if (!usersFetchOk || usersList.length === 0) {
       return NextResponse.json({ error: 'ไม่สามารถตรวจสอบสิทธิ์ฝ่ายได้ — โหลดรายชื่อบุคลากรไม่สำเร็จ' }, { status: 503 });
     }
@@ -116,97 +123,116 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `ล็อก Mode 1 — พบ ${mode1Violations.length} คนที่อยู่ Mode 1 (บันทึกเอง): ${sample}${mode1Violations.length > 5 ? ' …' : ''}`, mode1Violations }, { status: 403 });
     }
 
-    // ตรวจด้วย Typhoon ถ้า client ส่ง AI payload มาแล้วให้ใช้เลย, ถ้าไม่ให้ลองอ่านเอง (fallback)
+    // Hybrid: trust client AI ถ้ามี, ทำ Typhoon แบบ parallel เฉพาะรายการที่ไม่มี AI
+    const typhoonEnabled = isTyphoonConfigured();
+    const needsTyphoonIdx: number[] = [];
+    const preParsed: Array<{
+      aiSteps: number | null; aiStepsRaw: string | null; aiConf: number | null;
+      dateRaw: string | null; dateNorm: string | null; dateMatch: boolean | null;
+      alertFlag: 'TRUE' | 'FALSE'; alertReason: string;
+    }> = [];
+
+    // แยกก่อนว่า item ไหนมี AI แล้ว
+    for (let i = 0; i < Steps.length; i++) {
+      const step = Steps[i] as Record<string, unknown>;
+      const sAny = step as any;
+      const day = String(step.Day || '');
+      const hasClientAI = sAny.AI_Steps != null || sAny.Date_In_Image != null || sAny.aiSteps != null || (sAny.AI_Confidence != null && String(sAny.AI_Confidence).trim() !== '');
+      if (hasClientAI) {
+        let aiSteps: number | null = sAny.AI_Steps != null && String(sAny.AI_Steps).trim() !== '' ? Number(sAny.AI_Steps) : (sAny.aiSteps != null ? Number(sAny.aiSteps) : null);
+        if (aiSteps != null && isNaN(aiSteps)) aiSteps = null;
+        let aiStepsRaw: string | null = sAny.AI_Steps_Raw ?? sAny.aiStepsRaw ?? null;
+        let aiConf: number | null = sAny.AI_Confidence != null && String(sAny.AI_Confidence).trim() !== '' ? Number(sAny.AI_Confidence) : (sAny.confidence != null ? Number(sAny.confidence) : null);
+        let dateRaw: string | null = sAny.Date_In_Image ?? sAny.dateRaw ?? null;
+        let dateNorm: string | null = sAny.Date_Normalized ?? sAny.dateNormalized ?? null;
+        const dm = sAny.Date_Match ?? sAny.dateMatch;
+        let dateMatch: boolean | null = dm === true || dm === 'TRUE' ? true : dm === false || dm === 'FALSE' ? false : null;
+        let alertFlag: 'TRUE' | 'FALSE' = sAny.Alert_Flag === 'FALSE' || sAny.alertFlag === 'FALSE' ? 'FALSE' : 'TRUE';
+        let alertReason: string = sAny.Alert_Reason ?? sAny.alertReason ?? 'รอตรวจสอบ manual';
+        if (!dateNorm && dateRaw) dateNorm = normalizeOcrDate(dateRaw, day);
+        if (dateMatch == null && dateRaw) dateMatch = isDateMatch(dateRaw, day);
+        preParsed[i] = { aiSteps, aiStepsRaw, aiConf, dateRaw, dateNorm, dateMatch, alertFlag, alertReason };
+      } else {
+        preParsed[i] = { aiSteps: null, aiStepsRaw: null, aiConf: null, dateRaw: null, dateNorm: null, dateMatch: null, alertFlag: 'TRUE', alertReason: 'รอตรวจสอบ manual' };
+        if (typhoonEnabled && String((step as any).Image_Base64 || '').trim()) needsTyphoonIdx.push(i);
+      }
+    }
+
+    // parallel Typhoon เฉพาะที่ต้องทำ (p-limit 3) — เร็วขึ้นมากจาก serial
+    if (needsTyphoonIdx.length > 0) {
+      const limit = 3;
+      for (let batch = 0; batch < needsTyphoonIdx.length; batch += limit) {
+        if (request.signal.aborted) break;
+        const chunk = needsTyphoonIdx.slice(batch, batch + limit);
+        await Promise.all(chunk.map(async (idx) => {
+          const step = Steps[idx] as Record<string, unknown>;
+          const day = String(step.Day || '');
+          const base64Raw = String(step.Image_Base64 || '');
+          try {
+            const now = new Date();
+            const ty = await analyzeStepsImageWithTyphoon(base64Raw, {
+              timeoutMs: 15000,
+              ctx: { systemDate: now.toISOString().slice(0, 10), targetDate: day, currentYear: String(now.getFullYear()), currentThaiYear: String(now.getFullYear() + 543) },
+            });
+            const tySteps = (ty as any).step_count ?? ty.steps ?? null;
+            let aiSteps: number | null = null;
+            let aiStepsRaw: string | null = null;
+            if (tySteps != null) {
+              aiSteps = Number(String(tySteps).replace(/,/g, ''));
+              if (isNaN(aiSteps)) aiSteps = null;
+              aiStepsRaw = ty.stepsRaw ?? String(tySteps);
+            } else if (ty.rawText) {
+              const ext = extractStepsFromText(ty.rawText);
+              aiSteps = ext.steps; aiStepsRaw = ext.raw;
+            }
+            const dateRaw = (ty as any).detected_date_raw ?? ty.dateRaw ?? null;
+            const tyFmt = (ty as any).formatted_date ?? null;
+            const tyMatched = (ty as any).is_date_matched ?? null;
+            const aiConf = (ty as any).confidence_score ?? ty.confidence ?? null;
+            let dateNorm: string | null = null;
+            let dateMatch: boolean | null = null;
+            if (tyFmt && /^\d{4}-\d{2}-\d{2}$/.test(tyFmt)) {
+              dateNorm = tyFmt; dateMatch = tyMatched != null ? Boolean(tyMatched) : tyFmt === day;
+            } else {
+              dateNorm = dateRaw ? normalizeOcrDate(dateRaw, day) : null;
+              dateMatch = dateRaw ? isDateMatch(dateRaw, day) : null;
+              if (tyMatched != null) dateMatch = Boolean(tyMatched);
+            }
+            preParsed[idx] = { aiSteps, aiStepsRaw, aiConf, dateRaw, dateNorm, dateMatch, alertFlag: 'TRUE', alertReason: 'รอตรวจสอบ manual' };
+          } catch (e) {
+            console.warn('batch Typhoon failed for', day, e);
+          }
+        }));
+      }
+    }
+
     const processedSteps: any[] = [];
     let aiApprovedCount = 0;
     let aiPendingCount = 0;
-
-    const typhoonEnabled = isTyphoonConfigured();
-
-    for (const step of Steps as Record<string, unknown>[]) {
+    for (let i = 0; i < Steps.length; i++) {
+      const step = Steps[i] as Record<string, unknown>;
+      const sAny = step as any;
       const base64Raw = String(step.Image_Base64 || '');
       const day = String(step.Day || '');
       const userSteps = Number(step.Steps_Count) || 0;
-      let aiSteps: number | null = null;
-      let aiStepsRaw: string | null = null;
-      let aiConf: number | null = null;
-      let dateRaw: string | null = null;
-      let dateNorm: string | null = null;
-      let dateMatch: boolean | null = null;
-      let alertFlag: 'TRUE' | 'FALSE' = 'TRUE';
-      let alertReason = 'รอตรวจสอบ manual';
+      let { aiSteps, aiStepsRaw, aiConf, dateRaw, dateNorm, dateMatch, alertFlag, alertReason } = preParsed[i];
 
-      // ถ้า client ส่ง AI fields มาแล้ว (จาก /api/ai/analyze-steps)
-      const sAny = step as any;
-      if (sAny.AI_Steps != null || sAny.Date_In_Image != null || sAny.aiSteps != null) {
-        aiSteps = sAny.AI_Steps != null && String(sAny.AI_Steps).trim() !== '' ? Number(sAny.AI_Steps) : (sAny.aiSteps != null ? Number(sAny.aiSteps) : null);
-        aiStepsRaw = sAny.AI_Steps_Raw ?? sAny.aiStepsRaw ?? null;
-        aiConf = sAny.AI_Confidence != null && String(sAny.AI_Confidence).trim() !== '' ? Number(sAny.AI_Confidence) : (sAny.confidence != null ? Number(sAny.confidence) : null);
-        dateRaw = sAny.Date_In_Image ?? sAny.dateRaw ?? null;
-        dateNorm = sAny.Date_Normalized ?? sAny.dateNormalized ?? null;
-        const dm = sAny.Date_Match ?? sAny.dateMatch;
-        dateMatch = dm === true || dm === 'TRUE' ? true : dm === false || dm === 'FALSE' ? false : null;
-        alertFlag = sAny.Alert_Flag === 'FALSE' || sAny.alertFlag === 'FALSE' ? 'FALSE' : 'TRUE';
-        alertReason = sAny.Alert_Reason ?? sAny.alertReason ?? alertReason;
-        if (!dateNorm && dateRaw) dateNorm = normalizeOcrDate(dateRaw, day);
-        if (dateMatch == null && dateRaw) dateMatch = isDateMatch(dateRaw, day);
-      } else if (typhoonEnabled && base64Raw) {
-        try {
-          const now = new Date();
-          const systemDate = now.toISOString().slice(0, 10);
-          const ty = await analyzeStepsImageWithTyphoon(base64Raw, {
-            timeoutMs: 15000,
-            ctx: { systemDate, targetDate: day, currentYear: String(now.getFullYear()), currentThaiYear: String(now.getFullYear() + 543) },
-          });
-          // รองรับสคีมาใหม่
-          const tySteps = (ty as any).step_count ?? ty.steps ?? null;
-          if (tySteps != null) {
-            aiSteps = Number(String(tySteps).replace(/,/g, ''));
-            aiStepsRaw = ty.stepsRaw ?? String(tySteps);
-          } else if (ty.rawText) {
-            const ext = extractStepsFromText(ty.rawText);
-            aiSteps = ext.steps;
-            aiStepsRaw = ext.raw;
-          }
-          dateRaw = (ty as any).detected_date_raw ?? ty.dateRaw ?? null;
-          const tyFmt = (ty as any).formatted_date ?? null;
-          const tyMatched = (ty as any).is_date_matched ?? null;
-          aiConf = (ty as any).confidence_score ?? ty.confidence ?? null;
-          if (tyFmt && /^\d{4}-\d{2}-\d{2}$/.test(tyFmt)) {
-            dateNorm = tyFmt;
-            dateMatch = tyMatched != null ? Boolean(tyMatched) : tyFmt === day;
-          } else {
-            dateNorm = dateRaw ? normalizeOcrDate(dateRaw, day) : null;
-            dateMatch = dateRaw ? isDateMatch(dateRaw, day) : null;
-            if (tyMatched != null) dateMatch = Boolean(tyMatched);
-          }
-        } catch (e) {
-          console.warn('batch Typhoon failed for', day, e);
-        }
-      }
-
-      // Strict 0% tolerance
+      // Strict 0% tolerance — คำนวณ alert ใหม่ถ้า client ไม่ได้ส่ง reason มา
       const stepsExact = aiSteps != null ? aiSteps === userSteps : null;
       const conf = aiConf ?? (aiSteps != null && dateNorm ? 0.7 : 0.3);
       if (sAny.Alert_Reason == null && sAny.alertReason == null) {
         if (aiSteps == null) {
-          alertFlag = 'TRUE';
-          alertReason = 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ';
+          alertFlag = 'TRUE'; alertReason = 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ';
         } else if (stepsExact === false) {
-          alertFlag = 'TRUE';
-          alertReason = `ก้าวไม่ตรงกัน (กรอก ${userSteps.toLocaleString()} AI อ่านได้ ${aiSteps.toLocaleString()})`;
+          alertFlag = 'TRUE'; alertReason = `ก้าวไม่ตรงกัน (กรอก ${userSteps.toLocaleString()} AI อ่านได้ ${aiSteps.toLocaleString()})`;
         } else if (dateMatch === false) {
-          alertFlag = 'TRUE';
-          alertReason = `วันที่ในภาพไม่ตรง (${day} AI อ่านได้ "${dateRaw}" → ${dateNorm || 'อ่านไม่ได้'})`;
+          alertFlag = 'TRUE'; alertReason = `วันที่ในภาพไม่ตรง (${day} AI อ่านได้ "${dateRaw}" → ${dateNorm || 'อ่านไม่ได้'})`;
         } else if (dateMatch == null) {
-          alertFlag = 'TRUE';
-          alertReason = `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}")`;
+          alertFlag = 'TRUE'; alertReason = `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}")`;
         } else if (conf < 0.85) {
-          alertFlag = 'TRUE';
-          alertReason = `ความมั่นใจต่ำ (${Math.round(conf * 100)}%)`;
+          alertFlag = 'TRUE'; alertReason = `ความมั่นใจต่ำ (${Math.round(conf * 100)}%)`;
         } else {
-          alertFlag = 'FALSE';
-          alertReason = '';
+          alertFlag = 'FALSE'; alertReason = '';
         }
       }
 

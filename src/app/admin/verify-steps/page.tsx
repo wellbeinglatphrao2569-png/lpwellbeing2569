@@ -125,18 +125,43 @@ export default function VerifyStepsPage() {
     return m;
   }, [users]);
 
-  async function load() {
-    setLoading(true);
+  async function load(opts?: { background?: boolean; forceRefresh?: boolean }) {
+    const bg = !!opts?.background;
+    if (!bg) setLoading(true);
     const [s, u] = await Promise.all([
-      fetchData<StepsLog[]>('steps'),
-      fetchData<User[]>('users'),
+      fetchData<StepsLog[]>('steps', undefined, { forceRefresh: !!opts?.forceRefresh }),
+      fetchData<User[]>('users', undefined, { forceRefresh: !!opts?.forceRefresh }),
     ]);
     if (s) setSteps(s);
     if (u) setUsers(u);
-    setLoading(false);
+    if (!bg) setLoading(false);
+  }
+
+  // optimistic patch แทน reload ทั้งตาราง
+  function patchStepStatus(recordId: string, status: 'Approved' | 'Rejected', auditorId: string, rejectReason?: string, newSteps?: number) {
+    setSteps(prev => prev.map(s => {
+      if (s.Record_ID !== recordId) return s;
+      return {
+        ...s,
+        Status: status,
+        Auditor_ID: auditorId,
+        Reject_Reason: status === 'Rejected' ? (rejectReason || s.Reject_Reason) : s.Reject_Reason,
+        Steps_Count: (status === 'Approved' && newSteps != null && !isNaN(newSteps)) ? newSteps : s.Steps_Count,
+        Reviewed_At: new Date().toISOString(),
+      };
+    }));
   }
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/set-state-in-effect
+
+  // background revalidate เมื่อกลับมา visible (ช่วยกรณีอีกคนอนุมัติไปแล้ว)
+  useEffect(() => {
+    const onVis = () => { if (!document.hidden) load({ background: true }); };
+    const onFocus = () => load({ background: true });
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onFocus);
+    return () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onFocus); };
+  }, []);
 
   const imageItems: VerifyItem[] = useMemo(() => {
     return steps
@@ -236,7 +261,7 @@ export default function VerifyStepsPage() {
     setBusyId(item.Record_ID);
     setNotice(null);
     setResultPopup(null);
-    const res = await postData('update-step-status', {
+    const res: any = await postData('update-step-status', {
       Record_ID: item.Record_ID,
       Status: status,
       Auditor_ID: user.User_ID,
@@ -255,11 +280,22 @@ export default function VerifyStepsPage() {
       setEditedSteps('');
       setVerifyEditedSteps('');
       setVerifyItem(null);
-      load();
+      patchStepStatus(item.Record_ID, status, user.User_ID, reason, stepsValue.trim() !== '' ? newSteps : undefined);
+      // ไม่ load() ทั้งตารางแล้ว — patch ทันที + revalidate เบาในพื้นหลังหลัง 1.5s
+      setTimeout(() => load({ background: true, forceRefresh: true }), 1500);
     } else {
-      const msg = res?.message || 'ดำเนินการไม่สำเร็จ';
-      setNotice({ type: 'error', text: msg });
-      setResultPopup({ type: 'error', text: msg });
+      if (res?.error === 'ALREADY_REVIEWED' || String(res?.message||'').includes('ตรวจสอบไปแล้ว')) {
+        const msg = res?.message || 'รายการนี้ถูกตรวจสอบไปแล้วโดยผู้อื่น';
+        setNotice({ type: 'error', text: msg });
+        setResultPopup({ type: 'error', text: msg });
+        patchStepStatus(item.Record_ID, (res.currentStatus as any) || status, res.auditorId || '', reason);
+        setSelected(null);
+        setVerifyItem(null);
+      } else {
+        const msg = res?.message || 'ดำเนินการไม่สำเร็จ';
+        setNotice({ type: 'error', text: msg });
+        setResultPopup({ type: 'error', text: msg });
+      }
     }
   }
 
@@ -272,11 +308,12 @@ export default function VerifyStepsPage() {
         setResultPopup({ type: 'error', text: 'กรุณาระบุเหตุผลที่ไม่อนุมัติ' });
         return;
       }
-      setBusyId(verifyItem.Record_ID);
+      const rid = verifyItem.Record_ID;
+      setBusyId(rid);
       setNotice(null);
       setResultPopup(null);
-      const res = await postData('update-step-status', {
-        Record_ID: verifyItem.Record_ID,
+      const res: any = await postData('update-step-status', {
+        Record_ID: rid,
         Status: 'Rejected',
         Auditor_ID: user.User_ID,
         Reject_Reason: verifyRejectReason.trim(),
@@ -288,15 +325,24 @@ export default function VerifyStepsPage() {
         setNotice({ type: 'success', text: msg });
         setResultPopup({ type: 'success', text: msg });
         setTimeout(() => setResultPopup(null), 2500);
+        patchStepStatus(rid, 'Rejected', user.User_ID, verifyRejectReason.trim(), verifyEditedSteps.trim()!==''?parseInt(verifyEditedSteps,10):undefined);
         setVerifyItem(null);
         setVerifyEditedSteps('');
         setVerifyRejectReason('');
         setVerifyMode('approve');
-        load();
+        setTimeout(() => load({ background: true, forceRefresh: true }), 1500);
       } else {
-        const msg = res?.message || 'ดำเนินการไม่สำเร็จ';
-        setNotice({ type: 'error', text: msg });
-        setResultPopup({ type: 'error', text: msg });
+        if (res?.error === 'ALREADY_REVIEWED' || String(res?.message||'').includes('ตรวจสอบไปแล้ว')) {
+          const msg = res?.message || 'รายการนี้ถูกตรวจสอบไปแล้วโดยผู้อื่น';
+          setNotice({ type: 'error', text: msg });
+          setResultPopup({ type: 'error', text: msg });
+          patchStepStatus(rid, (res.currentStatus as any) || 'Rejected', res.auditorId||'', verifyRejectReason.trim());
+          setVerifyItem(null);
+        } else {
+          const msg = res?.message || 'ดำเนินการไม่สำเร็จ';
+          setNotice({ type: 'error', text: msg });
+          setResultPopup({ type: 'error', text: msg });
+        }
       }
       return;
     }
@@ -307,30 +353,40 @@ export default function VerifyStepsPage() {
       setResultPopup({ type: 'error', text: 'จำนวนก้าวที่แก้ไขต้องเป็นตัวเลขที่มากกว่า 0' });
       return;
     }
-    setBusyId(verifyItem.Record_ID);
+    const rid2 = verifyItem.Record_ID;
+    setBusyId(rid2);
     setNotice(null);
     setResultPopup(null);
-    const res = await postData('update-step-status', {
-      Record_ID: verifyItem.Record_ID,
+    const res2: any = await postData('update-step-status', {
+      Record_ID: rid2,
       Status: 'Approved',
       Auditor_ID: user.User_ID,
       Steps_Count: stepsValue.trim() !== '' ? newSteps : undefined,
     });
     setBusyId(null);
-    if (res?.success) {
-      const msg = res.message || 'อนุมัติสำเร็จ';
+    if (res2?.success) {
+      const msg = res2.message || 'อนุมัติสำเร็จ';
       setNotice({ type: 'success', text: msg });
       setResultPopup({ type: 'success', text: msg });
       setTimeout(() => setResultPopup(null), 2500);
+      patchStepStatus(rid2, 'Approved', user.User_ID, undefined, stepsValue.trim()!==''?newSteps:undefined);
       setVerifyItem(null);
       setVerifyEditedSteps('');
       setVerifyRejectReason('');
       setVerifyMode('approve');
-      load();
+      setTimeout(() => load({ background: true, forceRefresh: true }), 1500);
     } else {
-      const msg = res?.message || 'ดำเนินการไม่สำเร็จ';
-      setNotice({ type: 'error', text: msg });
-      setResultPopup({ type: 'error', text: msg });
+      if (res2?.error === 'ALREADY_REVIEWED' || String(res2?.message||'').includes('ตรวจสอบไปแล้ว')) {
+        const msg = res2?.message || 'รายการนี้ถูกตรวจสอบไปแล้วโดยผู้อื่น';
+        setNotice({ type: 'error', text: msg });
+        setResultPopup({ type: 'error', text: msg });
+        patchStepStatus(rid2, (res2.currentStatus as any) || 'Approved', res2.auditorId||'', undefined);
+        setVerifyItem(null);
+      } else {
+        const msg = res2?.message || 'ดำเนินการไม่สำเร็จ';
+        setNotice({ type: 'error', text: msg });
+        setResultPopup({ type: 'error', text: msg });
+      }
     }
   }
 

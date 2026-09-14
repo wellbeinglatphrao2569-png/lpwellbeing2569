@@ -205,23 +205,39 @@ export async function fetchSteps(date: string): Promise<number> {
   return data.totalSteps;
 }
 
-/** ดึงข้อมูลหลายวัน */
+/** ดึงข้อมูลหลายวัน — parallel 5 วันต่อ batch + sessionStorage cache */
 export async function fetchStepsRange(
   startDate: string,
   endDate: string
 ): Promise<{ date: string; steps: number }[]> {
-  const stepsList: { date: string; steps: number }[] = [];
+  const dates: string[] = [];
   const start = new Date(startDate);
   const end = new Date(endDate);
+  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) dates.push(d.toISOString().split('T')[0]);
 
-  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const dateStr = d.toISOString().split('T')[0];
-    const steps = await fetchSteps(dateStr);
-    stepsList.push({ date: dateStr, steps });
-
-    // delay เล็กน้อย
-    await new Promise((r) => setTimeout(r, 100));
+  const cacheKey = (d: string) => `fit:${d}`;
+  const cached = new Map<string, number>();
+  const toFetch: string[] = [];
+  for (const d of dates) {
+    try {
+      const v = sessionStorage.getItem(cacheKey(d));
+      if (v != null && v !== '') cached.set(d, Number(v));
+      else toFetch.push(d);
+    } catch { toFetch.push(d); }
   }
 
-  return stepsList;
+  const fetched = new Map<string, number>();
+  const chunk = 5;
+  for (let i = 0; i < toFetch.length; i += chunk) {
+    const batch = toFetch.slice(i, i + chunk);
+    const results = await Promise.all(batch.map(async (dateStr) => {
+      try { const s = await fetchSteps(dateStr); return { dateStr, s }; } catch { return { dateStr, s: 0 }; }
+    }));
+    for (const { dateStr, s } of results) {
+      fetched.set(dateStr, s);
+      try { sessionStorage.setItem(cacheKey(dateStr), String(s)); } catch {}
+    }
+  }
+
+  return dates.map(date => ({ date, steps: cached.has(date) ? cached.get(date)! : (fetched.get(date) ?? 0) }));
 }

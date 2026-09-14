@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import GlassCard from '@/components/ui/GlassCard';
 import ProfileAvatar from '@/components/ui/ProfileAvatar';
@@ -74,10 +74,10 @@ export default function DashboardPage() {
   useEffect(() => {
     const ac = new AbortController();
     let cancelled = false;
-    // ใช้ cancelled flag + AbortController ป้องกัน race เมื่อ Tab สลับเร็ว
-    fetchData<User[]>('users').then(us => { if (!cancelled && !ac.signal.aborted && us) setUsers(us); });
-    fetchData<StepsLog[]>('steps').then(steps => { if (!cancelled && !ac.signal.aborted && steps) setStepsData(steps); });
-    fetchData<SweetFree[]>('sweet-free').then(sweet => { if (!cancelled && !ac.signal.aborted && sweet) setSweetData(sweet); });
+    // gasCache จะ dedup ให้อัตโนมัติ แต่ยังส่ง signal เพื่อ abort ได้เมื่อ unmount
+    fetchData<User[]>('users', undefined, { signal: ac.signal }).then(us => { if (!cancelled && !ac.signal.aborted && us) setUsers(us); });
+    fetchData<StepsLog[]>('steps', undefined, { signal: ac.signal }).then(steps => { if (!cancelled && !ac.signal.aborted && steps) setStepsData(steps); });
+    fetchData<SweetFree[]>('sweet-free', undefined, { signal: ac.signal }).then(sweet => { if (!cancelled && !ac.signal.aborted && sweet) setSweetData(sweet); });
     return () => { cancelled = true; ac.abort(); };
   }, []);
 
@@ -85,16 +85,8 @@ export default function DashboardPage() {
   const period = periodRangeFor(tab, tab === 'weekly' ? weeklyWeekOffset : 0, monthFrom, monthTo, tab === 'weekly' ? weeklySelectedWeekStart : undefined);
   const activeRange = { startKey: period.startKey, endKey: period.endKey, periodLabel: period.periodLabel };
 
-  // Strict State Isolation (Choice A): Tab สลับ → reset loading + tabId check ป้องกัน stale
-  const [indLoading, setIndLoading] = useState(false);
-  const tabSeqRef = useRef(0);
-  useEffect(() => {
-    tabSeqRef.current += 1;
-    const myId = tabSeqRef.current;
-    setIndLoading(true);
-    const t = setTimeout(() => { if (tabSeqRef.current === myId) setIndLoading(false); }, 60);
-    return () => clearTimeout(t);
-  }, [tab, activeRange.startKey, activeRange.endKey]);
+  // ตอนนี้ข้อมูลมาจาก cache เร็วแล้ว ไม่ต้อง fake loading 60ms
+  const indLoading = false;
 
   // นับเฉพาะก้าวที่อนุมัติแล้ว — ทั้งรายบุคคลและส่วนราชการ = uncapped 100% (สเปคใหม่ 1.3)
   const perUserStepsActual = useMemo(

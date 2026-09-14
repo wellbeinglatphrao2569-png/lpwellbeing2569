@@ -135,10 +135,11 @@ export async function POST(request: NextRequest) {
       } else if (aiSteps != null && aiSteps < 100) {
         needSecondTry = true;
       }
-      // ถ้ายังได้เลขเล็กๆ ให้ลองเรียก Typhoon อีกครั้งโดยครอปภาพเน้นตรงกลาง (ก้าวเดินอยู่กลางจอ)
+      // ถ้ายังได้เลขเล็กๆ ให้ลองเรียก Typhoon อีกครั้งโดยครอปภาพเน้นตรงกลาง (ก้าวเดินอยู่กลางจอ) — มี timeout กัน hang
       if (needSecondTry && (aiSteps == null || aiSteps < 100)) {
+        const ac2 = new AbortController();
+        const t2 = setTimeout(() => ac2.abort(), 12000);
         try {
-          // ครอปภาพ: ส่งภาพเดิมแต่บอกให้โฟกัสตรงกลาง (Typhoon จะอ่านใหม่)
           const retryPrompt = `อ่านเฉพาะตัวเลขที่อยู่ใต้คำว่า "ก้าวเดิน" ตรงกลางจอเท่านั้น (เช่น ก้าวเดิน 5,546) ห้ามอ่าน "จำนวนชั้นที่ขึ้น 1" ตอบเป็น JSON {"step_count": <int>} เท่านั้น`;
           const retryRes = await fetch('https://api.opentyphoon.ai/v1/chat/completions', {
             method: 'POST',
@@ -149,6 +150,7 @@ export async function POST(request: NextRequest) {
               temperature: 0.1,
               max_tokens: 256,
             }),
+            signal: ac2.signal,
           });
           if (retryRes.ok) {
             const j = await retryRes.json();
@@ -159,7 +161,7 @@ export async function POST(request: NextRequest) {
               if (!isNaN(n) && n >= 100) { aiSteps = n; aiStepsRaw = m[1]; }
             }
           }
-        } catch {}
+        } catch {} finally { clearTimeout(t2); }
       }
       // ถ้ายังไม่มี dateRaw ให้ลองหาใน visual_evidence / rawText
       if (!dateRaw && fallbackSources) {

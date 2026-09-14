@@ -1,5 +1,5 @@
 'use client';
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import type { User } from '@/types';
 
 interface AuthContextType {
@@ -21,18 +21,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem('ladprao_user');
-    if (saved) setUser(JSON.parse(saved)); // eslint-disable-line react-hooks/set-state-in-effect
-    setLoading(false); // eslint-disable-line react-hooks/set-state-in-effect
+    try {
+      const saved = localStorage.getItem('ladprao_user');
+      if (saved) setUser(JSON.parse(saved));
+    } catch {}
+    setLoading(false);
   }, []);
+
+  const login = useCallback((u: User) => { setUser(u); try { localStorage.setItem('ladprao_user', JSON.stringify(u)); } catch {} }, []);
+  const logout = useCallback(() => { setUser(null); try { localStorage.removeItem('ladprao_user'); } catch {} }, []);
+
+  const value = useMemo<AuthContextType>(() => ({
+    user,
+    isLoggedIn: !!user,
+    isAdmin: user?.Role === 'Admin',
+    isCommittee: user?.Role === 'Committee',
+    isExecutive: false,
+    isHead: false,
+    login,
+    logout,
+  }), [user, login, logout]);
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><span className="loading loading-spinner loading-lg text-emerald-600"></span></div>;
 
-  const login = (u: User) => { setUser(u); localStorage.setItem('ladprao_user', JSON.stringify(u)); };
-  const logout = () => { setUser(null); localStorage.removeItem('ladprao_user'); };
-
   return (
-    <AuthContext.Provider value={{ user, isLoggedIn: !!user, isAdmin: user?.Role === 'Admin', isCommittee: user?.Role === 'Committee', isExecutive: false, isHead: false, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

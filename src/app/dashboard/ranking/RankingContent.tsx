@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import GlassCard from '@/components/ui/GlassCard';
@@ -60,8 +60,8 @@ export default function RankingContent() {
   useEffect(() => {
     const ac = new AbortController();
     let cancelled = false;
-    fetchData<User[]>('users').then(us => { if (!cancelled && !ac.signal.aborted && us) setUsers(us); });
-    fetchData<StepsLog[]>('steps').then(steps => { if (!cancelled && !ac.signal.aborted && steps) setStepsData(steps); });
+    fetchData<User[]>('users', undefined, { signal: ac.signal }).then(us => { if (!cancelled && !ac.signal.aborted && us) setUsers(us); });
+    fetchData<StepsLog[]>('steps', undefined, { signal: ac.signal }).then(steps => { if (!cancelled && !ac.signal.aborted && steps) setStepsData(steps); });
     return () => { cancelled = true; ac.abort(); };
   }, []);
 
@@ -77,16 +77,7 @@ export default function RankingContent() {
     }
   }, [tab, selectedWeekStart, weeks, period.weekStartKey]);
 
-  // Strict Isolation (Choice A): Tab สลับ → reset loading + tabId
-  const [indLoading, setIndLoading] = useState(false);
-  const tabSeqRef = useRef(0);
-  useEffect(() => {
-    tabSeqRef.current += 1;
-    const myId = tabSeqRef.current;
-    setIndLoading(true);
-    const t = setTimeout(() => { if (tabSeqRef.current === myId) setIndLoading(false); }, 60);
-    return () => clearTimeout(t);
-  }, [tab, activeRange.startKey, activeRange.endKey]);
+  const indLoading = false;
 
   // ── อันดับ ── ทั้งรายบุคคลและส่วนราชการ = uncapped 100% (สเปคใหม่ 1.3) — clean replace
   const perUserStepsActual = useMemo(

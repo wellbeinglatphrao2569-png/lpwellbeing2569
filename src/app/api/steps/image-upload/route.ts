@@ -43,31 +43,52 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
     }
 
-    // ห้วงเวลาบันทึก + Data Freeze
+    // ห้วงเวลา + Mode check แบบ parallel (เร็วขึ้น)
+    let windowOk = true;
+    let windowErr: string | null = null;
+    let usersForMode: any[] | null = null;
     try {
-      const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
+      const [winRes, uRes] = await Promise.all([
+        fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store', signal: request.signal }),
+        fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store', signal: request.signal }),
+      ]);
       if (winRes.ok) {
-        const win = await winRes.json();
+        const win = await winRes.json().catch(() => null);
         if (win && win.start && win.end) {
           const today = new Date().toISOString().slice(0, 10);
           if (today > String(win.end).slice(0, 10)) {
-            return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
-          }
-          const d = String(dateThai).trim().slice(0, 10);
-          if (d < String(win.start).slice(0, 10) || d > String(win.end).slice(0, 10)) {
-            return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถบันทึกวันที่ ${d} ได้` }, { status: 400 });
+            windowErr = `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)`;
+            windowOk = false;
+          } else {
+            const d = String(dateThai).trim().slice(0, 10);
+            if (d < String(win.start).slice(0, 10) || d > String(win.end).slice(0, 10)) {
+              windowErr = `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถบันทึกวันที่ ${d} ได้`;
+              windowOk = false;
+            }
           }
         }
       }
+      if (uRes.ok) {
+        const j = await uRes.json().catch(() => null);
+        if (Array.isArray(j)) usersForMode = j;
+      }
     } catch (e) {
-      console.warn('image-upload window check failed', e);
+      if ((e as Error)?.name === 'AbortError') return NextResponse.json({ error: 'คำขอถูกยกเลิก' }, { status: 499 });
+      console.warn('image-upload window/users parallel failed', e);
+    }
+    if (!windowOk && windowErr) {
+      const isFreeze = windowErr.includes('สิ้นสุดแล้ว');
+      return NextResponse.json({ error: windowErr }, { status: isFreeze ? 403 : 400 });
     }
 
     // กัน Mode 2 บันทึกเอง
     try {
-      const uRes = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
-      if (uRes.ok) {
-        const users = await uRes.json();
+      const users = usersForMode ?? await (async () => {
+        const r = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
+        if (r.ok) { const j = await r.json(); if (Array.isArray(j)) return j; }
+        return null;
+      })();
+      if (users && Array.isArray(users)) {
         if (Array.isArray(users)) {
           const target = users.find((u: any) => String(u.User_ID).trim() === String(userId).trim());
           if (target && String((target as any).Step_Record_Mode || '1').trim() === '2') {

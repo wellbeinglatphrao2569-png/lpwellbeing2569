@@ -98,7 +98,8 @@ export async function analyzeStepsImageWithTyphoon(
   const { system: systemPrompt, user: userPrompt } = buildPrompt(ctx);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 25000);
+  // ใช้ AbortSignal.timeout เป็น fallback ถ้า environment รองรับ
+  const timeout = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 20000);
 
   try {
     // ใช้ single user message เพื่อให้ typhoon-ocr 2B เข้าใจง่าย (ทดสอบแล้ว single message แม่นกว่า)

@@ -11,15 +11,33 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
   const { isAdmin, isCommittee, logout, isLoggedIn, user } = useAuth();
   const [pendingCount, setPendingCount] = useState<number>(0);
 
-  // นับ Pending ต่างฝ่ายสำหรับ badge แดงมุมเมนูตรวจสอบ (หลีกเลี่ยง setState sync ใน effect)
+  // นับ Pending ต่างฝ่ายสำหรับ badge แดงมุมเมนูตรวจสอบ — 30s realtime แต่หยุดเมื่อ tab hidden + ใช้ cache
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
+    let hidden = false;
+
+    const onVisibility = () => {
+      hidden = document.hidden;
+      if (!hidden) load(); // กลับมา visible ให้รีเฟรชทันที
+    };
+
     const load = async () => {
+      if (cancelled || hidden) return;
       if (!isLoggedIn || !isAdmin) {
         if (!cancelled) setPendingCount(0);
         return;
       }
+      // ลอง endpoint เบา steps-pending-count ก่อน (ส่ง viewerId เพื่อกรองต่างฝ่ายฝั่ง server)
+      try {
+        const viewerId = (user as any)?.User_ID ? String((user as any).User_ID) : '';
+        const pendingRes = await fetchData<{ count: number }>('steps-pending-count', viewerId ? { viewerId } : undefined).catch(() => null);
+        if (pendingRes && typeof (pendingRes as any).count === 'number' && !cancelled) {
+          setPendingCount((pendingRes as any).count);
+          return;
+        }
+      } catch {}
+
       try {
         const [stepsData, usersData] = await Promise.all([
           fetchData<StepsLog[]>('steps'),
@@ -41,10 +59,20 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
         if (!cancelled) setPendingCount(0);
       }
     };
+    document.addEventListener('visibilitychange', onVisibility);
+    hidden = document.hidden;
     load();
     timer = setInterval(load, 30000);
-    return () => { cancelled = true; if (timer) clearInterval(timer); };
-  }, [isLoggedIn, isAdmin, user?.Department]);
+    // ฟัง invalidate จาก api.ts เมื่อมีการ verify → รีเฟรชทันที
+    const onStorage = () => load();
+    window.addEventListener('focus', onStorage);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onStorage);
+    };
+  }, [isLoggedIn, isAdmin, user?.Department, (user as any)?.User_ID]);
 
   const mainItems = [
     { href: '/dashboard', label: 'แดชบอร์ด', icon: 'dashboard' },

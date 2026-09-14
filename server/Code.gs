@@ -371,6 +371,21 @@ function doGet(e) {
       case 'audit-log':
         result = getData_('Audit_Log');
         break;
+      case 'steps-pending-count': {
+        // นับ Pending ต่างฝ่ายแบบเบา (ไม่ส่งทั้งตาราง) สำหรับ Sidebar badge
+        const viewerId = e && e.parameter ? String(e.parameter.viewerId || '').trim() : '';
+        const stepsAll = getData_('Steps_Log');
+        const usersAll = getData_('Users');
+        const deptByUser = {};
+        usersAll.forEach(function(u){ if(u.User_ID) deptByUser[String(u.User_ID)] = u.Department || ''; if(u.Personnel_ID) deptByUser[String(u.Personnel_ID)] = u.Department || ''; });
+        let viewerDept = '';
+        if (viewerId) viewerDept = deptByUser[viewerId] || '';
+        // ถ้าไม่มี viewerId ให้ส่ง total pending ทั้งหมด
+        let pending = stepsAll.filter(function(s){ return s.Status === 'Pending' && (s.Image_Drive_ID || s.Record_Method === 'ภาพถ่าย'); });
+        if (viewerDept) pending = pending.filter(function(s){ const d = deptByUser[String(s.User_ID)] || ''; return String(d) !== String(viewerDept); });
+        result = { count: pending.length, totalPending: stepsAll.filter(function(s){ return s.Status==='Pending'; }).length };
+        break;
+      }
       default:
         result = { status: 'ok', project: 'ลาดพร้าวสร้างสุข', version: '1.0.0' };
     }
@@ -2414,6 +2429,10 @@ function uploadProofImage_(base64, userId, fullName) {
  * เงื่อนไข: ผู้ตรวจสอบ (Auditor) ต้องเป็น "บุคคลต่างฝ่าย" กับผู้บันทึก
  */
 function updateStepStatus_(data) {
+  // กัน race: ใช้ LockService เพื่อให้ 2 admin กดพร้อมกันไม่ทับกัน
+  var __lock = null;
+  try { __lock = LockService.getScriptLock(); __lock.tryLock(8000); } catch(e) {}
+  try {
   ensureHeaders_('Steps_Log', STEPS_HEADERS);
   const sheet = getSheet_('Steps_Log');
   const rows = sheet.getDataRange().getValues();
@@ -2448,6 +2467,15 @@ function updateStepStatus_(data) {
     rowIndex = pendingIdx >= 0 ? pendingIdx : candidates[candidates.length - 1];
     submitterId = rows[rowIndex][userCol - 1];
     console.warn('updateStepStatus_: duplicate Record_ID ' + data.Record_ID + ' found ' + candidates.length + ' rows, picking row ' + (rowIndex+1));
+  }
+
+  // ตรวจว่ายัง Pending อยู่ไหม — กันตรวจซ้ำพร้อมกัน (optimistic lock)
+  var __statusCol = col('Status');
+  var __curStatus = __statusCol>0 ? String(rows[rowIndex][__statusCol-1]||'').trim() : '';
+  if (__curStatus !== 'Pending') {
+    var __auditorId = col('Auditor_ID')>0 ? String(rows[rowIndex][col('Auditor_ID')-1]||'').trim() : '';
+    var __reviewedAt = col('Reviewed_At')>0 ? String(rows[rowIndex][col('Reviewed_At')-1]||'').trim() : '';
+    return { success: false, error: 'ALREADY_REVIEWED', message: 'รายการนี้ถูกตรวจสอบไปแล้ว ('+__curStatus+')' + (__auditorId? ' โดย '+__auditorId:'' ) + (__reviewedAt? ' เมื่อ '+__reviewedAt:''), currentStatus: __curStatus, auditorId: __auditorId, reviewedAt: __reviewedAt };
   }
 
   // ⚠️ ตรวจสอบ "บุคคลต่างฝ่าย" — ผู้ตรวจต้องอยู่คนละฝ่ายกับผู้บันทึกก้าว
@@ -2501,6 +2529,7 @@ function updateStepStatus_(data) {
   });
 
   return { success: true, message: newStatus === 'Approved' ? 'อนุมัติจำนวนก้าวสำเร็จ' : 'ไม่อนุมัติจำนวนก้าวแล้ว' };
+  } finally { try { if (__lock) __lock.releaseLock(); } catch(e) {} }
 }
 
 /**

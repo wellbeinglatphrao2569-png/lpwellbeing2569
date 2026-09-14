@@ -37,7 +37,7 @@ const CONFIG = {
 const SWEET_FREE_HEADERS = ['Entry_ID','User_ID','Wednesday_Date','Status','Logged_By','Recorded_At','Reason'];
 const STEPS_HEADERS = ['Record_ID','User_ID','Date_Thai','Steps_Count','Submitted_Steps','Record_Method','Image_Drive_ID','AI_Steps','AI_Confidence','Date_Match','Alert_Flag','Alert_Reason','Status','Week_Number','Auditor_ID','Recorded_At','Reject_Reason','Reviewed_At','Notes'];
 const AUDIT_HEADERS = ['Audit_ID','Record_ID','Action','User_ID','Detail','Timestamp'];
-const USER_HEADERS = ['User_ID','Prefix','Full_Name','Nickname','Position','Department','Birth_Date','Gender','Weight_kg','Height_cm','BMI_Value','Waist_Inch','Role','Password','Total_Points','Level','Personnel_ID','Registration_Status','Created_By','Created_Date','First_Name','Last_Name','Profile_Image','Activities','Step_Record_Mode'];
+const USER_HEADERS = ['User_ID','Prefix','Full_Name','Nickname','Position','Department','Birth_Date','Gender','Weight_kg','Height_cm','BMI_Value','Waist_Inch','Role','Password','Total_Points','Level','Personnel_ID','Registration_Status','Created_By','Created_Date','First_Name','Last_Name','Profile_Image','Activities','Step_Record_Mode','Device_Token','Device_Updated_At'];
 const PASSWORD_SALT_LENGTH = 16;
 const WEIGHT_AFTER_HEADERS = ['Record_ID','User_ID','Weight_kg','Height_cm','BMI_Value','Recorded_At'];
 const BASELINE_HEADERS = ['Record_ID','User_ID','Weight_kg','Height_cm','BMI_Value','Source','Recorded_At'];
@@ -302,6 +302,8 @@ function doGet(e) {
           case 'save-google-fit-link': result = saveGoogleFitLink_(e.parameter); break;
           case 'reset-google-fit-links': result = resetGoogleFitLinks_(e.parameter); break;
           case 'reset-user-google-fit-link': result = resetUserGoogleFitLink_(e.parameter); break;
+          case 'validate-session': result = validateSession_(e.parameter); break;
+          case 'logout': result = logoutUser_(e.parameter); break;
           case 'update-step-status': result = updateStepStatus_(e.parameter); break;
           case 'search-personnel': result = searchPersonnel_(e); break;
           case 'update-personnel-status': result = updatePersonnelStatus_(e.parameter); break;
@@ -411,6 +413,12 @@ function doPost(e) {
         break;
       case 'login':
         result = loginUser_(data);
+        break;
+      case 'validate-session':
+        result = validateSession_(data);
+        break;
+      case 'logout':
+        result = logoutUser_(data);
         break;
       case 'add-step':
         result = addStepLog_(data);
@@ -1674,7 +1682,63 @@ function loginUser_(data) {
   const user = users.find(u => String(u.User_ID) === String(data.User_ID));
   if (!user) return { success: false, message: 'ไม่พบบัญชีผู้ใช้' };
   if (!verifyPassword_(data.Password, user.Password)) return { success: false, message: 'รหัสผ่านไม่ถูกต้อง' };
-  return { success: true, user };
+  // Single-device: ถ้ามี Device_Token ค้างอยู่และไม่ใช่เครื่องเดิม ต้องถามยืนยันก่อน
+  ensureHeaders_('Users', USER_HEADERS);
+  const sheet = getSheet_('Users');
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0] || [];
+  const uidCol = headers.indexOf('User_ID') + 1;
+  const tokenCol = headers.indexOf('Device_Token') + 1;
+  const updatedCol = headers.indexOf('Device_Updated_At') + 1;
+  let rowIndex = -1;
+  for (let i = 1; i < rows.length; i++) if (String(rows[i][uidCol - 1]) === String(data.User_ID)) { rowIndex = i; break; }
+  if (rowIndex < 0) return { success: false, message: 'ไม่พบแถวผู้ใช้' };
+  const storedToken = tokenCol > 0 ? String(rows[rowIndex][tokenCol - 1] || '').trim() : '';
+  const incomingToken = String(data.Device_Token || '').trim();
+  const force = String(data.Force || '').trim() === 'true' || String(data.Force || '').trim() === '1';
+  if (storedToken && incomingToken && storedToken !== incomingToken && !force) {
+    const lastAt = updatedCol > 0 ? String(rows[rowIndex][updatedCol - 1] || '').trim() : '';
+    return { success: false, error: 'NEED_CONFIRM', message: 'บัญชีนี้มีการใช้งานค้างอยู่บนอุปกรณ์อื่น' + (lastAt ? ' (เมื่อ ' + lastAt + ')' : '') + ' — ต้องการออกจากเครื่องเดิมและเข้าเครื่องนี้แทนหรือไม่?', lastAt: lastAt };
+  }
+  const newToken = incomingToken || Utilities.getUuid();
+  if (tokenCol > 0) sheet.getRange(rowIndex + 1, tokenCol).setValue(newToken);
+  if (updatedCol > 0) sheet.getRange(rowIndex + 1, updatedCol).setValue(getTimestamp_());
+  const safeUser = {};
+  for (const k in user) if (k !== 'Password') safeUser[k] = user[k];
+  safeUser.Device_Token = newToken;
+  return { success: true, user: safeUser, deviceToken: newToken };
+}
+
+function validateSession_(data) {
+  const uid = String(data.User_ID || '').trim();
+  const token = String(data.Device_Token || '').trim();
+  if (!uid || !token) return { valid: false, reason: 'missing' };
+  const user = getData_('Users').find(u => String(u.User_ID) === uid);
+  if (!user) return { valid: false, reason: 'not_found' };
+  const stored = String(user.Device_Token || '').trim();
+  if (!stored) return { valid: true, reason: 'no_token_yet' };
+  return { valid: stored === token, reason: stored === token ? 'ok' : 'kicked', stored: stored.slice(0,8)+'...', incoming: token.slice(0,8)+'...' };
+}
+
+function logoutUser_(data) {
+  const uid = String(data.User_ID || '').trim();
+  const token = String(data.Device_Token || '').trim();
+  if (!uid) return { success: false, message: 'User_ID required' };
+  ensureHeaders_('Users', USER_HEADERS);
+  const sheet = getSheet_('Users');
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0] || [];
+  const uidCol = headers.indexOf('User_ID') + 1;
+  const tokenCol = headers.indexOf('Device_Token') + 1;
+  if (uidCol < 1 || tokenCol < 1) return { success: true };
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][uidCol - 1]) === uid) {
+      const stored = String(rows[i][tokenCol - 1] || '').trim();
+      if (!token || stored === token || stored === '') sheet.getRange(i + 1, tokenCol).setValue('');
+      break;
+    }
+  }
+  return { success: true };
 }
 
 function addStepLog_(data) {
@@ -3212,6 +3276,9 @@ function setStepRecordMode_(data) {
  * ป้องกันการบันทึกซ้ำ: ถ้าวันนั้นมี Approved แล้ว จะข้ามไป (ไม่เขียนทับ)
  */
 function addBatchSteps_(data) {
+  var __batchLock = null;
+  try { __batchLock = LockService.getDocumentLock(); if (!__batchLock.tryLock(30000)) return { success: false, error: 'BUSY', message: 'ระบบกำลังบันทึกชุดอื่นอยู่ — กรุณารอ 10 วินาทีแล้วลองใหม่ (คิวบันทึก)' }; } catch(e) {}
+  try {
   ensureHeaders_('Steps_Log', STEPS_HEADERS);
   
   // 1. ตรวจสิทธิ์: ต้องเป็น Admin
@@ -3303,10 +3370,16 @@ function addBatchSteps_(data) {
       continue;
     }
     
-    // อัปโหลดรูปภาพ
+    // อัปโหลดรูปภาพ — throttle กัน Drive 429
     var imageDriveId = '';
     if (item.Image_Base64) {
+      Utilities.sleep(200);
       var uploaded = uploadProofImage_(item.Image_Base64, userId, targetUser.Full_Name || '');
+      if (uploaded && uploaded.error) {
+        // ลองอีกครั้งหลัง sleep
+        Utilities.sleep(600);
+        uploaded = uploadProofImage_(item.Image_Base64, userId, targetUser.Full_Name || '');
+      }
       if (uploaded && uploaded.error) {
         details.push({ User_ID: userId, Day: dayStr, status: 'error', message: 'อัปโหลดรูปไม่สำเร็จ: ' + uploaded.error });
         errors++;
@@ -3419,6 +3492,7 @@ function addBatchSteps_(data) {
     errors: errors,
     details: details
   };
+  } finally { try { if (__batchLock) __batchLock.releaseLock(); } catch(e) {} }
 }
 
 /** แปลง Date_Thai เป็น key YYYY-MM-DD (local) */

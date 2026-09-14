@@ -28,8 +28,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, []);
 
-  const login = useCallback((u: User) => { setUser(u); try { localStorage.setItem('ladprao_user', JSON.stringify(u)); } catch {} }, []);
-  const logout = useCallback(() => { setUser(null); try { localStorage.removeItem('ladprao_user'); } catch {} }, []);
+  const login = useCallback((u: User) => {
+    setUser(u);
+    try {
+      localStorage.setItem('ladprao_user', JSON.stringify(u));
+      if ((u as any).Device_Token) localStorage.setItem('ladprao_session', String((u as any).Device_Token));
+    } catch {}
+  }, []);
+  const logout = useCallback(() => {
+    try {
+      const uid = user?.User_ID ? String(user.User_ID) : '';
+      const token = (() => { try { return localStorage.getItem('ladprao_session') || ''; } catch { return ''; } })();
+      if (uid && token) {
+        // fire-and-forget ล้าง token ฝั่ง server
+        import('@/services/api').then(m => (m as any).postDataJson?.('logout', { User_ID: uid, Device_Token: token }).catch(() => {})).catch(() => {});
+      }
+    } catch {}
+    setUser(null);
+    try { localStorage.removeItem('ladprao_user'); localStorage.removeItem('ladprao_session'); } catch {}
+  }, [user]);
+
+  // Single-device poll: ถ้าโดนเตะให้ redirect ไป /login?kicked=1
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const check = async () => {
+      if (cancelled || document.hidden) return;
+      const token = (() => { try { return localStorage.getItem('ladprao_session') || ''; } catch { return ''; } })();
+      const uid = user.User_ID ? String(user.User_ID) : '';
+      if (!uid || !token) return;
+      try {
+        const { postDataJson } = await import('@/services/api');
+        const res: any = await postDataJson('validate-session', { User_ID: uid, Device_Token: token });
+        if (cancelled) return;
+        if (res && res.valid === false) {
+          // โดนเตะ — ล้างแล้ว redirect
+          try { localStorage.removeItem('ladprao_user'); localStorage.removeItem('ladprao_session'); } catch {}
+          setUser(null);
+          window.location.href = '/login?kicked=1';
+        }
+      } catch {}
+    };
+    // ตรวจทันทีหลัง login และทุก 60s
+    check();
+    timer = setInterval(check, 60000);
+    const onVis = () => { if (!document.hidden) check(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { cancelled = true; if (timer) clearInterval(timer); document.removeEventListener('visibilitychange', onVis); };
+  }, [user]);
 
   const value = useMemo<AuthContextType>(() => ({
     user,

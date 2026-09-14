@@ -1,8 +1,10 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { postData } from '@/services/api';
+import { postDataJson } from '@/services/api';
+import { getOrCreateDeviceId, setSessionToken } from '@/lib/device';
+import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import RegisterForm from '@/components/auth/RegisterForm';
 
 type Tab = 'login' | 'register';
@@ -14,20 +16,44 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [confirmKick, setConfirmKick] = useState<{ message: string; lastAt?: string } | null>(null);
+  const [kickedMsg, setKickedMsg] = useState('');
   const { login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('kicked') === '1') {
+      setKickedMsg('คุณถูกออกจากระบบเนื่องจากมีการเข้าสู่ระบบบนอุปกรณ์อื่น — กรุณาเข้าสู่ระบบใหม่หากต้องการใช้งานต่อ');
+    }
+  }, [searchParams]);
+
+  const doLogin = async (force: boolean) => {
+    const deviceToken = getOrCreateDeviceId();
+    const payload: Record<string, unknown> = { User_ID: userId, Password: password, Device_Token: deviceToken };
+    if (force) payload.Force = 'true';
+    const res: any = await postDataJson('login', payload);
+    if (res?.success) {
+      const token = res.deviceToken || deviceToken;
+      setSessionToken(token);
+      const userWithToken = { ...res.user, Device_Token: token };
+      login(userWithToken);
+      router.push(res.user?.Role === 'Admin' ? '/admin/personnel' : '/dashboard');
+      return true;
+    }
+    if (res?.error === 'NEED_CONFIRM') {
+      setConfirmKick({ message: res.message || 'บัญชีนี้กำลังใช้งานบนอุปกรณ์อื่น ต้องการออกจากเครื่องเดิมหรือไม่?', lastAt: res.lastAt });
+      return false;
+    }
+    setError(res?.message || 'รหัสผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง');
+    return false;
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setKickedMsg('');
     try {
-      const res = await postData('login', { User_ID: userId, Password: password });
-      if (res?.success) {
-        login(res.user);
-        router.push(res.user?.Role === 'Admin' ? '/admin/personnel' : '/dashboard');
-      } else {
-        setError(res?.message || 'รหัสผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง');
-      }
+      await doLogin(false);
     } catch {
       setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองอีกครั้ง');
     }
@@ -127,6 +153,11 @@ export default function LoginPage() {
                   </div>
                 </div>
 
+                {kickedMsg && (
+                  <div className="bg-amber-500/20 border border-amber-400/40 rounded-xl px-4 py-3 animate-slide-up">
+                    <p className="text-amber-100 text-sm text-center">⚠️ {kickedMsg}</p>
+                  </div>
+                )}
                 {error && (
                   <div className="bg-red-500/15 border border-red-400/30 rounded-xl px-4 py-3 animate-slide-up">
                     <p className="text-red-200 text-sm text-center">{error}</p>
@@ -163,6 +194,21 @@ export default function LoginPage() {
           )}
         </div>
       </div>
+      <ConfirmPopup
+        open={!!confirmKick}
+        title="ยืนยันการเข้าใช้งาน"
+        message={confirmKick?.message || ''}
+        variant="warning"
+        confirmLabel="ออกจากเครื่องเดิมและเข้าเครื่องนี้"
+        cancelLabel="ยกเลิก"
+        onConfirm={async () => {
+          setConfirmKick(null);
+          setLoading(true);
+          try { await doLogin(true); } catch { setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้'); }
+          setLoading(false);
+        }}
+        onClose={() => setConfirmKick(null)}
+      />
     </div>
   );
 }

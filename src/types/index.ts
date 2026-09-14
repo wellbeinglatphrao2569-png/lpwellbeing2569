@@ -8,6 +8,7 @@ export interface User {
   Created_By?: string; Created_Date?: string; LGBTQ_Identity?: string;
   First_Name?: string; Last_Name?: string; Profile_Image?: string; Activities?: string;
   Step_Record_Mode?: '1' | '2';
+  Device_Token?: string; Device_Updated_At?: string;
 }
 export interface StepsLog {
   Record_ID: string; User_ID: string; Date_Thai: string; Steps_Count: number;

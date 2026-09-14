@@ -429,55 +429,138 @@ export default function BatchStepsPage(){
     for(const a of analyzed) mapAi.set(`${a.uid}|${a.day}`, a);
     const totalToSave = payloadCandidates.length;
     setSaving(true);
-    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: 'กำลังอัปโหลด' });
-    let simPercent = 0;
-    const simTimer = setInterval(()=>{
-      simPercent = Math.min(90, simPercent + Math.random()*6 + 2);
-      setSavingProgress(prev=> prev ? { ...prev, percent: Math.round(simPercent), done: Math.round((simPercent/100)*prev.total) } : prev);
-    }, 450);
+    // adaptive chunk ตามเน็ต — เริ่ม 5, ถ้าเน็ตช้าลด ถูก 413/429 ลดอีก
+    const conn: any = (navigator as any).connection;
+    const eff = conn?.effectiveType || '';
+    let chunkSize = 5;
+    if (eff === 'slow-2g' || eff === '2g') chunkSize = 3;
+    else if (eff === '3g') chunkSize = 5;
+    else if (eff === '4g') chunkSize = 7;
+    // ประมาณขนาด payload ต่อ chunk เพื่อกันเกิน 4MB
+    const estimatePayloadSize = (chunk: any[]) => JSON.stringify(chunk).length;
+    const allPayloadSteps: any[] = [];
+    for(const c of payloadCandidates){
+      const ai = mapAi.get(`${c._uid}|${c._day}`);
+      allPayloadSteps.push({
+        User_ID: c._uid,
+        Day: c._day,
+        Steps_Count: c._steps,
+        Image_Base64: c._preview,
+        AI_Steps: ai?.aiSteps != null ? String(ai.aiSteps) : (ai?.aiStepsRaw || ''),
+        AI_Confidence: ai?.confidence != null ? String(ai.confidence) : '',
+        Date_In_Image: ai?.dateRaw || ai?.dateNormalized || '',
+        Date_Match: ai?.dateMatch === true ? 'TRUE' : ai?.dateMatch === false ? 'FALSE' : '',
+        Date_Normalized: ai?.dateNormalized || '',
+        Alert_Flag: ai?.alert ? 'TRUE' : 'FALSE',
+        Alert_Reason: ai?.alertReason || '',
+        Notes: ai?.aiStepsRaw ? `AIอ่าน: ${ai.aiStepsRaw} | วันที่ดิบ: ${ai.dateRaw || '—'}` : ''
+      });
+    }
+    // ถ้า chunk ใหญ่เกิน 3.5MB ให้ลด chunkSize อัตโนมัติ
+    while (chunkSize > 3) {
+      const sample = allPayloadSteps.slice(0, chunkSize);
+      if (estimatePayloadSize(sample) < 3.5 * 1024 * 1024) break;
+      chunkSize--;
+    }
+    setSavingProgress({ total: totalToSave, done: 0, percent: 0, model: `กำลังอัปโหลด (ชุดละ ${chunkSize} รายการ)` });
     try{
-      const payloadSteps: any[] = [];
-      for(const c of payloadCandidates){
-        const ai = mapAi.get(`${c._uid}|${c._day}`);
-        payloadSteps.push({
-          User_ID: c._uid,
-          Day: c._day,
-          Steps_Count: c._steps,
-          Image_Base64: c._preview,
-          AI_Steps: ai?.aiSteps != null ? String(ai.aiSteps) : (ai?.aiStepsRaw || ''),
-          AI_Confidence: ai?.confidence != null ? String(ai.confidence) : '',
-          Date_In_Image: ai?.dateRaw || ai?.dateNormalized || '',
-          Date_Match: ai?.dateMatch === true ? 'TRUE' : ai?.dateMatch === false ? 'FALSE' : '',
-          Date_Normalized: ai?.dateNormalized || '',
-          Alert_Flag: ai?.alert ? 'TRUE' : 'FALSE',
-          Alert_Reason: ai?.alertReason || '',
-          Notes: ai?.aiStepsRaw ? `AIอ่าน: ${ai.aiStepsRaw} | วันที่ดิบ: ${ai.dateRaw || '—'}` : ''
-        });
-      }
-      // ตรวจว่าจะมีการเขียนทับหรือไม่ — แจ้งเตือนตามสเปค 2.2
-      const willOverwrite = payloadSteps.some(p=> existingMap.has(`${p.User_ID}|${p.Day}`));
+      const payloadStepsForMsg = allPayloadSteps;
+      const willOverwrite = payloadStepsForMsg.some(p=> existingMap.has(`${p.User_ID}|${p.Day}`));
       if(willOverwrite && !allowOverwrite) {
         setResultPopup({type:'error', title:'มีวันที่ซ้ำ', message:'บางวันมีข้อมูลอนุมัติแล้ว — หากต้องการแทนที่ให้ติ๊ก "อนุญาตแทนที่วันที่บันทึกแล้ว" หรือบันทึกจะข้ามรายการเหล่านั้น'});
-        // ยังให้ GAS ตัดสินใจข้ามเอง
       }
-      const res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user!.User_ID, Logged_Department: actorDepartment, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: payloadSteps }) });
-      const data = await res.json().catch(()=>({}));
-      clearInterval(simTimer);
-      if(data?.aiApproved !== undefined || data?.aiPending !== undefined){
-        setSavingProgress({ total: payloadSteps.length, done: payloadSteps.length, percent: 100, model: `เสร็จสิ้น — อนุมัติ ${data.aiApproved??0} · รอต่างฝ่ายตรวจ ${data.aiPending??0}` });
-      } else {
-        setSavingProgress({ total: payloadSteps.length, done: payloadSteps.length, percent: 100, model: 'เสร็จสิ้น — กำลังสรุปผล' });
+      // ส่งแบบ chunk วน พร้อม retry + friendlyThai
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      let aggSaved = 0, aggSkipped = 0, aggErrors = 0, aggAiApproved = 0, aggAiPending = 0;
+      let lastData: any = null;
+      let done = 0;
+      for (let idx = 0; idx < allPayloadSteps.length; idx += chunkSize) {
+        const chunk = allPayloadSteps.slice(idx, idx + chunkSize);
+        const chunkNo = Math.floor(idx / chunkSize) + 1;
+        const totalChunks = Math.ceil(allPayloadSteps.length / chunkSize);
+        setSavingProgress({ total: totalToSave, done, percent: Math.round((done / totalToSave) * 100), model: `กำลังอัปโหลดชุด ${chunkNo}/${totalChunks} (${done}/${totalToSave} รายการ)` });
+        const t0 = Date.now();
+        let res: Response | null = null;
+        let data: any = null;
+        let attempt = 0;
+        const maxAttempts = 3;
+        while (attempt < maxAttempts) {
+          try {
+            res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user!.User_ID, Logged_Department: actorDepartment, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: chunk }) });
+            const ct = res.headers.get('content-type') || '';
+            if (!ct.includes('application/json')) {
+              const txt = await res.text().catch(()=> '');
+              throw new Error(friendlyThai(txt, res.status));
+            }
+            data = await res.json().catch(async () => {
+              const txt2 = await res!.text().catch(()=> '');
+              throw new Error(friendlyThai(txt2, res!.status));
+            });
+            if (!res.ok || data.error) throw new Error(friendlyThai(data.error || `HTTP ${res.status}`, res.status));
+            break; // success
+          } catch (e: any) {
+            attempt++;
+            const msg = e?.message || '';
+            const isHtml = msg.includes('<!DOCTYPE') || msg.includes('ppConfig') || msg.includes('<html');
+            const isBusy = msg.includes('กำลังบันทึก') || msg.includes('BUSY') || msg.includes('คิว');
+            const isTooLarge = msg.includes('ใหญ่เกิน') || msg.includes('413');
+            if (attempt >= maxAttempts) throw e;
+            // ถ้า BUSY/429 ให้รอนานขึ้น, ถ้า 413 ให้ลด chunk
+            if (isTooLarge && chunk.length > 3) {
+              chunkSize = Math.max(3, chunkSize - 1);
+              // แบ่ง chunk นี้ใหม่เป็น 2 ก้อนเล็ก
+              const half = Math.ceil(chunk.length / 2);
+              const sub1 = chunk.slice(0, half);
+              const sub2 = chunk.slice(half);
+              // ส่ง sub1 ก่อน
+              res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user!.User_ID, Logged_Department: actorDepartment, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: sub1 }) });
+              data = await res.json().catch(()=> ({}));
+              if (!res.ok || (data as any)?.error) throw new Error(friendlyThai((data as any)?.error || `HTTP ${res.status}`, res.status));
+              aggSaved += (data as any)?.saved ?? sub1.length; aggSkipped += (data as any)?.skipped ?? 0; aggErrors += (data as any)?.errors ?? 0; aggAiApproved += (data as any)?.aiApproved ?? 0; aggAiPending += (data as any)?.aiPending ?? 0;
+              done += sub1.length;
+              setSavingProgress({ total: totalToSave, done, percent: Math.round((done/totalToSave)*100), model: `กำลังอัปโหลดชุด ${chunkNo}/${totalChunks} (${done}/${totalToSave})` });
+              // เหลือ sub2 ไว้ส่งรอบถัดไป โดยแก้ idx ให้วนมาใหม่
+              allPayloadSteps.splice(idx + half, 0, ...[]); // no-op, แค่ให้ loop ถัดไปจัดการ
+              // ใส่ sub2 กลับเข้า queue หน้า
+              allPayloadSteps.splice(idx + sub1.length, 0, ...sub2.slice(0,0)); // placeholder
+              // ส่ง sub2 ต่อทันที
+              res = await fetch('/api/steps/batch-upload', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ Logged_By: user!.User_ID, Logged_Department: actorDepartment, Week_Start: weekStart, Allow_Overwrite: allowOverwrite? '1':'0', Steps: sub2 }) });
+              data = await res.json().catch(()=> ({}));
+              if (!res.ok || (data as any)?.error) throw new Error(friendlyThai((data as any)?.error || `HTTP ${res.status}`, res.status));
+              aggSaved += (data as any)?.saved ?? sub2.length; aggSkipped += (data as any)?.skipped ?? 0; aggErrors += (data as any)?.errors ?? 0; aggAiApproved += (data as any)?.aiApproved ?? 0; aggAiPending += (data as any)?.aiPending ?? 0;
+              done += sub2.length;
+              break;
+            }
+            const wait = isBusy ? 3000 + Math.random()*2000 : 800 * Math.pow(2, attempt-1);
+            await new Promise(r => setTimeout(r, wait));
+            if (isHtml || msg.includes('งานหนัก')) await new Promise(r=> setTimeout(r, 1200));
+          }
+        }
+        if (data) {
+          aggSaved += data.saved ?? chunk.length;
+          aggSkipped += data.skipped ?? 0;
+          aggErrors += data.errors ?? 0;
+          aggAiApproved += data.aiApproved ?? 0;
+          aggAiPending += data.aiPending ?? 0;
+          lastData = data;
+        }
+        done += chunk.length;
+        const elapsed = Date.now() - t0;
+        // adaptive: ช้า >15s ลด chunk, เร็ว <5s เพิ่ม chunk
+        if (elapsed > 15000 && chunkSize > 3) chunkSize--;
+        else if (elapsed < 5000 && chunkSize < 8) chunkSize++;
+        setSavingProgress({ total: totalToSave, done, percent: Math.round((done/totalToSave)*100), model: `เสร็จชุด ${chunkNo}/${totalChunks} — รอ 0.3s` });
+        if (idx + chunkSize < allPayloadSteps.length) await new Promise(r=> setTimeout(r, 300));
       }
-      if(!res.ok || data.error) throw new Error(data.error||'บันทึกไม่สำเร็จ');
-      const saved=data.saved ?? payloadSteps.length;
-      const skipped=data.skipped ?? 0;
-      const errors=data.errors ?? 0;
-      let msg=data.message || `บันทึกสำเร็จ ${saved} รายการ`;
-      if(data.aiApproved !== undefined) msg+= `\n✓ AI อนุมัติทันที ${data.aiApproved} รายการ (มั่นใจสูง ตัวเลข+วันที่ชัดเจนตรงกัน — นับคะแนนแล้ว)`;
-      if(data.aiPending !== undefined && data.aiPending>0) msg+= `\n⚠ ส่งต่อให้ต่างฝ่ายตรวจ ${data.aiPending} รายการ (สงสัย/ผิดปกติ/ตัดต่อ) — ดูที่เมนูตรวจสอบนับก้าว`;
-      // สรุปรายบุคคล: ชื่อ-สกุล + วันที่แบบย่อ (31 ส.ค. , 1 ก.ย. ... 2569)
+      setSavingProgress({ total: totalToSave, done: totalToSave, percent: 100, model: `เสร็จสิ้น — อนุมัติ ${aggAiApproved} · รอตรวจ ${aggAiPending}` });
+      const saved = aggSaved;
+      const skipped = aggSkipped;
+      const errors = aggErrors;
+      let msg = lastData?.message || `บันทึกสำเร็จ ${saved} รายการ`;
+      if(aggAiApproved !== undefined) msg+= `\n✓ AI อนุมัติทันที ${aggAiApproved} รายการ`;
+      if(aggAiPending !== undefined && aggAiPending>0) msg+= `\n⚠ ส่งต่อให้ต่างฝ่ายตรวจ ${aggAiPending} รายการ`;
       const byUserSave = new Map<string, string[]>();
-      for (const p of payloadSteps) { const uid=String(p.User_ID); if(!byUserSave.has(uid)) byUserSave.set(uid, []); byUserSave.get(uid)!.push(String(p.Day)); }
+      for (const p of payloadStepsForMsg) { const uid=String(p.User_ID); if(!byUserSave.has(uid)) byUserSave.set(uid, []); byUserSave.get(uid)!.push(String(p.Day)); }
       if (byUserSave.size>0) {
         msg+= `\n\nจำนวน ${byUserSave.size} ราย ดังนี้`;
         for (const [uid, days] of byUserSave) {
@@ -489,23 +572,22 @@ export default function BatchStepsPage(){
           msg+= `\n${name} วันที่ ${fmtDays} ${yearBE}`;
         }
       }
-      if(skipped>0) msg+=` (ข้าม ${skipped} รายการที่ซ้ำ — จะแสดงเฉพาะจำนวนก้าวล่าสุดที่บันทึก ไม่นับซ้ำรายวัน)`;
+      if(skipped>0) msg+=` (ข้าม ${skipped} รายการที่ซ้ำ)`;
       if(errors>0) msg+=` (ผิดพลาด ${errors} รายการ)`;
-      if(data.details) msg+= `\n`+ JSON.stringify(data.details).slice(0,500);
-      // ดีเลย์ให้เห็น 100% แป๊บนึงก่อนปิด popup
       await new Promise(r=> setTimeout(r, 900));
       setSavingProgress(null);
       setResultPopup({type:'success', title:'บันทึกสำเร็จ', message: msg});
       setUserFiles({});
       setGridInputs({});
       setGridImages({});
-      const s=await fetchData<StepsLog[]>('steps');
+      const s=await fetchData<StepsLog[]>('steps', undefined, { forceRefresh: true });
       if(s) setStepsData(s);
     }catch(err){
-      clearInterval(simTimer);
       setSavingProgress(null);
-      setResultPopup({type:'error', title:'บันทึกไม่สำเร็จ', message: err instanceof Error? err.message:'เกิดข้อผิดพลาด'});
-    }finally{ setSaving(false); if(typeof simTimer!=='undefined') clearInterval(simTimer as any); setTimeout(()=> setSavingProgress(null), 1200); }
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      const msg = err instanceof Error ? friendlyThai(err.message, undefined) : 'เกิดข้อผิดพลาด';
+      setResultPopup({type:'error', title:'บันทึกไม่สำเร็จ', message: msg});
+    }finally{ setSaving(false); setTimeout(()=> setSavingProgress(null), 1200); }
   }
 
   function setGridStep(uid:string, day:string, val:string){

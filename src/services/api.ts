@@ -19,15 +19,17 @@ function isReadCacheable(path: string): boolean {
 async function fetchWithRetry(
   url: string,
   init: RequestInit & { signal?: AbortSignal },
-  retries = 1
+  retries = 2
 ): Promise<Response> {
   let lastErr: unknown = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(url, init);
-      // 429 / 5xx ให้ retry
+      // 429 / 5xx ให้ retry + เคารพ Retry-After
       if (!res.ok && (res.status === 429 || res.status >= 500) && attempt < retries) {
-        await new Promise(r => setTimeout(r, 400 * (attempt + 1) + Math.random() * 200));
+        const retryAfter = res.headers.get('Retry-After');
+        const delay = retryAfter ? Math.min(8000, parseInt(retryAfter, 10) * 1000 || 0) : 400 * Math.pow(2, attempt) + Math.random() * 300;
+        await new Promise(r => setTimeout(r, delay));
         continue;
       }
       return res;
@@ -36,13 +38,22 @@ async function fetchWithRetry(
       const isAbort = (e instanceof DOMException && e.name === 'AbortError') || (e as any)?.name === 'AbortError';
       if (isAbort) throw e;
       if (attempt < retries) {
-        await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+        await new Promise(r => setTimeout(r, 400 * Math.pow(2, attempt)));
         continue;
       }
       throw e;
     }
   }
   throw lastErr;
+}
+
+function friendlyFromHtml(txt: string, status?: number): string | null {
+  const lower = txt.toLowerCase();
+  if (lower.includes('<!doctype') || lower.includes('ppconfig') || lower.includes('<html')) {
+    // ส่งให้ thaiErrorMap จัดการ
+    return null; // ให้ caller ใช้ friendlyThai
+  }
+  return null;
 }
 
 export async function fetchData<T>(path: string, params?: Record<string,string>, opts?: { signal?: AbortSignal; forceRefresh?: boolean }): Promise<T | null> {
@@ -82,14 +93,28 @@ export async function postData(action: string, data?: Record<string,unknown>, op
         params.append(k, String(v));
       }
     }
-    const res = await fetchWithRetry(`${GAS_API_URL}?${params}`, { cache: 'no-store', signal: opts?.signal }, 1);
+    const res = await fetchWithRetry(`${GAS_API_URL}?${params}`, { cache: 'no-store', signal: opts?.signal }, 2);
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      // พยายาม parse error json
-      try { const j = JSON.parse(txt); if (j?.error === 'ALREADY_REVIEWED') return { success: false, error: 'ALREADY_REVIEWED', ...j }; } catch {}
-      return { success: false, message: txt.slice(0,300) || 'Network error' };
+      try { const j = JSON.parse(txt); if (j?.error === 'ALREADY_REVIEWED') return { success: false, error: 'ALREADY_REVIEWED', ...j }; if (j?.error === 'NEED_CONFIRM') return { success: false, error: 'NEED_CONFIRM', ...j }; } catch {}
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      return { success: false, message: friendlyThai(txt || `HTTP ${res.status}`, res.status) };
     }
-    const json = await res.json();
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      const txt = await res.text().catch(() => '');
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      return { success: false, message: friendlyThai(txt, res.status) };
+    }
+    const json = await res.json().catch(async () => {
+      const txt2 = await res.text().catch(() => '');
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      return { success: false, message: friendlyThai(txt2, res.status) } as any;
+    });
+    if (json && (json as any).success === false && typeof (json as any).message === 'string' && (json as any).message.includes('<!DOCTYPE')) {
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      (json as any).message = friendlyThai((json as any).message, res.status);
+    }
     // แจ้ง cache ให้ invalidate
     try {
       const { invalidate } = await import('@/lib/gasCache');
@@ -99,12 +124,14 @@ export async function postData(action: string, data?: Record<string,unknown>, op
       }
       if (action.includes('sweet')) invalidate('gas:sweet-free');
       if (action.includes('personnel') || action.includes('user')) invalidate('gas:users');
+      if (action === 'validate-session' || action === 'logout') invalidate('gas:users');
     } catch {}
     return json;
   } catch (e) {
     const isAbort = (e instanceof DOMException && e.name === 'AbortError') || (e as any)?.name === 'AbortError';
     if (isAbort) return { success: false, message: 'ยกเลิกคำขอ' };
-    return { success: false, message: 'Network error' };
+    const { friendlyThai } = await import('@/lib/thaiErrorMap');
+    return { success: false, message: friendlyThai(e, undefined) };
   }
 }
 
@@ -117,13 +144,24 @@ export async function postDataJson(action: string, data?: Record<string,unknown>
       body: JSON.stringify({ action, ...data }),
       cache: 'no-store',
       signal: opts?.signal,
-    }, 1);
+    }, 2);
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      try { const j = JSON.parse(txt); if (j?.error === 'ALREADY_REVIEWED') return { success: false, error: 'ALREADY_REVIEWED', ...j }; if (j?.error) return { success: false, message: j.error, ...j }; } catch {}
-      return { success: false, message: txt.slice(0,400) || 'Network error' };
+      try { const j = JSON.parse(txt); if (j?.error === 'ALREADY_REVIEWED') return { success: false, error: 'ALREADY_REVIEWED', ...j }; if (j?.error === 'NEED_CONFIRM') return { success: false, error: 'NEED_CONFIRM', ...j }; if (j?.error) return { success: false, message: j.error, ...j }; } catch {}
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      return { success: false, message: friendlyThai(txt || `HTTP ${res.status}`, res.status) };
     }
-    const json = await res.json();
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      const txt = await res.text().catch(() => '');
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      return { success: false, message: friendlyThai(txt, res.status) };
+    }
+    const json: any = await res.json().catch(async () => {
+      const txt2 = await res.text().catch(() => '');
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      return { success: false, message: friendlyThai(txt2, res.status) };
+    });
     try {
       const { invalidate } = await import('@/lib/gasCache');
       if (action === 'update-step-status' || action === 'delete-step' || action === 'add-batch-steps' || action === 'add-step') {
@@ -133,14 +171,20 @@ export async function postDataJson(action: string, data?: Record<string,unknown>
       if (action.includes('sweet')) invalidate('gas:sweet-free');
       if (action.includes('personnel') || action.includes('user') || action === 'register') invalidate('gas:users');
       if (action === 'set-project-window') invalidate('gas:project-window');
+      if (action === 'validate-session' || action === 'logout' || action === 'login') invalidate('gas:users');
     } catch {}
-    // GAS ส่ง ALREADY_REVIEWED มาเป็น success:false
     if (json && json.error === 'ALREADY_REVIEWED') return { success: false, error: 'ALREADY_REVIEWED', ...json };
+    if (json && json.error === 'NEED_CONFIRM') return { success: false, error: 'NEED_CONFIRM', ...json };
+    if (json && json.success === false && typeof json.message === 'string' && json.message.includes('<!DOCTYPE')) {
+      const { friendlyThai } = await import('@/lib/thaiErrorMap');
+      json.message = friendlyThai(json.message, res.status);
+    }
     return json;
   } catch (e) {
     const isAbort = (e instanceof DOMException && e.name === 'AbortError') || (e as any)?.name === 'AbortError';
     if (isAbort) return { success: false, message: 'ยกเลิกคำขอ' };
-    return { success: false, message: 'Network error' };
+    const { friendlyThai } = await import('@/lib/thaiErrorMap');
+    return { success: false, message: friendlyThai(e, undefined) };
   }
 }
 

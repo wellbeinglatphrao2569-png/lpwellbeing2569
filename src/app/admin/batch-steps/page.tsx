@@ -879,8 +879,8 @@ export default function BatchStepsPage(){
             <div className="flex items-center gap-3 mb-4">
               <span className="loading loading-spinner loading-md text-emerald-600"></span>
               <div>
-                <h3 className="font-bold text-gray-900 dark:text-white">กำลังบันทึกและตรวจสอบด้วย AI</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">โมเดล: <span className="font-bold text-purple-600 dark:text-purple-400">{savingProgress.model}</span></p>
+                <h3 className="font-bold text-gray-900 dark:text-white">กำลังอัปโหลดข้อมูลเข้าสู่ฐานข้อมูล</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">กำลังบันทึก — <span className="font-bold text-emerald-600 dark:text-emerald-400">{savingProgress.model}</span></p>
               </div>
             </div>
             <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden border border-gray-200 dark:border-gray-600">
@@ -893,7 +893,7 @@ export default function BatchStepsPage(){
               <span>{savingProgress.percent < 100 ? 'กำลังประมวลผล...' : 'เสร็จสิ้น'}</span>
             </div>
             <p className="text-[10px] text-gray-400 mt-3 leading-relaxed">
-              ระบบกำลังอัปโหลดรูปไป Drive และให้ AI ตรวจสอบความถูกต้อง (จำนวนก้าว+วันที่) — ถ้ามั่นใจสูงจะอนุมัติทันที ไม่มั่นใจจะส่งต่อให้บุคคลต่างฝ่ายตรวจสอบ
+              กำลังบันทึก — กรุณารอสักครู่ อย่าปิดหน้าต่าง ระบบกำลังอัปโหลดรูปไป Drive และให้ AI ตรวจสอบ (ถ้ามั่นใจสูงจะอนุมัติทันที)
             </p>
           </div>
         </div>

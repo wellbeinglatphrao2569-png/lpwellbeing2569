@@ -700,8 +700,8 @@ export default function VerifyStepsPage() {
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/15 backdrop-blur-[1px] p-4">
           <div className="bg-white/95 dark:bg-gray-800/95 rounded-2xl shadow-xl px-8 py-6 flex flex-col items-center gap-3 border border-gray-200 dark:border-gray-700">
             <span className="loading loading-spinner loading-lg text-emerald-600"></span>
-            <p className="text-sm font-bold text-gray-700 dark:text-gray-200">กำลังบันทึก...</p>
-            <p className="text-xs text-gray-400">กรุณารอสักครู่ ระบบกำลังประมวลผล</p>
+            <p className="text-sm font-bold text-gray-700 dark:text-gray-200">กำลังอัปโหลดข้อมูลเข้าสู่ฐานข้อมูล</p>
+            <p className="text-xs text-gray-400">กำลังบันทึก — กรุณารอสักครู่ อย่าปิดหน้าต่าง</p>
           </div>
         </div>
       )}

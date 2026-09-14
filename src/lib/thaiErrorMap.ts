@@ -9,19 +9,19 @@ export function friendlyThai(err: unknown, status?: number): string {
   const isHtml = lower.includes('<!doctype') || lower.includes('ppconfig') || lower.includes('<html') || lower.includes('heartbeatrate');
 
   if (isHtml) {
-    return 'เซิร์ฟเวอร์ตอบเป็นหน้าเว็บ (ระบบงานหนักชั่วคราว) — กรุณารอ 10-15 วินาทีแล้วลองใหม่ ระบบจะข้ามรายการที่บันทึกไปแล้วให้อัตโนมัติ';
+    return 'กำลังอัปโหลดข้อมูลเข้าสู่ฐานข้อมูล — ระบบกำลังบันทึก กรุณารอสักครู่ อย่าปิดหน้าต่าง (ระบบจะข้ามรายการที่บันทึกไปแล้วให้อัตโนมัติ)';
   }
   if (status === 429 || lower.includes('429') || lower.includes('too many') || lower.includes('rate')) {
-    return 'ระบบงานหนัก (ถูกจำกัดชั่วคราว) — กรุณารอ 10 วินาทีแล้วลองใหม่ ระบบจะแบ่งส่งเป็นชุดเล็กให้อัตโนมัติ';
+    return 'กำลังอัปโหลดข้อมูลเข้าสู่ฐานข้อมูล — อยู่ในคิว กรุณารอสักครู่ ระบบจะแบ่งส่งเป็นชุดเล็กให้อัตโนมัติ';
   }
   if (status === 413 || lower.includes('413') || lower.includes('payload too large') || lower.includes('entity too large') || lower.includes('request too large')) {
-    return 'ไฟล์ภาพรวมใหญ่เกินไป — ระบบจะแบ่งส่งอัตโนมัติ ลองลดจำนวนภาพต่อครั้งเหลือ 5-10 รูป';
+    return 'กำลังอัปโหลดข้อมูลเข้าสู่ฐานข้อมูล — ไฟล์ภาพรวมใหญ่เกินไป ระบบจะแบ่งส่งเป็นชุดเล็กให้อัตโนมัติ';
   }
   if (status === 504 || status === 499 || lower.includes('timeout') || lower.includes('exceeded maximum execution time') || lower.includes('504')) {
-    return 'เซิร์ฟเวอร์ใช้เวลาเกินกำหนด (บางรายการอาจบันทึกสำเร็จแล้ว) — กรุณารีเฟรชตารางแล้วเช็ครายการที่เหลือก่อนกดบันทึกซ้ำ';
+    return 'กำลังอัปโหลดข้อมูลเข้าสู่ฐานข้อมูล — ใช้เวลาเกินกำหนด (บางรายการอาจบันทึกสำเร็จแล้ว) กรุณารีเฟรชตารางแล้วเช็ครายการที่เหลือก่อนกดบันทึกซ้ำ';
   }
   if (lower.includes('drive') || lower.includes('service invoked too many times') || lower.includes('quota') || lower.includes('storage')) {
-    return 'พื้นที่ Drive ติดขัดชั่วคราว — กรุณารอ 30 วินาทีแล้วลองใหม่';
+    return 'กำลังอัปโหลดข้อมูลเข้าสู่ฐานข้อมูล — พื้นที่ Drive กำลังบันทึก กรุณารอสักครู่';
   }
   if (lower.includes('need_confirm')) {
     return 'บัญชีนี้กำลังใช้งานบนอุปกรณ์อื่น — กรุณายืนยันเพื่อออกจากเครื่องเดิม';

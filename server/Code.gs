@@ -3277,7 +3277,7 @@ function setStepRecordMode_(data) {
  */
 function addBatchSteps_(data) {
   var __batchLock = null;
-  try { __batchLock = LockService.getDocumentLock(); if (!__batchLock.tryLock(30000)) return { success: false, error: 'BUSY', message: 'ระบบกำลังบันทึกชุดอื่นอยู่ — กรุณารอ 10 วินาทีแล้วลองใหม่ (คิวบันทึก)' }; } catch(e) {}
+  try { __batchLock = LockService.getDocumentLock(); if (!__batchLock.tryLock(30000)) return { success: false, error: 'BUSY', message: 'กำลังอัปโหลดข้อมูลเข้าสู่ฐานข้อมูล — อยู่ในคิวบันทึก (คิวที่ 1) กรุณารอสักครู่' }; } catch(e) {}
   try {
   ensureHeaders_('Steps_Log', STEPS_HEADERS);
   

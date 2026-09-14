@@ -1,15 +1,16 @@
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
 
-// จำแนก path ที่ควร cache (read-heavy) กับที่ต้องสด
+// จำแนก path ที่ควร cache (read-heavy) กับที่ต้องสด — เพิ่ม 120s ลดโหลด GAS
 const READ_CACHE_TTL: Record<string, number> = {
-  'users': 30_000,
-  'steps': 30_000,
-  'project-window': 60_000,
-  'google-fit-links': 30_000,
-  'sweet-free': 30_000,
-  'baseline': 60_000,
-  'weight-comparison': 30_000,
-  'dashboard': 30_000,
+  'users': 120_000,
+  'steps': 120_000,
+  'project-window': 300_000,
+  'google-fit-links': 120_000,
+  'sweet-free': 120_000,
+  'baseline': 300_000,
+  'weight-comparison': 120_000,
+  'dashboard': 120_000,
+  'steps-pending-count': 30_000, // pending ต้องสดกว่า — คง 30s
 };
 
 function isReadCacheable(path: string): boolean {
@@ -45,15 +46,6 @@ async function fetchWithRetry(
     }
   }
   throw lastErr;
-}
-
-function friendlyFromHtml(txt: string, status?: number): string | null {
-  const lower = txt.toLowerCase();
-  if (lower.includes('<!doctype') || lower.includes('ppconfig') || lower.includes('<html')) {
-    // ส่งให้ thaiErrorMap จัดการ
-    return null; // ให้ caller ใช้ friendlyThai
-  }
-  return null;
 }
 
 export async function fetchData<T>(path: string, params?: Record<string,string>, opts?: { signal?: AbortSignal; forceRefresh?: boolean }): Promise<T | null> {

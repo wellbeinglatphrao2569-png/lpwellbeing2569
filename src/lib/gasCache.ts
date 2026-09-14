@@ -9,8 +9,8 @@ type CacheEntry<T> = { data: T; expiresAt: number; staleAt: number };
 const mem = new Map<string, CacheEntry<unknown>>();
 const inflight = new Map<string, Promise<unknown>>();
 
-const DEFAULT_TTL = 30_000; // 30s fresh
-const DEFAULT_STALE = 60_000; // อีก 30s ใช้ stale ระหว่าง revalidate
+const DEFAULT_TTL = 120_000; // 120s fresh — เร็วขึ้น ลด thundering herd
+const DEFAULT_STALE = 180_000; // อีก 60s ใช้ stale ระหว่าง revalidate
 
 function now() { return Date.now(); }
 

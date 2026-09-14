@@ -84,6 +84,38 @@ function getData_(sheetName) {
   });
 }
 
+function getDataPaged_(sheetName, opts) {
+  opts = opts || {};
+  const limit = opts.limit ? Math.min(Math.max(parseInt(opts.limit, 10) || 0, 0), 5000) : 0;
+  const offset = opts.offset ? Math.max(parseInt(opts.offset, 10) || 0, 0) : 0;
+  const status = opts.status ? String(opts.status).trim() : '';
+  const department = opts.department ? String(opts.department).trim() : '';
+  const sheet = getSheet_(sheetName);
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) return { rows: [], total: 0, hasMore: false };
+  const headers = data[0];
+  const allRows = data.slice(1);
+  let filtered = allRows;
+  // server-side filter: status (เช่น Pending) และ department (ต้อง join Users)
+  if (status) {
+    const statusIdx = headers.indexOf('Status');
+    if (statusIdx >= 0) filtered = filtered.filter(r => String(r[statusIdx] || '').trim() === status);
+  }
+  if (department && sheetName === 'Users') {
+    const deptIdx = headers.indexOf('Department');
+    if (deptIdx >= 0) filtered = filtered.filter(r => String(r[deptIdx] || '').trim() === department);
+  }
+  const total = filtered.length;
+  let paged = filtered;
+  if (limit > 0) paged = filtered.slice(offset, offset + limit);
+  const result = paged.map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i]; });
+    return obj;
+  });
+  return { rows: result, total: total, hasMore: limit > 0 ? (offset + limit < total) : false, offset: offset, limit: limit };
+}
+
 /** เหมือน getData_ แต่ถ้ายังไม่มีชีทจะคืน [] (ไม่สร้างชีท/ไม่เขียน marker row) */
 function getDataIfExists_(sheetName) {
   const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
@@ -327,16 +359,33 @@ function doGet(e) {
       case 'dashboard':
         result = getDashboardData_();
         break;
-      case 'users':
+      case 'users': {
         if (action === 'leaderboard') result = getLeaderboard_();
-        else result = getData_('Users');
+        else {
+          const p = e && e.parameter ? e.parameter : {};
+          if (p.limit || p.offset || p.status || p.department) {
+            const paged = getDataPaged_('Users', { limit: p.limit, offset: p.offset, status: p.status, department: p.department });
+            result = { rows: paged.rows, total: paged.total, hasMore: paged.hasMore, offset: paged.offset, limit: paged.limit };
+          } else result = getData_('Users');
+        }
         break;
-      case 'steps':
-        result = getData_('Steps_Log');
+      }
+      case 'steps': {
+        const p2 = e && e.parameter ? e.parameter : {};
+        if (p2.limit || p2.offset || p2.status) {
+          const paged2 = getDataPaged_('Steps_Log', { limit: p2.limit, offset: p2.offset, status: p2.status });
+          result = { rows: paged2.rows, total: paged2.total, hasMore: paged2.hasMore, offset: paged2.offset, limit: paged2.limit };
+        } else result = getData_('Steps_Log');
         break;
-      case 'sweet-free':
-        result = getData_('Sweet_Free');
+      }
+      case 'sweet-free': {
+        const p3 = e && e.parameter ? e.parameter : {};
+        if (p3.limit || p3.offset || p3.status) {
+          const paged3 = getDataPaged_('Sweet_Free', { limit: p3.limit, offset: p3.offset, status: p3.status });
+          result = { rows: paged3.rows, total: paged3.total, hasMore: paged3.hasMore, offset: paged3.offset, limit: paged3.limit };
+        } else result = getData_('Sweet_Free');
         break;
+      }
       case 'happy-connect':
         result = getData_('Happy_Connect');
         break;

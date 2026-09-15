@@ -169,11 +169,23 @@ export async function analyzeImageWithThaiFoon(
       };
     }
 
-    // normalize extracted_steps
+    // normalize extracted_steps + กฎเหล็ก [A]/[B] — กัน model หลงเอา B
     let extractedSteps: number | null = null;
     if ((parsed as any).extracted_steps != null) extractedSteps = toIntOrNull((parsed as any).extracted_steps);
     // บาง model อาจส่งเป็น steps
     if (extractedSteps == null && (parsed as any).steps != null) extractedSteps = toIntOrNull((parsed as any).steps);
+    // Guard: ถ้า rawText มี [A] / [B] แต่ model ดันเอา B มา (เช่น 6000, 90) ให้แก้เป็น A
+    if (extractedSteps != null) {
+      const slashPair = rawText.match(/(\d[\d,]*)\s*\/\s*(\d[\d,]*)/);
+      if (slashPair) {
+        const a = Number(slashPair[1].replace(/,/g, ''));
+        const b = Number(slashPair[2].replace(/,/g, ''));
+        if (!isNaN(a) && !isNaN(b) && extractedSteps === b && a !== b && a > 0) {
+          // model หลงเอา B → แก้เป็น A
+          extractedSteps = a;
+        }
+      }
+    }
 
     // normalize extracted_date
     let extractedDateRaw: string | null = (parsed as any).extracted_date ?? null;

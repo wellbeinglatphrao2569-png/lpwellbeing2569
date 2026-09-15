@@ -5,7 +5,7 @@
  * ตอบ JSON สำหรับ Popup ยืนยัน (สรุปสั้น)
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeStepsImageWithTyphoon, isTyphoonConfigured } from '@/lib/typhoon';
+import { analyzeImageWithThaiFoon, isThaiFoonConfigured } from '@/lib/thaifoon';
 import { extractStepsFromText } from '@/lib/stepsExtractor';
 import { normalizeOcrDate, isDateMatch } from '@/lib/stepsDateParser';
 
@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
     const inputNum = inputSteps != null && String(inputSteps).trim() !== '' ? Number(inputSteps) : null;
     inputForError = inputNum;
 
-    // ถ้าไม่มี Typhoon key ให้ fallback เป็น manual pending
-    if (!isTyphoonConfigured()) {
+    // ถ้าไม่มี ThaiFoon key ให้ fallback เป็น manual pending (ยังคงข้อความไทยเดิม)
+    if (!isThaiFoonConfigured()) {
       return NextResponse.json({
         success: true,
         fallback: true,
@@ -59,13 +59,21 @@ export async function POST(request: NextRequest) {
         rawText: '',
         stepsExact: null,
         alert: true,
-        alertReason: 'Typhoon API ไม่ได้ตั้งค่า — รอตรวจสอบ manual',
+        alertReason: 'ThaiFoon API ไม่ได้ตั้งค่า — รอตรวจสอบ manual',
+        // ThaiFoon fields ว่าง
+        layout_pattern: null,
+        extracted_steps: null,
+        extracted_date: null,
+        steps_match: null,
+        status: 'REVIEW',
+        reason: 'API ไม่ได้ตั้งค่า',
         expectedDate: expected,
         inputSteps: inputNum,
       });
     }
 
-    // เรียก Typhoon ด้วย context ใหม่ (SYSTEM_DATE/TARGET_DATE/CURRENT_YEAR)
+    // เรียก ThaiFoon (ใต้ฝุ่น) — Vision OCR ตาม Master Prompt PART 1
+    let thaifoon: any = null;
     let rawText = '';
     let aiSteps: number | null = null;
     let aiStepsRaw: string | null = null;
@@ -76,54 +84,33 @@ export async function POST(request: NextRequest) {
     let tyStatus: string | null = null;
     let tyReasoning: string | null = null;
     let tyVisualEvidence: string | null = null;
+    let layoutPattern: string | null = null;
+    let extractedDateRaw: string | null = null;
 
     try {
       const now = new Date();
       const systemDate = now.toISOString().slice(0, 10);
       const currentYear = String(now.getFullYear());
       const currentThaiYear = String(now.getFullYear() + 543);
-      const ty = await analyzeStepsImageWithTyphoon(imageBase64, {
+      thaifoon = await analyzeImageWithThaiFoon(imageBase64, {
         timeoutMs: 25000,
-        ctx: { systemDate, targetDate: expected, currentYear, currentThaiYear },
+        ctx: { systemDate, targetDate: expected, currentYear, currentThaiYear, inputSteps: inputNum },
       });
-      rawText = ty.rawText || ty.reasoning || ty.visual_evidence || '';
-      // รองรับสคีมาล่าสุด (raw_date_text_from_image / parsed_date_from_image) + เก่า
-      const rawNew = (ty as any).raw_date_text_from_image ?? null;
-      const parsedNew = (ty as any).parsed_date_from_image ?? null;
-      const ocrConfNew = (ty as any).ocr_confidence ?? null;
-      tyVisualEvidence = (ty as any).visual_evidence ?? null;
+      rawText = thaifoon.rawText || '';
+      layoutPattern = thaifoon.layout_pattern || null;
+      extractedDateRaw = thaifoon.extracted_date || null;
+      aiSteps = thaifoon.extracted_steps;
+      aiStepsRaw = aiSteps != null ? String(aiSteps) : null;
+      dateRaw = extractedDateRaw;
+      tyFormattedDate = thaifoon.extracted_date_normalized || null;
+      tyIsMatched = thaifoon.date_match;
+      tyStatus = thaifoon.status === 'APPROVED' ? 'passed' : 'flagged_for_review';
+      tyReasoning = thaifoon.reason || null;
+      tyVisualEvidence = (thaifoon as any).visual_evidence || null;
+      confidence = thaifoon.confidence;
 
-      // treat 0 หรือค่าที่ไม่ใช่ตัวเลขบวกให้เป็น null เพื่อให้ fallback หาเลขใกล้คำว่า ก้าว ได้
-      let rawStepsVal: unknown = ty.step_count ?? ty.steps ?? null;
-      if (rawStepsVal != null && String(rawStepsVal).trim().toLowerCase() === 'null') rawStepsVal = null;
-      if (rawStepsVal != null) {
-        const n = Number(String(rawStepsVal).replace(/,/g, '').trim());
-        aiSteps = !isNaN(n) && n > 0 ? n : null;
-      } else aiSteps = null;
-      aiStepsRaw = aiSteps != null ? String(aiSteps) : (ty.stepsRaw ?? null);
-      // ตัด dateRaw ที่ยาวเกิน (Typhoon บางครั้งส่งทั้งหน้า) ให้เหลือเฉพาะส่วนที่ดูเหมือนวันที่
-      let rawDateCandidate: string | null = rawNew != null ? String(rawNew) : (ty.detected_date_raw ?? ty.dateRaw ?? null);
-      if (rawDateCandidate && rawDateCandidate.length > 80) {
-        // ลองดึง substring ที่ดูเหมือนวันที่ออกมา (เช่น 27 ส.ค. 2569) แทนทั้งหน้า
-        const m = rawDateCandidate.match(/\d{1,2}\s*[ก-๙\.]{2,10}\s*\d{2,4}|\d{1,2}\s*(?:มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม)|Today|วันนี้|Yesterday|เมื่อวาน/i);
-        if (m) rawDateCandidate = m[0].trim();
-        else rawDateCandidate = rawDateCandidate.slice(0, 80).trim();
-      }
-      dateRaw = rawDateCandidate;
-      // ถ้า Typhoon ส่ง parsed_date มาแต่เป็นข้อความยาว ให้ตัด
-      let parsedCandidate: string | null = parsedNew != null ? String(parsedNew) : (ty.formatted_date ?? null);
-      if (parsedCandidate && parsedCandidate.length > 20) parsedCandidate = parsedCandidate.slice(0, 20).trim();
-      tyFormattedDate = parsedCandidate && /^\d{4}-\d{2}-\d{2}$/.test(parsedCandidate) ? parsedCandidate : parsedCandidate && /^[^\n]{1,30}$/.test(parsedCandidate) ? parsedCandidate : null;
-      // สำหรับสคีมา extraction-only ไม่มี is_date_matched/status ให้คำนวณเอง
-      tyIsMatched = ty.is_date_matched ?? null;
-      confidence = ocrConfNew != null ? Number(ocrConfNew) : (ty.confidence_score ?? ty.confidence ?? null);
-      tyStatus = ty.status ?? null;
-      tyReasoning = ty.reasoning ?? tyVisualEvidence ?? null;
-      // visual_evidence เก็บไว้สำหรับ response
-      if (tyVisualEvidence) rawText = tyVisualEvidence;
-
-      // fallback: ถ้า Typhoon อ่าน step_count ไม่ได้ (null/0) หรืออ่านเป็นเลขชั้นเล็กๆ (1/5) ให้หาเลขใกล้คำว่า ก้าว ใน rawText + dateRaw
-      const fallbackSources = [rawText, dateRaw, (ty as any).visual_evidence].filter(Boolean).join('\n');
+      // fallback ถ้า ThaiFoon อ่าน step เป็น null หรือเลขเล็ก <100 ให้ลอง fallback แบบเดิม (เช่น จำนวนชั้น 1)
+      const fallbackSources = [rawText, dateRaw, tyVisualEvidence].filter(Boolean).join('\n');
       let needSecondTry = false;
       if ((aiSteps == null || aiSteps === 0 || (aiSteps != null && aiSteps < 100)) && fallbackSources) {
         const ext = extractStepsFromText(fallbackSources);
@@ -135,7 +122,6 @@ export async function POST(request: NextRequest) {
       } else if (aiSteps != null && aiSteps < 100) {
         needSecondTry = true;
       }
-      // ถ้ายังได้เลขเล็กๆ ให้ลองเรียก Typhoon อีกครั้งโดยครอปภาพเน้นตรงกลาง (ก้าวเดินอยู่กลางจอ) — มี timeout กัน hang
       if (needSecondTry && (aiSteps == null || aiSteps < 100)) {
         const ac2 = new AbortController();
         const t2 = setTimeout(() => ac2.abort(), 12000);
@@ -163,14 +149,13 @@ export async function POST(request: NextRequest) {
           }
         } catch {} finally { clearTimeout(t2); }
       }
-      // ถ้ายังไม่มี dateRaw ให้ลองหาใน visual_evidence / rawText
       if (!dateRaw && fallbackSources) {
         const dateLike = fallbackSources.match(/\d{1,2}\s*[ก-๙\.]{2,10}\s*\d{2,4}|Today|วันนี้|Yesterday|เมื่อวาน/i);
         if (dateLike) dateRaw = dateLike[0].trim();
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.error('Typhoon analyze failed:', msg);
+      console.error('ThaiFoon analyze failed:', msg);
       return NextResponse.json({
         success: true,
         fallback: true,
@@ -185,6 +170,13 @@ export async function POST(request: NextRequest) {
         stepsExact: null,
         alert: true,
         alertReason: `AI อ่านไม่สำเร็จ: ${msg.slice(0, 200)} — รอตรวจสอบ manual`,
+        layout_pattern: null,
+        extracted_steps: null,
+        extracted_date: null,
+        steps_match: null,
+        date_match: null,
+        status: 'REVIEW',
+        reason: msg.slice(0, 200),
         expectedDate: expected,
         inputSteps: inputNum,
       });
@@ -196,7 +188,6 @@ export async function POST(request: NextRequest) {
       if (ext.steps != null && (aiSteps == null || ext.steps > aiSteps * 5 || aiSteps < 100)) { aiSteps = ext.steps; aiStepsRaw = ext.raw; }
     }
     if (aiSteps === 0 || (aiSteps != null && aiSteps < 100 && inputNum != null && inputNum >= 1000)) {
-      // ถ้ายังได้เลขเล็กๆ ทั้งที่ผู้ใช้กรอกเลขใหญ่ ให้ลองหาใหม่แล้วถือว่า null ถ้าหาไม่เจอ
       const combined = [rawText, dateRaw, tyVisualEvidence].filter(Boolean).join(' ');
       const ext2 = extractStepsFromText(combined);
       if (ext2.steps != null && ext2.steps >= 100) { aiSteps = ext2.steps; aiStepsRaw = ext2.raw; }
@@ -275,8 +266,21 @@ export async function POST(request: NextRequest) {
 
     const finalConfidence = conf;
 
+    // ส่งทั้ง schema ใต้ฝุ่นใหม่ + schema เดิม (backward compat)
+    const thaifoonStepsMatch = thaifoon ? thaifoon.steps_match : stepsExact === true;
+    const thaifoonDateMatch = thaifoon ? thaifoon.date_match : dateMatch;
+    const thaifoonStatus = thaifoon ? thaifoon.status : (alert ? 'REVIEW' : 'APPROVED');
     return NextResponse.json({
       success: true,
+      // ThaiFoon ใหม่ (PART 1)
+      layout_pattern: layoutPattern,
+      extracted_steps: aiSteps,
+      extracted_date: dateRaw ? (tyFormattedDate ? (() => { try { const p = tyFormattedDate; if (/^\d{4}-\d{2}-\d{2}$/.test(p)) { const [y,m,d] = p.split('-'); return `${d}/${m}/${y}`; } return p; } catch { return dateRaw; } })() : dateRaw) : null,
+      steps_match: stepsExact === true ? true : stepsExact === false ? false : thaifoonStepsMatch,
+      date_match: dateMatch,
+      status: thaifoonStatus,
+      reason: tyReasoning || alertReason || (thaifoon ? thaifoon.reason : ''),
+      // Backward compat (เดิม)
       aiSteps,
       aiStepsRaw,
       dateRaw,
@@ -286,14 +290,14 @@ export async function POST(request: NextRequest) {
       step_count: aiSteps,
       detected_date_raw: dateRaw,
       formatted_date: dateNormalized,
-      // fields สคีมาล่าสุด (extraction-only)
       raw_date_text_from_image: dateRaw,
       parsed_date_from_image: dateNormalized,
       ocr_confidence: finalConfidence,
       visual_evidence: tyVisualEvidence || rawText.slice(0, 500),
       is_date_matched: dateMatch,
       confidence_score: finalConfidence,
-      status: alert ? 'flagged_for_review' : 'passed',
+      // alias เดิม
+      status_old: alert ? 'flagged_for_review' : 'passed',
       reasoning: tyReasoning || alertReason,
       rawText: rawText.slice(0, 2000),
       stepsExact,

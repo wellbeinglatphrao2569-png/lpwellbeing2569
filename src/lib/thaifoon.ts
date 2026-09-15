@@ -48,7 +48,11 @@ function toIntOrNull(v: unknown): number | null {
 
 function parseDDMMYYYYToISO(s: string | null, fallbackYear: string): string | null {
   if (!s) return null;
-  const t = String(s).trim();
+  let t = String(s).trim();
+  // ล้าง BE / พ.ศ. / วันสัปดาห์ / จุลภาค ตาม Protocol v1.2
+  t = t.replace(/^\s*(Mon|Tue|Wed|Thu|Thur|Fri|Sat|Sun|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|จ\.|อ\.|พ\.|พฤ\.|ศ\.|ส\.|อา\.)\s*[,\.]?\s*/i, '');
+  t = t.replace(/\s*(BE\.?|พ\.ศ\.?|ค\.ศ\.?)\s*$/i, '').trim();
+  t = t.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
   // 15/09/2026
   const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
@@ -59,7 +63,7 @@ function parseDDMMYYYYToISO(s: string | null, fallbackYear: string): string | nu
   }
   // 2026-09-15
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-  // fallback ใช้ normalizeOcrDate (รองรับ พ.ศ., วันไทย)
+  // fallback ใช้ normalizeOcrDate (รองรับ พ.ศ., วันไทย, Sep/Sept, BE)
   try {
     const iso = normalizeOcrDate(t, `${fallbackYear}-01-01`);
     return iso;

@@ -62,6 +62,12 @@ function stripWeekday(s: string): string {
   t = t.replace(/^\s*วัน\s*/i, '');
   // ตัดคำวันแบบไทยย่อ/เต็ม + จุด
   t = t.replace(/^\s*(จันทร์|อังคาร|พุธ|พฤหัสบดี|ศุกร์|เสาร์|อาทิตย์|จ\.|อ\.|พ\.|พฤ\.|ศ\.|ส\.|อา\.)\s*/i, '');
+  // ตัดคำวันแบบอังกฤษ (Mon, Tue, Wed, Thu, Fri, Sat, Sun) + จุด/จุลภาค
+  t = t.replace(/^\s*(Mon|Tue|Wed|Thu|Thur|Fri|Sat|Sun|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*[,\.]?\s*/i, '');
+  // ตัด BE / พ.ศ. / ค.ศ. / BE. ท้ายสตริง (เช่น "11 Sep 2569 BE" -> "11 Sep 2569")
+  t = t.replace(/\s*(BE\.?|พ\.ศ\.?|ค\.ศ\.?)\s*$/i, '');
+  // ตัดจุลภาคส่วนเกิน
+  t = t.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
   t = t.trim();
   return t;
 }

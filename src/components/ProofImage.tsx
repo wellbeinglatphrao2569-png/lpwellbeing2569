@@ -5,11 +5,15 @@ import { useState } from 'react';
  * โหลดรูปจาก Drive ผ่าน proxy ของเซิร์ฟเวอร์ (หลีกเลี่ยง rate-limit ของ Google เมื่อฝังภาพโดยตรง)
  */
 export default function ProofImage({ fileId, alt, onClick }: { fileId: string; alt: string; onClick: (src: string) => void }) {
-  const sources = [
-    `/api/steps/image?fileId=${fileId}`,
-    `https://drive.usercontent.google.com/download?id=${fileId}&export=view`,
-    `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600`,
-  ];
+  // รองรับทั้ง Drive File ID และ Supabase Storage public URL
+  const isUrl = fileId.startsWith('http://') || fileId.startsWith('https://');
+  const sources = isUrl
+    ? [fileId]
+    : [
+        `/api/steps/image?fileId=${fileId}`,
+        `https://drive.usercontent.google.com/download?id=${fileId}&export=view`,
+        `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600`,
+      ];
   const [idx, setIdx] = useState(0);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);

@@ -312,13 +312,16 @@ export async function POST(request: NextRequest) {
           // check existing Approved
           const { data: existing } = await sb.from('steps_log').select('record_id').eq('user_id', uid).eq('date_thai', day).eq('status','Approved').maybeSingle();
           if (existing && !allowOverwriteBool) { skipped++; continue; }
+          // รูปภาพเก็บที่ Drive — Supabase เก็บแค่ Drive File ID (ข้อความ) ตามที่ร้องขอ
+          // Drive จะอัปโหลดผ่าน GAS backup (backupBatchToGAS) — ที่นี่เก็บ null ไว้ก่อน แล้ว GAS จะเติม Drive ID ให้
+          const imagePath: string | null = null;
           // ถ้ามีอยู่แล้วและ allow → update, ถ้าไม่มี → insert
           if (existing) {
             const { error } = await sb.from('steps_log').update({
               steps_count: stepsCount,
               submitted_steps: stepsCount,
               record_method: 'Batch (เจ้าหน้าที่)',
-              image_drive_id: null,
+              image_drive_id: imagePath || null,
               ai_steps: s.AI_Steps ? Number(s.AI_Steps) : null,
               ai_confidence: s.AI_Confidence ? Number(s.AI_Confidence) : null,
               date_match: s.Date_Match === 'TRUE' ? true : s.Date_Match==='FALSE' ? false : null,
@@ -339,7 +342,7 @@ export async function POST(request: NextRequest) {
               steps_count: stepsCount,
               submitted_steps: stepsCount,
               record_method: 'Batch (เจ้าหน้าที่)',
-              image_drive_id: null,
+              image_drive_id: imagePath,
               ai_steps: s.AI_Steps ? Number(s.AI_Steps) : null,
               ai_confidence: s.AI_Confidence ? Number(s.AI_Confidence) : null,
               date_match: s.Date_Match === 'TRUE' ? true : s.Date_Match==='FALSE' ? false : null,

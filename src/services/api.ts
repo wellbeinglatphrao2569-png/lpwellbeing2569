@@ -373,9 +373,9 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
         status, auditor_id: auditorId, reviewed_at: new Date().toISOString(),
         reject_reason: data?.Reject_Reason ? String(data.Reject_Reason) : null,
       };
-      // ลองแบบมี auditor_id ก่อน ถ้า FK พังให้ลองแบบ null
+      // ลองแบบมี auditor_id ก่อน ถ้า FK พังให้ลองแบบ null (23503)
       let { error } = await sb.from('steps_log').update(payload).eq('record_id', rid);
-      if (error && String(error.message).includes('auditor_id_fkey')) {
+      if (error && (String((error as {code:string}).code)==='23503' || String(error.message).includes('fkey') || String(error.message).includes('foreign key'))) {
         const { error: e2 } = await sb.from('steps_log').update({
           status, auditor_id: null, reviewed_at: new Date().toISOString(),
           reject_reason: data?.Reject_Reason ? String(data.Reject_Reason) : null,

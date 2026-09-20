@@ -47,19 +47,44 @@ async function fetchFromSupabase<T>(path: string, params?: Record<string,string>
     if (!sb) return null;
 
     if (path === 'users') {
-      const { data, error } = await sb.from('users').select('*').order('created_at', { ascending: false }).limit(2000);
-      if (error) throw error;
-      return (data as Record<string, unknown>[]).map(mapUserRow) as unknown as T;
+      // Supabase max 1000/req — ต้อง range pagination
+      let all: Record<string, unknown>[] = [];
+      let from = 0; const size = 1000;
+      while (true) {
+        const { data, error } = await sb.from('users').select('*').order('created_at', { ascending: false }).range(from, from + size - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...(data as Record<string, unknown>[]));
+        if (data.length < size) break;
+        from += size;
+      }
+      return all.map(mapUserRow) as unknown as T;
     }
     if (path === 'steps') {
-      const { data, error } = await sb.from('steps_log').select('*').order('date_thai', { ascending: false }).limit(5000);
-      if (error) throw error;
-      return (data as Record<string, unknown>[]).map(mapStepRow) as unknown as T;
+      let all: Record<string, unknown>[] = [];
+      let from = 0; const size = 1000;
+      while (true) {
+        const { data, error } = await sb.from('steps_log').select('*').order('date_thai', { ascending: false }).range(from, from + size - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...(data as Record<string, unknown>[]));
+        if (data.length < size) break;
+        from += size;
+      }
+      return all.map(mapStepRow) as unknown as T;
     }
     if (path === 'sweet-free') {
-      const { data, error } = await sb.from('sweet_free').select('*').order('wednesday_date', { ascending: false }).limit(2000);
-      if (error) throw error;
-      return (data as Record<string, unknown>[]).map(mapSweetRow) as unknown as T;
+      let all: Record<string, unknown>[] = [];
+      let from = 0; const size = 1000;
+      while (true) {
+        const { data, error } = await sb.from('sweet_free').select('*').order('wednesday_date', { ascending: false }).range(from, from + size - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...(data as Record<string, unknown>[]));
+        if (data.length < size) break;
+        from += size;
+      }
+      return all.map(mapSweetRow) as unknown as T;
     }
     if (path === 'project-window') {
       const { data, error } = await sb.from('project_settings').select('start_date,end_date').eq('id', 1).maybeSingle();

@@ -297,8 +297,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Supabase primary — insert โดยตรง
-    if (isSupabaseConfigured()) {
+    // Supabase primary — insert โดยตรง (Supabase เก็บแค่ข้อความ/ตัวเลข + Drive File ID)
+    // ถ้ามีรูป ให้ GAS เป็นคนอัปโหลด Drive ก่อนแล้วค่อยเอา File ID มาเก็บ (ตามที่ขอ: รูปไป Drive ก่อน)
+    const hasImage = (processedSteps as any[]).some(s => String(s.Image_Base64||'').trim());
+    if (isSupabaseConfigured() && !hasImage) {
       try {
         const sb = getSupabase()!;
         // ตรวจซ้ำ Approved ถ้าไม่อนุญาต overwrite
@@ -312,27 +314,7 @@ export async function POST(request: NextRequest) {
           // check existing Approved
           const { data: existing } = await sb.from('steps_log').select('record_id').eq('user_id', uid).eq('date_thai', day).eq('status','Approved').maybeSingle();
           if (existing && !allowOverwriteBool) { skipped++; continue; }
-          // รูปภาพ — เก็บ Drive เป็นหลัก (Supabase เก็บ Drive File ID เป็นข้อความ) + backup Supabase Storage
-          let imagePath: string | null = null;
-          const b64raw = String((s as any).Image_Base64||'').trim();
-          if (b64raw) {
-            // ลองอัปโหลด Supabase Storage ก่อนเพื่อแสดงใน verify ได้ทันที (Drive จะตามมาจาก GAS backup)
-            try {
-              const base64Data = b64raw.includes(',') ? b64raw.split(',')[1] : b64raw;
-              const buffer = Buffer.from(base64Data, 'base64');
-              const fileName = `${uid}_${day}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,4)}.jpg`;
-              let { error: upErr } = await sb.storage.from('steps-images').upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
-              if (upErr && String(upErr.message).toLowerCase().includes('bucket not found')) {
-                try { await sb.storage.createBucket('steps-images', { public: true }); } catch {}
-                const retry = await sb.storage.from('steps-images').upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
-                upErr = retry.error as typeof upErr;
-              }
-              if (!upErr) {
-                const { data: urlData } = sb.storage.from('steps-images').getPublicUrl(fileName);
-                imagePath = urlData?.publicUrl || fileName;
-              }
-            } catch {}
-          }
+          const imagePath: string | null = null; // ไม่มีรูป — เก็บ null
           // ถ้ามีอยู่แล้วและ allow → update, ถ้าไม่มี → insert
           if (existing) {
             const { error } = await sb.from('steps_log').update({

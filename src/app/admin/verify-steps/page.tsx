@@ -281,8 +281,7 @@ export default function VerifyStepsPage() {
       setVerifyEditedSteps('');
       setVerifyItem(null);
       patchStepStatus(item.Record_ID, status, user.User_ID, reason, stepsValue.trim() !== '' ? newSteps : undefined);
-      // ไม่ load() ทั้งตารางแล้ว — patch ทันที + revalidate เบาในพื้นหลังหลัง 1.5s
-      setTimeout(() => load({ background: true, forceRefresh: true }), 1500);
+      // patch แบบ optimistic ไว้ก่อน — ไม่ reload ทันทีเพื่อกันเด้งกลับ (stale cache) ให้ revalidate ตอน focus/visibility เอง
     } else {
       if (res?.error === 'ALREADY_REVIEWED' || String(res?.message||'').includes('ตรวจสอบไปแล้ว')) {
         const msg = res?.message || 'รายการนี้ถูกตรวจสอบไปแล้วโดยผู้อื่น';
@@ -330,7 +329,6 @@ export default function VerifyStepsPage() {
         setVerifyEditedSteps('');
         setVerifyRejectReason('');
         setVerifyMode('approve');
-        setTimeout(() => load({ background: true, forceRefresh: true }), 1500);
       } else {
         if (res?.error === 'ALREADY_REVIEWED' || String(res?.message||'').includes('ตรวจสอบไปแล้ว')) {
           const msg = res?.message || 'รายการนี้ถูกตรวจสอบไปแล้วโดยผู้อื่น';
@@ -374,7 +372,6 @@ export default function VerifyStepsPage() {
       setVerifyEditedSteps('');
       setVerifyRejectReason('');
       setVerifyMode('approve');
-      setTimeout(() => load({ background: true, forceRefresh: true }), 1500);
     } else {
       if (res2?.error === 'ALREADY_REVIEWED' || String(res2?.message||'').includes('ตรวจสอบไปแล้ว')) {
         const msg = res2?.message || 'รายการนี้ถูกตรวจสอบไปแล้วโดยผู้อื่น';

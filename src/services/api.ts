@@ -363,18 +363,29 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       backupToGAS(action, data);
       return { success:true, message:'บันทึกพุธไม่มีเชื่อมสำเร็จ (Supabase)' };
     }
-    // update-step-status / delete-step — ทำใน Supabase ได้
+    // update-step-status — Supabase primary (ทน FK auditor_id)
     if (action === 'update-step-status') {
       const rid = String(data?.Record_ID||'');
       const status = String(data?.Status||'');
       if (!rid || !['Approved','Rejected'].includes(status)) return null;
-      const { error } = await sb.from('steps_log').update({
-        status, auditor_id: data?.Auditor_ID ? String(data.Auditor_ID) : null, reviewed_at: new Date().toISOString(),
+      const auditorId = data?.Auditor_ID ? String(data.Auditor_ID).trim() : null;
+      const payload: Record<string, unknown> = {
+        status, auditor_id: auditorId, reviewed_at: new Date().toISOString(),
         reject_reason: data?.Reject_Reason ? String(data.Reject_Reason) : null,
-      }).eq('record_id', rid);
-      if (error) throw error;
+      };
+      // ลองแบบมี auditor_id ก่อน ถ้า FK พังให้ลองแบบ null
+      let { error } = await sb.from('steps_log').update(payload).eq('record_id', rid);
+      if (error && String(error.message).includes('auditor_id_fkey')) {
+        const { error: e2 } = await sb.from('steps_log').update({
+          status, auditor_id: null, reviewed_at: new Date().toISOString(),
+          reject_reason: data?.Reject_Reason ? String(data.Reject_Reason) : null,
+        }).eq('record_id', rid);
+        if (e2) throw e2;
+      } else if (error) throw error;
       const { invalidate } = await import('@/lib/gasCache');
       invalidate('gas:steps'); invalidate('gas:steps-pending-count');
+      // GAS backup — ให้ Sheet ตรงกัน
+      backupToGAS(action, data);
       return { success:true, message:'อัปเดตสถานะสำเร็จ (Supabase)' };
     }
     if (action === 'delete-step') {

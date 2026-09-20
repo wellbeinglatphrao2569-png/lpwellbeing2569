@@ -165,7 +165,7 @@ export default function VerifyStepsPage() {
 
   const imageItems: VerifyItem[] = useMemo(() => {
     return steps
-      .filter(s => s.Record_Method === 'ภาพถ่าย' || (s.Image_Drive_ID && String(s.Image_Drive_ID).trim() !== ''))
+      .filter(s => s.Record_Method === 'ภาพถ่าย' || s.Record_Method === 'Batch (เจ้าหน้าที่)' || (s.Image_Drive_ID && String(s.Image_Drive_ID).trim() !== ''))
       .map(s => {
         const u = userMap.get(String(s.User_ID));
         return {
@@ -179,8 +179,25 @@ export default function VerifyStepsPage() {
       .sort((a, b) => String(b.Recorded_At || b.Date_Thai || '').localeCompare(String(a.Recorded_At || a.Date_Thai || '')));
   }, [steps, userMap]);
 
-  // รายการทั้งหมดที่รอตรวจสอบ — รวมฝ่ายเดียวกันด้วย (จะแสดงแต่ล็อกปุ่มตามเงื่อนไข)
-  const pendingItems = useMemo(() => imageItems.filter(i => i.Status === 'Pending'), [imageItems]);
+  // รายการทั้งหมดที่รอตรวจสอบ — รวมฝ่ายเดียวกันด้วย (จะแสดงแต่ล็อกปุ่มตามเงื่อนไข) — รวม Batch ที่ไม่มีรูปด้วย
+  const pendingItems = useMemo(() => {
+    const fromImage = imageItems.filter(i => i.Status === 'Pending');
+    // เพิ่ม Batch ที่ไม่มีรูปแต่เป็น Pending (ไม่ถูกกรองใน imageItems ถ้าไม่มีรูป) — กันตกหล่น
+    const batchPending = steps
+      .filter(s => s.Status === 'Pending' && s.Record_Method === 'Batch (เจ้าหน้าที่)')
+      .filter(s => !fromImage.some(f => f.Record_ID === s.Record_ID))
+      .map(s => {
+        const u = userMap.get(String(s.User_ID));
+        return {
+          ...s,
+          userName: String(u?.Full_Name || s.User_ID || 'ส'),
+          userDept: u?.Department || '',
+          userNickname: u?.Nickname || '',
+          userProfileImage: profileImageUrl(u?.Profile_Image) || undefined,
+        } as VerifyItem;
+      });
+    return [...fromImage, ...batchPending].sort((a, b) => String(b.Recorded_At || b.Date_Thai || '').localeCompare(String(a.Recorded_At || a.Date_Thai || '')));
+  }, [imageItems, steps, userMap]);
 
   // จัดกลุ่ม/เรียงตามวันที่ส่งก้าว (ล่าสุดก่อน)
   const groupedPending = useMemo(() => {

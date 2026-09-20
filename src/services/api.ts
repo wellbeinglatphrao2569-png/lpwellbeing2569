@@ -380,13 +380,30 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
     if (action === 'delete-step') {
       const rid = String(data?.Record_ID||'');
       if (!rid) return { success:false, message:'Record_ID required' };
-      // ยืนยันก่อนลบ — frontend ต้องโชว์ ConfirmPopup ก่อนเรียก action นี้ (บังคับ confirm ทุกครั้ง)
+      // ดึง Image_Drive_ID ก่อนลบ เพื่อลบรูปด้วย
+      let imageIds: string[] = [];
+      try {
+        const { data: row } = await sb.from('steps_log').select('image_drive_id').eq('record_id', rid).maybeSingle();
+        const img = String((row as {image_drive_id:string}|null)?.image_drive_id||'').trim();
+        if (img) imageIds.push(img);
+      } catch {}
+      // ลบรูปจาก Drive ผ่าน GAS backup (GAS deleteStepLog_ จะ trash ไฟล์) + ลบ DB
       const { error } = await sb.from('steps_log').delete().eq('record_id', rid);
       if (error) throw error;
+      // ถ้ามีรูป ให้เรียก GAS ลบไฟล์ด้วย (backup)
+      if (imageIds.length) {
+        backupToGAS(action, { ...data, _imageIds: imageIds.join(',') });
+        // พยายามลบจาก Supabase Storage ด้วย (ถ้ามี)
+        for (const fid of imageIds) {
+          try { await sb.storage.from('steps-images').remove([fid]); } catch {}
+          try { await sb.storage.from('profile-images').remove([fid]); } catch {}
+        }
+      } else {
+        backupToGAS(action, data);
+      }
       const { invalidate } = await import('@/lib/gasCache');
       invalidate('gas:steps');
-      backupToGAS(action, data);
-      return { success:true, message:'ลบรายการสำเร็จ (Supabase) — ลบเกลี้ยงจากทุกตารางที่เกี่ยวข้องแล้ว' };
+      return { success:true, message:'ลบรายการสำเร็จ — ลบรูปภาพที่เกี่ยวข้องทั้งหมดแล้ว (Supabase + GAS สำรอง)' };
     }
     // delete-personnel / delete-user — ลบเกลี้ยง cascading ทั้ง Supabase และ GAS สำรอง
     if (action === 'delete-personnel' || action === 'delete-user') {
@@ -421,7 +438,25 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
         if (error) throw error;
         deleted = count ?? 0;
       }
-      // กันกรณี FK ยังไม่ cascade (ถ้าไม่มี FK) — ลบ manual จากตารางลูก
+      // เก็บ Image_Drive_ID ทั้งหมดของ user นี้ก่อนลบ เพื่อลบรูปด้วย
+      let allImageIds: string[] = [];
+      try {
+        if (targetUserId) {
+          const { data: steps } = await sb.from('steps_log').select('image_drive_id').eq('user_id', targetUserId);
+          (steps||[]).forEach((r: {image_drive_id:string})=>{ const id=String(r.image_drive_id||'').trim(); if(id) allImageIds.push(id); });
+        }
+        if (targetPid && targetPid!==targetUserId) {
+          const { data: steps2 } = await sb.from('steps_log').select('image_drive_id').eq('user_id', targetPid);
+          (steps2||[]).forEach((r: {image_drive_id:string})=>{ const id=String(r.image_drive_id||'').trim(); if(id && !allImageIds.includes(id)) allImageIds.push(id); });
+        }
+        // profile images
+        if (targetUserId) {
+          const { data: u } = await sb.from('users').select('profile_image').eq('user_id', targetUserId).maybeSingle();
+          const pidImg = String((u as {profile_image:string}|null)?.profile_image||'').trim();
+          if (pidImg) allImageIds.push(pidImg);
+        }
+      } catch {}
+      // ลบ manual จากตารางลูก (กัน FK ยังไม่ cascade)
       if (targetUserId) {
         try { await sb.from('steps_log').delete().eq('user_id', targetUserId); } catch {}
         try { await sb.from('sweet_free').delete().eq('user_id', targetUserId); } catch {}
@@ -433,11 +468,17 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
         try { await sb.from('steps_log').delete().eq('user_id', targetPid); } catch {}
         try { await sb.from('sweet_free').delete().eq('user_id', targetPid); } catch {}
       }
+      // ลบรูปจาก Storage
+      for (const fid of allImageIds) {
+        try { await sb.storage.from('steps-images').remove([fid]); } catch {}
+        try { await sb.storage.from('profile-images').remove([fid]); } catch {}
+      }
       const { invalidate } = await import('@/lib/gasCache');
       invalidate('gas:users'); invalidate('gas:steps'); invalidate('gas:sweet-free');
-      backupToGAS(action, data);
+      // GAS backup — จะ trash ไฟล์ Drive ด้วย (deleteStepLog_ / delete-personnel)
+      backupToGAS(action, { ...data, _imageIds: allImageIds.join(',') });
       if (deleted===0) return { success:false, message:'ไม่พบข้อมูลบุคลากรที่ต้องลบ' };
-      return { success:true, message:`ลบบุคลากรสำเร็จ — ลบเกลี้ยงจากทุกตารางที่เกี่ยวข้องแล้ว (Supabase + GAS สำรอง)` };
+      return { success:true, message:`ลบบุคลากรสำเร็จ — ลบเกลี้ยงทุกตารางและรูปภาพที่เกี่ยวข้องแล้ว (${allImageIds.length} รูป) (Supabase + GAS สำรอง)` };
     }
     // อื่นๆ ให้ GAS ทำ
     return null;

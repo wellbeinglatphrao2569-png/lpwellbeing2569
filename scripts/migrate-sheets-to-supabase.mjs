@@ -54,6 +54,7 @@ async function fetchGAS(path, retries=2){
       if(j && Array.isArray(j.data)) return j.data;
       if(j && Array.isArray(j.users)) return j.users;
       if(j && Array.isArray(j.steps)) return j.steps;
+      if(j && Array.isArray(j.rows)) return j.rows; // paged
       return j;
     }catch(e){
       lastErr=e;
@@ -68,9 +69,58 @@ async function fetchGAS(path, retries=2){
   throw lastErr;
 }
 
+async function fetchGASAll(path){
+  // ลองแบบ paginated ก่อน (limit/offset) เพื่อให้ได้ครบแม้ข้อมูลเยอะ — ถ้า GAS ไม่รองรับจะ fallback แบบเดิม
+  const limit = 1000;
+  let offset = 0;
+  let all = [];
+  while(true){
+    const url = `${GAS_URL}?path=${path}&limit=${limit}&offset=${offset}`;
+    console.log(`  GET ${url}`);
+    let j;
+    try{
+      const res = await fetch(url, { cache:'no-store' });
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      j = await res.json();
+    }catch(e){
+      if(all.length===0) throw e; // ถ้ายังไม่ได้อะไรเลย ให้ error
+      console.warn(`  paginated fetch warn at offset ${offset}: ${e.message} — return ${all.length} so far`);
+      break;
+    }
+    // GAS paged returns {rows,total,hasMore} — ถ้าได้ array แสดงว่า fallback
+    if(Array.isArray(j)){
+      // server ไม่รองรับ pagination — คืน array ทั้งหมดเลย
+      if(offset===0) return j;
+      all.push(...j);
+      break;
+    }
+    if(j && Array.isArray(j.rows)){
+      all.push(...j.rows);
+      console.log(`  paged ${j.rows.length} rows (total ${j.total}, hasMore ${j.hasMore})`);
+      if(!j.hasMore || j.rows.length < limit) break;
+      offset += limit;
+      // กัน loop ยาว
+      if(offset > 10000) break;
+      await new Promise(r=>setTimeout(r, 300));
+    } else if(j && Array.isArray(j.data)){
+      all.push(...j.data);
+      break;
+    } else {
+      // unknown shape — ลอง fetch แบบไม่ paginated
+      if(all.length===0){
+        return await fetchGAS(path);
+      }
+      break;
+    }
+  }
+  if(all.length>0) return all;
+  // fallback ปกติ
+  return await fetchGAS(path);
+}
+
 async function migrateUsers(){
   console.log('\n[1/4] users...');
-  const rows = await fetchGAS('users');
+  const rows = await fetchGASAll('users');
   console.log(`  fetched ${rows.length} rows`);
   // debug: ดูแถวที่ User_ID ว่าง
   const emptySample = rows.filter(r=>!String(r.User_ID||'').trim()).slice(0,3);
@@ -121,7 +171,7 @@ async function migrateUsers(){
 
 async function migrateSteps(){
   console.log('\n[2/4] steps_log...');
-  const rows = await fetchGAS('steps');
+  const rows = await fetchGASAll('steps');
   console.log(`  fetched ${rows.length} rows`);
   const mapped = rows.map(r=>({
     record_id: String(r.Record_ID||r.record_id||crypto.randomUUID()),
@@ -180,7 +230,7 @@ async function migrateSteps(){
 
 async function migrateSweet(){
   console.log('\n[3/4] sweet_free...');
-  const rows = await fetchGAS('sweet-free');
+  const rows = await fetchGASAll('sweet-free');
   console.log(`  fetched ${rows.length} rows`);
   const mapped = rows.map(r=>({
     entry_id: String(r.Entry_ID||r.entry_id||crypto.randomUUID()),

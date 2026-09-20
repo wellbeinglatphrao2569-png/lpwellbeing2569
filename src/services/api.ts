@@ -124,12 +124,122 @@ async function fetchFromSupabase<T>(path: string, params?: Record<string,string>
   }
 }
 
+function hashPasswordNode(pwd: string): string {
+  // GAS: salt(16) + '$' + sha256(salt+pwd) — ใช้ Node crypto
+  try {
+    // dynamic import crypto
+    const crypto = require('crypto') as typeof import('crypto');
+    const salt = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    const hash = crypto.createHash('sha256').update(salt + pwd, 'utf8').digest('hex');
+    return `${salt}$${hash}`;
+  } catch {
+    // fallback browser
+    const salt = Math.random().toString(36).slice(2, 18).padEnd(16, '0').slice(0, 16);
+    return `${salt}$${salt}${pwd}`;
+  }
+}
+async function backupToGAS(action: string, data?: Record<string, unknown>): Promise<void> {
+  // Google Sheet เป็น backup — เขียนแบบ fire-and-forget ไม่บล็อก Supabase
+  try {
+    if (!GAS_API_URL) return;
+    const url = GAS_API_URL;
+    // ใช้ POST text/plain เหมือนเดิม
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, ...data }),
+      cache: 'no-store',
+    }).catch(() => {});
+  } catch {}
+}
 async function postToSupabase(action: string, data?: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   if (!isSupabaseAvailable()) return null;
   try {
     const { getSupabase } = await import('@/lib/supabase');
     const sb = getSupabase();
     if (!sb) return null;
+
+    // helper: backup หลัง Supabase สำเร็จ
+    const doBackup = () => { backupToGAS(action, data); };
+
+    // register — Supabase primary, GAS backup
+    if (action === 'register') {
+      const pid = String(data?.Personnel_ID||'').trim();
+      const uid = String(data?.User_ID||'').trim();
+      const pwd = String(data?.Password||'');
+      if (!pid) return { success:false, message:'Personnel_ID required' };
+      if (!/^\d{13}$/.test(uid)) return { success:false, message:'เลขบัตรประชาชนต้อง 13 หลัก' };
+      if (pwd.length < 6) return { success:false, message:'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร' };
+      // check duplicate User_ID
+      const { data: dup } = await sb.from('users').select('user_id').eq('user_id', uid).maybeSingle();
+      if (dup) return { success:false, message:'เลขบัตรประชาชนนี้มีผู้ใช้งานแล้ว' };
+      // find row by personnel_id
+      const { data: target } = await sb.from('users').select('personnel_id,registration_status').eq('personnel_id', pid).maybeSingle();
+      if (!target) return { success:false, message:'ไม่พบ Personnel_ID ในระบบ' };
+      if ((target as {registration_status:string}).registration_status === 'Registered') return { success:false, message:'บุคลากรนี้ลงทะเบียนแล้ว' };
+      const bmi = data?.BMI_Value ? String(data.BMI_Value) : null;
+      const hashed = hashPasswordNode(pwd);
+      const { error } = await sb.from('users').update({
+        user_id: uid,
+        prefix: data?.Prefix ? String(data.Prefix) : null,
+        full_name: data?.Full_Name ? String(data.Full_Name) : null,
+        first_name: data?.First_Name ? String(data.First_Name) : null,
+        last_name: data?.Last_Name ? String(data.Last_Name) : null,
+        nickname: data?.Nickname ? String(data.Nickname) : null,
+        position: data?.Position ? String(data.Position) : null,
+        department: data?.Department ? String(data.Department) : null,
+        birth_date: data?.Birth_Date ? String(data.Birth_Date).slice(0,10) : null,
+        gender: data?.Gender ? String(data.Gender) : null,
+        weight_kg: data?.Weight_kg ? Number(data.Weight_kg) : null,
+        height_cm: data?.Height_cm ? Number(data.Height_cm) : null,
+        bmi_value: bmi ? Number(bmi) : null,
+        activities: data?.Activities ? String(data.Activities) : null,
+        password: hashed,
+        registration_status: 'Registered',
+        // profile image: ถ้ามี base64 ให้เก็บเป็น File ID ไม่ได้ — เก็บ base64 ย่อไว้ก่อน (หรือปล่อยให้ upload แยก)
+      }).eq('personnel_id', pid);
+      if (error) throw error;
+      // migrate steps/sweet ที่เคยใช้ Personnel_ID ให้เป็น User_ID (backup)
+      try { await sb.from('steps_log').update({ user_id: uid }).eq('user_id', pid); } catch {}
+      try { await sb.from('sweet_free').update({ user_id: uid }).eq('user_id', pid); } catch {}
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      doBackup();
+      return { success:true, message:'ลงทะเบียนสำเร็จ (Supabase)' };
+    }
+
+    // add-step — Supabase primary + GAS backup
+    if (action === 'add-step') {
+      const uid = String(data?.User_ID||'').trim();
+      const dateThai = String(data?.Date_Thai||'').slice(0,10);
+      const steps = Number(data?.Steps_Count||0);
+      if (!uid || !dateThai || !steps) return { success:false, message:'ข้อมูลไม่ครบ' };
+      // check project window
+      try {
+        const { data: win } = await sb.from('project_settings').select('start_date,end_date').eq('id',1).maybeSingle();
+        const s = (win as {start_date:string}|null)?.start_date;
+        const e = (win as {end_date:string}|null)?.end_date;
+        if (s && e && (dateThai < s || dateThai > e)) return { success:false, message:`นอกห้วงเวลา ${s} ถึง ${e}` };
+      } catch {}
+      const recordId = 'ST' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,6).toUpperCase();
+      const status = String(data?.Status||'Pending');
+      const { error } = await sb.from('steps_log').insert({
+        record_id: recordId,
+        user_id: uid,
+        date_thai: dateThai,
+        steps_count: steps,
+        submitted_steps: steps,
+        record_method: data?.Record_Method ? String(data.Record_Method) : 'Manual',
+        status: ['Pending','Approved','Rejected'].includes(status) ? status : 'Pending',
+        week_number: null,
+        recorded_at: data?.Recorded_At ? String(data.Recorded_At) : new Date().toISOString(),
+      });
+      if (error) throw error;
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:steps');
+      doBackup();
+      return { success:true, message:'บันทึกก้าวสำเร็จ (Supabase)', Record_ID: recordId };
+    }
 
     // project-window
     if (action === 'set-project-window') {
@@ -169,10 +279,89 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       invalidate('gas:steps'); invalidate('gas:sweet-free');
       return { success:true, message:`ลบ Steps ${stepsDeleted} แถว, Sweet ${sweetDeleted} แถว`, cleaned:{ stepsDeleted, sweetDeleted } };
     }
-    // add-sweet-free (bulk per dept handled as single here)
+    // login — Supabase primary
+    if (action === 'login') {
+      const uid = String(data?.User_ID||'').trim();
+      const pwd = String(data?.Password||'');
+      const deviceToken = String(data?.Device_Token||'').trim();
+      if (!uid || !pwd) return { success:false, message:'กรุณากรอกข้อมูล' };
+      const { data: user, error } = await sb.from('users').select('*').eq('user_id', uid).maybeSingle();
+      if (error) throw error;
+      if (!user) return { success:false, message:'ไม่พบผู้ใช้งาน' };
+      // verify password (hash$sha256)
+      const stored = String((user as Record<string,unknown>).password||'');
+      let ok = false;
+      try {
+        const parts = stored.split('$');
+        if (parts.length===2 && parts[0].length===16) {
+          const crypto = require('crypto') as typeof import('crypto');
+          const hash = crypto.createHash('sha256').update(parts[0] + pwd, 'utf8').digest('hex');
+          ok = hash === parts[1];
+        } else {
+          ok = stored === pwd; // fallback plain
+        }
+      } catch { ok = stored === pwd; }
+      if (!ok) return { success:false, message:'รหัสผ่านไม่ถูกต้อง' };
+      // device single-login: ถ้ามี device_token อื่นอยู่แล้วและไม่ใช่ Force
+      const force = String(data?.Force||'').toLowerCase()==='true' || String(data?.Force||'')==='1';
+      const existingToken = String((user as Record<string,unknown>).device_token||'');
+      const isSameDevice = existingToken && deviceToken && existingToken === deviceToken;
+      if (existingToken && !isSameDevice && !force) {
+        return { success:false, error:'NEED_CONFIRM', message:'บัญชีนี้กำลังใช้งานบนอุปกรณ์อื่น ต้องการออกจากเครื่องเดิมหรือไม่?', lastAt: (user as Record<string,unknown>).device_updated_at };
+      }
+      // update device token
+      if (deviceToken) {
+        await sb.from('users').update({ device_token: deviceToken, device_updated_at: new Date().toISOString() }).eq('user_id', uid);
+      }
+      const mapped = mapUserRow(user as Record<string,unknown>);
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      // Google Sheet backup
+      backupToGAS(action, data);
+      return { success:true, user: mapped, deviceToken };
+    }
+
+    // add-sweet-free — Supabase primary
     if (action === 'add-sweet-free') {
-      // GAS ส่ง Wednesday_Date, Status, Logged_By, User_IDs? ดู no-sugar page: ส่งทีละคนหรือหลายคน
-      return null; // fallback GAS
+      // รองรับทั้ง single และ bulk — ดู no-sugar page ส่ง User_ID เดียวหรือหลายคน
+      const wed = String(data?.Wednesday_Date||'').slice(0,10);
+      const status = data?.Status;
+      const loggedBy = String(data?.Logged_By||'').trim();
+      // GAS อาจส่ง User_IDs เป็น array string หรือ User_ID เดียว
+      const uids: string[] = [];
+      if (data?.User_ID) uids.push(String(data.User_ID).trim());
+      if (data?.User_IDs) {
+        const raw = String(data.User_IDs);
+        raw.split(',').forEach(s=>{ const t=s.trim(); if(t) uids.push(t); });
+      }
+      // ถ้าไม่มี User_ID ให้ลองจาก data อื่น
+      if (uids.length===0 && data?.User_IDs_JSON) {
+        try { const arr = JSON.parse(String(data.User_IDs_JSON)); if(Array.isArray(arr)) arr.forEach((x:string)=>uids.push(String(x).trim())); } catch {}
+      }
+      if (!wed || uids.length===0) return { success:false, message:'ข้อมูลไม่ครบ' };
+      const boolStatus = (()=>{ const s=String(status).trim().toLowerCase(); return s==='true'||s==='1'||s==='yes'; })();
+      const reason = data?.Reason ? String(data.Reason) : null;
+      const rows = uids.map(uid=>({
+        entry_id: 'SW' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,5).toUpperCase() + uid.slice(-3),
+        user_id: uid,
+        wednesday_date: wed,
+        status: boolStatus,
+        logged_by: loggedBy || null,
+        reason,
+        recorded_at: new Date().toISOString(),
+      }));
+      const { error } = await sb.from('sweet_free').upsert(rows, { onConflict:'user_id,wednesday_date' } as unknown as {onConflict:string});
+      // fallback upsert per row ถ้า onConflict ไม่รองรับ composite
+      if (error) {
+        for (const r of rows) {
+          const { error: e2 } = await sb.from('sweet_free').upsert(r, { onConflict:'entry_id' });
+          if (e2) throw e2;
+        }
+      }
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:sweet-free');
+      backupToGAS(action, data);
+      return { success:true, message:'บันทึกพุธไม่มีเชื่อมสำเร็จ (Supabase)' };
     }
     // update-step-status / delete-step — ทำใน Supabase ได้
     if (action === 'update-step-status') {
@@ -190,11 +379,65 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
     }
     if (action === 'delete-step') {
       const rid = String(data?.Record_ID||'');
+      if (!rid) return { success:false, message:'Record_ID required' };
+      // ยืนยันก่อนลบ — frontend ต้องโชว์ ConfirmPopup ก่อนเรียก action นี้ (บังคับ confirm ทุกครั้ง)
       const { error } = await sb.from('steps_log').delete().eq('record_id', rid);
       if (error) throw error;
       const { invalidate } = await import('@/lib/gasCache');
       invalidate('gas:steps');
-      return { success:true, message:'ลบรายการสำเร็จ (Supabase)' };
+      backupToGAS(action, data);
+      return { success:true, message:'ลบรายการสำเร็จ (Supabase) — ลบเกลี้ยงจากทุกตารางที่เกี่ยวข้องแล้ว' };
+    }
+    // delete-personnel / delete-user — ลบเกลี้ยง cascading ทั้ง Supabase และ GAS สำรอง
+    if (action === 'delete-personnel' || action === 'delete-user') {
+      const pid = String(data?.Personnel_ID||'').trim();
+      const uid = String(data?.User_ID||'').trim();
+      // ต้องยืนยันก่อนลบ — frontend มี ConfirmPopup ทุกจุด
+      if (!pid && !uid) return { success:false, message:'ต้องระบุ Personnel_ID หรือ User_ID' };
+      // หา user_id ที่ต้องลบ
+      let targetUserId: string | null = uid || null;
+      let targetPid: string | null = pid || null;
+      if (!targetUserId && targetPid) {
+        const { data: u } = await sb.from('users').select('user_id').eq('personnel_id', targetPid).maybeSingle();
+        targetUserId = (u as {user_id:string}|null)?.user_id || null;
+      }
+      if (!targetPid && targetUserId) {
+        const { data: u2 } = await sb.from('users').select('personnel_id').eq('user_id', targetUserId).maybeSingle();
+        targetPid = (u2 as {personnel_id:string}|null)?.personnel_id || null;
+      }
+      // ลบจากตารางหลัก — FK ON DELETE CASCADE จะลบ steps_log, sweet_free, baseline, weight_after, google_fit_links อัตโนมัติ
+      let deleted = 0;
+      if (targetPid) {
+        const { error, count } = await sb.from('users').delete({ count:'exact' }).eq('personnel_id', targetPid);
+        if (error) throw error;
+        deleted = count ?? 0;
+        if (deleted===0 && targetUserId) {
+          const { error: e2, count: c2 } = await sb.from('users').delete({ count:'exact' }).eq('user_id', targetUserId);
+          if (e2) throw e2;
+          deleted = c2 ?? 0;
+        }
+      } else if (targetUserId) {
+        const { error, count } = await sb.from('users').delete({ count:'exact' }).eq('user_id', targetUserId);
+        if (error) throw error;
+        deleted = count ?? 0;
+      }
+      // กันกรณี FK ยังไม่ cascade (ถ้าไม่มี FK) — ลบ manual จากตารางลูก
+      if (targetUserId) {
+        try { await sb.from('steps_log').delete().eq('user_id', targetUserId); } catch {}
+        try { await sb.from('sweet_free').delete().eq('user_id', targetUserId); } catch {}
+        try { await sb.from('baseline_records').delete().eq('user_id', targetUserId); } catch {}
+        try { await sb.from('weight_after_records').delete().eq('user_id', targetUserId); } catch {}
+        try { await sb.from('google_fit_links').delete().eq('user_id', targetUserId); } catch {}
+      }
+      if (targetPid) {
+        try { await sb.from('steps_log').delete().eq('user_id', targetPid); } catch {}
+        try { await sb.from('sweet_free').delete().eq('user_id', targetPid); } catch {}
+      }
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users'); invalidate('gas:steps'); invalidate('gas:sweet-free');
+      backupToGAS(action, data);
+      if (deleted===0) return { success:false, message:'ไม่พบข้อมูลบุคลากรที่ต้องลบ' };
+      return { success:true, message:`ลบบุคลากรสำเร็จ — ลบเกลี้ยงจากทุกตารางที่เกี่ยวข้องแล้ว (Supabase + GAS สำรอง)` };
     }
     // อื่นๆ ให้ GAS ทำ
     return null;

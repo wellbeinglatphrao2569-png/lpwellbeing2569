@@ -87,7 +87,7 @@ export function useMaintenance() {
     };
   }, [fetchSettings]);
 
-  const shouldBlock = !isBypass && !!settings.is_maintenance_active;
+  const shouldBlock = !loading && !isBypass && !!settings.is_maintenance_active;
 
   return { settings, setSettings, loading, isBypass, shouldBlock, error, refresh: fetchSettings, setIsBypass: refreshBypass };
 }

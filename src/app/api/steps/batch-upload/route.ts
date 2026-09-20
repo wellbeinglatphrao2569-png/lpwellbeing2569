@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeStepsImageWithTyphoon, isTyphoonConfigured } from '@/lib/typhoon';
 import { extractStepsFromText } from '@/lib/stepsExtractor';
 import { normalizeOcrDate, isDateMatch } from '@/lib/stepsDateParser';
+import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
 export const runtime = 'nodejs';
@@ -15,6 +16,17 @@ export const maxDuration = 60;
 function extractBase64(imageBase64: string): string {
   const m = imageBase64.match(/^data:[^;]+;base64,(.+)$/);
   return m ? m[1] : imageBase64;
+}
+async function backupBatchToGAS(payload: Record<string, unknown>): Promise<void> {
+  if (!GAS_API_URL) return;
+  try {
+    fetch(GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'add-batch-steps', ...payload }),
+      cache: 'no-store',
+    }).catch(() => {});
+  } catch {}
 }
 
 export async function POST(request: NextRequest) {
@@ -26,43 +38,74 @@ export async function POST(request: NextRequest) {
     if (!Steps || !Array.isArray(Steps) || Steps.length === 0) return NextResponse.json({ error: 'Steps array is required' }, { status: 400 });
     if (!GAS_API_URL) return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
 
-    // ห้วงเวลาบันทึก + Data Freeze + โหลด users แบบ parallel (เร็วขึ้น ~50%)
-    let win: any = null;
+    // Supabase primary — ห้วงเวลา + users จาก Supabase, GAS เป็นสำรอง
+    let win: {start:string,end:string}|null = null;
     let usersList: any[] = [];
     let usersFetchOk = false;
-    try {
-      const [winRes, uRes] = await Promise.all([
-        fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store', signal: request.signal }),
-        fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store', signal: request.signal }),
-      ]);
-      if (winRes.ok) {
-        win = await winRes.json().catch(() => null);
+    if (isSupabaseConfigured()) {
+      try {
+        const sb = getSupabase()!;
+        const { data: winRow } = await sb.from('project_settings').select('start_date,end_date').eq('id',1).maybeSingle();
+        if (winRow) win = { start: (winRow as {start_date:string}).start_date, end: (winRow as {end_date:string}).end_date };
+        // users paginated
+        let all: any[] = [];
+        let from = 0;
+        while (true) {
+          const { data, error } = await sb.from('users').select('*').range(from, from+999);
+          if (error) throw error;
+          if (!data || data.length===0) break;
+          all.push(...data);
+          if (data.length<1000) break;
+          from+=1000;
+        }
+        // map to GAS shape for existing checks
+        usersList = all.map((r: Record<string,unknown>)=> ({
+          User_ID: r.user_id, Personnel_ID: r.personnel_id, Full_Name: r.full_name, First_Name: r.first_name, Last_Name: r.last_name,
+          Department: r.department, Step_Record_Mode: r.step_record_mode, Role: r.role,
+        }));
+        usersFetchOk = usersList.length>0;
         if (win && win.start && win.end) {
           const today = new Date().toISOString().slice(0, 10);
-          if (today > String(win.end).slice(0, 10)) {
-            return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
-          }
+          if (today > win.end) return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
           const out: string[] = [];
           for (const s of Steps as any[]) {
             const d = String(s.Day || '').trim().slice(0, 10);
-            if (d && (d < String(win.start).slice(0, 10) || d > String(win.end).slice(0, 10))) out.push(d);
+            if (d && (d < win.start || d > win.end)) out.push(d);
           }
           if (out.length > 0) return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — พบวันที่นอกห้วง: ${out.slice(0, 3).join(', ')}${out.length > 3 ? ' …' : ''}` }, { status: 400 });
         }
+      } catch (e) {
+        console.warn('batch-upload Supabase window/users failed', e);
       }
-      if (uRes.ok) {
-        const j = await uRes.json().catch(() => null);
-        if (Array.isArray(j)) { usersList = j; usersFetchOk = true; }
-      }
-    } catch (e) {
-      if ((e as Error)?.name === 'AbortError') return NextResponse.json({ error: 'คำขอถูกยกเลิก' }, { status: 499 });
-      console.warn('batch-upload window/users check failed', e);
-      // fallback แยกถ้า parallel ล้มเหลว
-      if (usersList.length === 0) {
-        try {
-          const uRes2 = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
-          if (uRes2.ok) { const j2 = await uRes2.json(); if (Array.isArray(j2)) { usersList = j2; usersFetchOk = true; } }
-        } catch {}
+    }
+    // fallback GAS ถ้า Supabase ไม่พร้อม
+    if (!usersFetchOk) {
+      try {
+        const [winRes, uRes] = await Promise.all([
+          fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store', signal: request.signal }),
+          fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store', signal: request.signal }),
+        ]);
+        if (winRes.ok) {
+          const w = await winRes.json().catch(() => null);
+          if (w && w.start && w.end) {
+            win = { start: String(w.start).slice(0,10), end: String(w.end).slice(0,10) };
+            const today = new Date().toISOString().slice(0, 10);
+            if (today > win.end) return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
+            const out: string[] = [];
+            for (const s of Steps as any[]) {
+              const d = String(s.Day || '').trim().slice(0, 10);
+              if (d && (d < win.start || d > win.end)) out.push(d);
+            }
+            if (out.length > 0) return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — พบวันที่นอกห้วง: ${out.slice(0, 3).join(', ')}${out.length > 3 ? ' …' : ''}` }, { status: 400 });
+          }
+        }
+        if (uRes.ok) {
+          const j = await uRes.json().catch(() => null);
+          if (Array.isArray(j)) { usersList = j; usersFetchOk = true; }
+        }
+      } catch (e) {
+        if ((e as Error)?.name === 'AbortError') return NextResponse.json({ error: 'คำขอถูกยกเลิก' }, { status: 499 });
+        console.warn('batch-upload GAS fallback failed', e);
       }
     }
 
@@ -254,6 +297,72 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Supabase primary — insert โดยตรง
+    if (isSupabaseConfigured()) {
+      try {
+        const sb = getSupabase()!;
+        // ตรวจซ้ำ Approved ถ้าไม่อนุญาต overwrite
+        const allowOverwriteBool = String(Allow_Overwrite||'').trim()==='1' || String(Allow_Overwrite).toLowerCase()==='true';
+        let saved = 0, skipped = 0, errors = 0;
+        for (const s of processedSteps as any[]) {
+          const uid = String(s.User_ID||'').trim();
+          const day = String(s.Day||'').trim().slice(0,10);
+          const stepsCount = Number(s.Steps_Count)||0;
+          if (!uid || !day || !stepsCount) { errors++; continue; }
+          // check existing Approved
+          const { data: existing } = await sb.from('steps_log').select('record_id').eq('user_id', uid).eq('date_thai', day).eq('status','Approved').maybeSingle();
+          if (existing && !allowOverwriteBool) { skipped++; continue; }
+          // ถ้ามีอยู่แล้วและ allow → update, ถ้าไม่มี → insert
+          if (existing) {
+            const { error } = await sb.from('steps_log').update({
+              steps_count: stepsCount,
+              submitted_steps: stepsCount,
+              record_method: 'Batch (เจ้าหน้าที่)',
+              image_drive_id: null,
+              ai_steps: s.AI_Steps ? Number(s.AI_Steps) : null,
+              ai_confidence: s.AI_Confidence ? Number(s.AI_Confidence) : null,
+              date_match: s.Date_Match === 'TRUE' ? true : s.Date_Match==='FALSE' ? false : null,
+              alert_flag: s.Alert_Flag === 'TRUE',
+              alert_reason: s.Alert_Reason || null,
+              status: s.Status === 'Approved' ? 'Approved' : 'Pending',
+              reviewed_at: s.Status==='Approved' ? new Date().toISOString() : null,
+              auditor_id: s.Status==='Approved' ? null : null,
+            }).eq('record_id', (existing as {record_id:string}).record_id);
+            if (error) { errors++; continue; }
+            saved++;
+          } else {
+            const recordId = 'ST' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,6).toUpperCase();
+            const { error } = await sb.from('steps_log').insert({
+              record_id: recordId,
+              user_id: uid,
+              date_thai: day,
+              steps_count: stepsCount,
+              submitted_steps: stepsCount,
+              record_method: 'Batch (เจ้าหน้าที่)',
+              image_drive_id: null,
+              ai_steps: s.AI_Steps ? Number(s.AI_Steps) : null,
+              ai_confidence: s.AI_Confidence ? Number(s.AI_Confidence) : null,
+              date_match: s.Date_Match === 'TRUE' ? true : s.Date_Match==='FALSE' ? false : null,
+              alert_flag: s.Alert_Flag === 'TRUE',
+              alert_reason: s.Alert_Reason || null,
+              status: s.Status === 'Approved' ? 'Approved' : 'Pending',
+              week_number: null,
+              auditor_id: null,
+              reviewed_at: s.Status==='Approved' ? new Date().toISOString() : null,
+              recorded_at: new Date().toISOString(),
+            });
+            if (error) { errors++; continue; }
+            saved++;
+          }
+        }
+        // backup to GAS
+        backupBatchToGAS({ Logged_By: String(Logged_By), Week_Start: String(Week_Start), Allow_Overwrite: Allow_Overwrite ? '1' : '0', Steps: processedSteps });
+        return NextResponse.json({ success:true, saved, skipped, errors, aiApproved: aiApprovedCount, aiPending: aiPendingCount, message: `บันทึกสำเร็จ ${saved} รายการ${skipped?` ข้าม ${skipped}`:''}${errors?` ผิดพลาด ${errors}`:''}` });
+      } catch (e) {
+        console.warn('Supabase batch insert failed, fallback to GAS', e);
+      }
+    }
+    // fallback GAS
     const gasRes = await fetch(GAS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },

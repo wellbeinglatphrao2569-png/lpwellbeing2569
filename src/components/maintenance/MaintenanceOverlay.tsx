@@ -63,17 +63,7 @@ export default function MaintenanceOverlay({
             </p>
           </div>
 
-          <div className="px-6 md:px-10 pb-6">
-            <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-cyan-50 dark:from-emerald-950/30 dark:to-cyan-950/20 border border-emerald-100 dark:border-emerald-900/30 p-4 flex items-start gap-3 text-left">
-              <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 mt-0.5">info</span>
-              <div className="text-xs leading-relaxed text-gray-700 dark:text-gray-300">
-                <p className="font-bold text-gray-900 dark:text-white">สำหรับผู้พัฒนา</p>
-                <p className="mt-1 opacity-80">
-                  เติม <code className="px-1.5 py-0.5 rounded bg-white dark:bg-gray-800 border text-[11px]">?dev_secret=LPWELL2026</code> ต่อท้าย URL เพื่อเข้าสู่โหมดผู้พัฒนา
-                </p>
-              </div>
-            </div>
-          </div>
+
         </div>
 
         <p className="text-center text-xs text-emerald-200/60 mt-4">© 2569 สำนักงานเขตลาดพร้าว กรุงเทพมหานคร</p>

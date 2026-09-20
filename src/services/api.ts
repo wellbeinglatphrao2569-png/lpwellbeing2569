@@ -1,6 +1,4 @@
-const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
-// GAS ปิดการใช้งานแล้ว — เก็บไว้เฉพาะกรณีฉุกเฉิน (fallback ปิด)
-const GAS_ENABLED = false;
+// GAS removed — Supabase only (ข้อมูล GAS เก็บเป็น backup ใน Sheet)
 
 // ---------- Supabase helpers ----------
 function isSupabaseAvailable(): boolean {
@@ -49,7 +47,6 @@ async function fetchFromSupabase<T>(path: string, params?: Record<string,string>
     if (!sb) return null;
 
     if (path === 'users') {
-      // Supabase max 1000/req — ต้อง range pagination
       let all: Record<string, unknown>[] = [];
       let from = 0; const size = 1000;
       while (true) {
@@ -95,12 +92,9 @@ async function fetchFromSupabase<T>(path: string, params?: Record<string,string>
       return { start: (data as {start_date:string}).start_date, end: (data as {end_date:string}).end_date } as unknown as T;
     }
     if (path === 'steps-pending-count') {
-      // params.viewerId ใช้กรองต่างฝ่ายไม่ได้ใน Supabase ตอนนี้ — นับ Pending ทั้งหมดก่อน แล้วให้ Sidebar กรองต่อได้
       const viewerId = params?.viewerId;
-      let q = sb.from('steps_log').select('record_id,user_id', { count: 'exact' }).eq('status', 'Pending');
-      const { count, error } = await q;
+      const { count, error } = await sb.from('steps_log').select('record_id,user_id', { count: 'exact' }).eq('status', 'Pending');
       if (error) throw error;
-      // ถ้ามี viewerId ให้ลองนับแบบแม่นด้วย users join (best-effort)
       if (viewerId) {
         try {
           const { data: viewer } = await sb.from('users').select('department').eq('user_id', viewerId).maybeSingle();
@@ -117,7 +111,6 @@ async function fetchFromSupabase<T>(path: string, params?: Record<string,string>
       return { count: count ?? 0 } as unknown as T;
     }
     if (path === 'dashboard' || path === 'weight-comparison' || path === 'baseline') {
-      // ยังให้ GAS ทำ — ซับซ้อน
       return null;
     }
     return null;
@@ -134,7 +127,6 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
     const sb = getSupabase();
     if (!sb) return null;
 
-    // project-window
     if (action === 'set-project-window') {
       const { error } = await sb.from('project_settings').upsert({
         id: 1, start_date: String(data?.Start_Date||'').slice(0,10), end_date: String(data?.End_Date||'').slice(0,10), updated_by: data?.Logged_By ? String(data.Logged_By) : null,
@@ -144,7 +136,6 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       invalidate('gas:project-window');
       return { success: true, message: 'บันทึกห้วงเวลาสำเร็จ (Supabase)' };
     }
-    // cleanup-out-of-window — ลบ steps/sweet นอกห้วง
     if (action === 'cleanup-out-of-window') {
       const { data: win } = await sb.from('project_settings').select('start_date,end_date').eq('id',1).maybeSingle();
       const start = (win as {start_date:string}|null)?.start_date;
@@ -154,10 +145,8 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       let stepsDeleted = 0, sweetDeleted = 0;
       if (targets==='steps' || targets==='all') {
         const { error, count } = await sb.from('steps_log').delete({ count:'exact' }).lt('date_thai', start).or(`date_thai.gt.${end}`);
-        // Supabase delete with or: ใช้ 2 ครั้ง
         if (!error) stepsDeleted = count ?? 0;
         else {
-          // fallback 2 queries
           const a = await sb.from('steps_log').delete({ count:'exact' }).lt('date_thai', start);
           const b = await sb.from('steps_log').delete({ count:'exact' }).gt('date_thai', end);
           stepsDeleted = (a.count||0)+(b.count||0);
@@ -172,12 +161,6 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       invalidate('gas:steps'); invalidate('gas:sweet-free');
       return { success:true, message:`ลบ Steps ${stepsDeleted} แถว, Sweet ${sweetDeleted} แถว`, cleaned:{ stepsDeleted, sweetDeleted } };
     }
-    // add-sweet-free (bulk per dept handled as single here)
-    if (action === 'add-sweet-free') {
-      // GAS ส่ง Wednesday_Date, Status, Logged_By, User_IDs? ดู no-sugar page: ส่งทีละคนหรือหลายคน
-      return null; // fallback GAS
-    }
-    // update-step-status / delete-step — ทำใน Supabase ได้
     if (action === 'update-step-status') {
       const rid = String(data?.Record_ID||'');
       const status = String(data?.Status||'');
@@ -199,7 +182,6 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       invalidate('gas:steps');
       return { success:true, message:'ลบรายการสำเร็จ (Supabase)' };
     }
-    // อื่นๆ ให้ GAS ทำ
     return null;
   } catch (e) {
     console.warn(`[supabase post ${action}]`, e);
@@ -207,7 +189,7 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
   }
 }
 
-// จำแนก path ที่ควร cache (read-heavy) กับที่ต้องสด — เพิ่ม 120s ลดโหลด
+// จำแนก path ที่ควร cache
 const READ_CACHE_TTL: Record<string, number> = {
   'users': 120_000,
   'steps': 120_000,
@@ -224,42 +206,10 @@ function isReadCacheable(path: string): boolean {
   return path in READ_CACHE_TTL;
 }
 
-async function fetchWithRetry(
-  url: string,
-  init: RequestInit & { signal?: AbortSignal },
-  retries = 2
-): Promise<Response> {
-  let lastErr: unknown = null;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await fetch(url, init);
-      if (!res.ok && (res.status === 429 || res.status >= 500) && attempt < retries) {
-        const retryAfter = res.headers.get('Retry-After');
-        const delay = retryAfter ? Math.min(8000, parseInt(retryAfter, 10) * 1000 || 0) : 400 * Math.pow(2, attempt) + Math.random() * 300;
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-      return res;
-    } catch (e) {
-      lastErr = e;
-      const isAbort = (e instanceof DOMException && e.name === 'AbortError') || (e as unknown as {name:string})?.name === 'AbortError';
-      if (isAbort) throw e;
-      if (attempt < retries) {
-        await new Promise(r => setTimeout(r, 400 * Math.pow(2, attempt)));
-        continue;
-      }
-      throw e;
-    }
-  }
-  throw lastErr;
-}
-
 export async function fetchData<T>(path: string, params?: Record<string,string>, opts?: { signal?: AbortSignal; forceRefresh?: boolean }): Promise<T | null> {
-  // 1) ลอง Supabase ก่อน (ถ้าตั้งค่าไว้)
   if (isSupabaseAvailable() && !opts?.forceRefresh) {
     const sbData = await fetchFromSupabase<T>(path, params);
     if (sbData !== null) {
-      // cache ไว้ด้วย
       if (isReadCacheable(path)) {
         try {
           const gasCache = await import('@/lib/gasCache');
@@ -270,143 +220,20 @@ export async function fetchData<T>(path: string, params?: Record<string,string>,
       return sbData;
     }
   }
-  // 2) GAS ปิดแล้ว — ไม่ fallback
-  if (!GAS_ENABLED) {
-    console.warn(`[api] GAS disabled, no Supabase handler for path: ${path}`);
-    return null;
-  }
-  try {
-    if (!GAS_API_URL) return null;
-    const url = `${GAS_API_URL}?path=${path}${params ? '&'+new URLSearchParams(params) : ''}`;
-    const cacheable = isReadCacheable(path) && !opts?.forceRefresh;
-    if (cacheable) {
-      const { cachedFetch, GAS_CACHE_KEYS } = await import('@/lib/gasCache');
-      const key = (GAS_CACHE_KEYS as Record<string,string>)[path] || `gas:${path}${params ? ':'+new URLSearchParams(params).toString() : ''}`;
-      const ttl = READ_CACHE_TTL[path] ?? 30_000;
-      return await cachedFetch<T>(key, async () => {
-        const res = await fetchWithRetry(url, { cache: 'no-store', signal: opts?.signal }, 1);
-        if (!res.ok) throw new Error(`GAS ${path} ${res.status}`);
-        return await res.json() as T;
-      }, { ttlMs: ttl, forceRefresh: opts?.forceRefresh });
-    }
-    const res = await fetchWithRetry(url, { cache: 'no-store', signal: opts?.signal }, 1);
-    if (!res.ok) return null;
-    return await res.json() as T;
-  } catch (e) {
-    const isAbort = (e instanceof DOMException && e.name === 'AbortError') || (e as unknown as {name:string})?.name === 'AbortError';
-    if (isAbort) return null;
-    return null;
-  }
+  console.warn(`[api] no Supabase handler for path: ${path} (GAS removed)`);
+  return null;
 }
 
-export async function postData(action: string, data?: Record<string,unknown>, opts?: { signal?: AbortSignal }) {
-  // ลอง Supabase ก่อนสำหรับ action ที่รองรับ
+export async function postData(action: string, data?: Record<string,unknown>): Promise<any> {
   const sbRes = await postToSupabase(action, data);
   if (sbRes) return sbRes;
-  if (!GAS_ENABLED) return { success: false, message: 'GAS ปิดใช้งาน — action นี้ยังไม่รองรับบน Supabase: ' + action };
-  try {
-    if (!GAS_API_URL) return { success: false, message: 'API not configured' };
-    const params = new URLSearchParams({ path: 'action', action });
-    if (data) {
-      for (const [k, v] of Object.entries(data)) {
-        params.append(k, String(v));
-      }
-    }
-    const res = await fetchWithRetry(`${GAS_API_URL}?${params}`, { cache: 'no-store', signal: opts?.signal }, 2);
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      try { const j = JSON.parse(txt); if (j?.error === 'ALREADY_REVIEWED') return { success: false, error: 'ALREADY_REVIEWED', ...j }; if (j?.error === 'NEED_CONFIRM') return { success: false, error: 'NEED_CONFIRM', ...j }; } catch {}
-      const { friendlyThai } = await import('@/lib/thaiErrorMap');
-      return { success: false, message: friendlyThai(txt || `HTTP ${res.status}`, res.status) };
-    }
-    const ct = res.headers.get('content-type') || '';
-    if (!ct.includes('application/json')) {
-      const txt = await res.text().catch(() => '');
-      const { friendlyThai } = await import('@/lib/thaiErrorMap');
-      return { success: false, message: friendlyThai(txt, res.status) };
-    }
-    const json = await res.json().catch(async () => {
-      const txt2 = await res.text().catch(() => '');
-      const { friendlyThai } = await import('@/lib/thaiErrorMap');
-      return { success: false, message: friendlyThai(txt2, res.status) } as unknown as Record<string,unknown>;
-    });
-    if (json && (json as Record<string,unknown>).success === false && typeof (json as Record<string,unknown>).message === 'string' && String((json as Record<string,unknown>).message).includes('<!DOCTYPE')) {
-      const { friendlyThai } = await import('@/lib/thaiErrorMap');
-      (json as Record<string,unknown>).message = friendlyThai(String((json as Record<string,unknown>).message), res.status);
-    }
-    try {
-      const { invalidate } = await import('@/lib/gasCache');
-      if (action === 'update-step-status' || action === 'delete-step' || action.startsWith('add-')) {
-        invalidate('gas:steps');
-        invalidate('gas:steps-pending-count');
-      }
-      if (action.includes('sweet')) invalidate('gas:sweet-free');
-      if (action.includes('personnel') || action.includes('user')) invalidate('gas:users');
-      if (action === 'validate-session' || action === 'logout') invalidate('gas:users');
-    } catch {}
-    return json as Record<string,unknown>;
-  } catch (e) {
-    const isAbort = (e instanceof DOMException && e.name === 'AbortError') || (e as unknown as {name:string})?.name === 'AbortError';
-    if (isAbort) return { success: false, message: 'ยกเลิกคำขอ' };
-    const { friendlyThai } = await import('@/lib/thaiErrorMap');
-    return { success: false, message: friendlyThai(e, undefined) };
-  }
+  return { success: false, message: `action "${action}" ยังไม่รองรับบน Supabase (GAS ถูกลบแล้ว)` };
 }
 
-export async function postDataJson(action: string, data?: Record<string,unknown>, opts?: { signal?: AbortSignal }) {
+export async function postDataJson(action: string, data?: Record<string,unknown>): Promise<any> {
   const sbRes = await postToSupabase(action, data);
   if (sbRes) return sbRes;
-  if (!GAS_ENABLED) return { success: false, message: 'GAS ปิดใช้งาน — action นี้ยังไม่รองรับบน Supabase: ' + action };
-  try {
-    if (!GAS_API_URL) return { success: false, message: 'API not configured' };
-    const res = await fetchWithRetry(GAS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, ...data }),
-      cache: 'no-store',
-      signal: opts?.signal,
-    }, 2);
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      try { const j = JSON.parse(txt); if (j?.error === 'ALREADY_REVIEWED') return { success: false, error: 'ALREADY_REVIEWED', ...j }; if (j?.error === 'NEED_CONFIRM') return { success: false, error: 'NEED_CONFIRM', ...j }; if (j?.error) return { success: false, message: j.error, ...j }; } catch {}
-      const { friendlyThai } = await import('@/lib/thaiErrorMap');
-      return { success: false, message: friendlyThai(txt || `HTTP ${res.status}`, res.status) };
-    }
-    const ct = res.headers.get('content-type') || '';
-    if (!ct.includes('application/json')) {
-      const txt = await res.text().catch(() => '');
-      const { friendlyThai } = await import('@/lib/thaiErrorMap');
-      return { success: false, message: friendlyThai(txt, res.status) };
-    }
-    const json = await res.json().catch(async () => {
-      const txt2 = await res.text().catch(() => '');
-      const { friendlyThai } = await import('@/lib/thaiErrorMap');
-      return { success: false, message: friendlyThai(txt2, res.status) };
-    }) as Record<string,unknown>;
-    try {
-      const { invalidate } = await import('@/lib/gasCache');
-      if (action === 'update-step-status' || action === 'delete-step' || action === 'add-batch-steps' || action === 'add-step') {
-        invalidate('gas:steps');
-        invalidate('gas:steps-pending-count');
-      }
-      if (action.includes('sweet')) invalidate('gas:sweet-free');
-      if (action.includes('personnel') || action.includes('user') || action === 'register') invalidate('gas:users');
-      if (action === 'set-project-window') invalidate('gas:project-window');
-      if (action === 'validate-session' || action === 'logout' || action === 'login') invalidate('gas:users');
-    } catch {}
-    if ((json as Record<string,unknown>).error === 'ALREADY_REVIEWED') return { success: false, error: 'ALREADY_REVIEWED', ...(json as Record<string,unknown>) };
-    if ((json as Record<string,unknown>).error === 'NEED_CONFIRM') return { success: false, error: 'NEED_CONFIRM', ...(json as Record<string,unknown>) };
-    if ((json as Record<string,unknown>).success === false && typeof (json as Record<string,unknown>).message === 'string' && String((json as Record<string,unknown>).message).includes('<!DOCTYPE')) {
-      const { friendlyThai } = await import('@/lib/thaiErrorMap');
-      (json as Record<string,unknown>).message = friendlyThai(String((json as Record<string,unknown>).message), res.status);
-    }
-    return json as Record<string,unknown>;
-  } catch (e) {
-    const isAbort = (e instanceof DOMException && e.name === 'AbortError') || (e as unknown as {name:string})?.name === 'AbortError';
-    if (isAbort) return { success: false, message: 'ยกเลิกคำขอ' };
-    const { friendlyThai } = await import('@/lib/thaiErrorMap');
-    return { success: false, message: friendlyThai(e, undefined) };
-  }
+  return { success: false, message: `action "${action}" ยังไม่รองรับบน Supabase (GAS ถูกลบแล้ว)` };
 }
 
 export function invalidateGasCache(pattern: string | RegExp) {

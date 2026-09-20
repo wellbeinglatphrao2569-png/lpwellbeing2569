@@ -1,4 +1,6 @@
 const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+// GAS ปิดการใช้งานแล้ว — เก็บไว้เฉพาะกรณีฉุกเฉิน (fallback ปิด)
+const GAS_ENABLED = false;
 
 // ---------- Supabase helpers ----------
 function isSupabaseAvailable(): boolean {
@@ -268,7 +270,11 @@ export async function fetchData<T>(path: string, params?: Record<string,string>,
       return sbData;
     }
   }
-  // 2) fallback GAS
+  // 2) GAS ปิดแล้ว — ไม่ fallback
+  if (!GAS_ENABLED) {
+    console.warn(`[api] GAS disabled, no Supabase handler for path: ${path}`);
+    return null;
+  }
   try {
     if (!GAS_API_URL) return null;
     const url = `${GAS_API_URL}?path=${path}${params ? '&'+new URLSearchParams(params) : ''}`;
@@ -297,6 +303,7 @@ export async function postData(action: string, data?: Record<string,unknown>, op
   // ลอง Supabase ก่อนสำหรับ action ที่รองรับ
   const sbRes = await postToSupabase(action, data);
   if (sbRes) return sbRes;
+  if (!GAS_ENABLED) return { success: false, message: 'GAS ปิดใช้งาน — action นี้ยังไม่รองรับบน Supabase: ' + action };
   try {
     if (!GAS_API_URL) return { success: false, message: 'API not configured' };
     const params = new URLSearchParams({ path: 'action', action });
@@ -349,6 +356,7 @@ export async function postData(action: string, data?: Record<string,unknown>, op
 export async function postDataJson(action: string, data?: Record<string,unknown>, opts?: { signal?: AbortSignal }) {
   const sbRes = await postToSupabase(action, data);
   if (sbRes) return sbRes;
+  if (!GAS_ENABLED) return { success: false, message: 'GAS ปิดใช้งาน — action นี้ยังไม่รองรับบน Supabase: ' + action };
   try {
     if (!GAS_API_URL) return { success: false, message: 'API not configured' };
     const res = await fetchWithRetry(GAS_API_URL, {

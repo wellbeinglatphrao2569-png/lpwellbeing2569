@@ -1,11 +1,15 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { ThemeProvider } from '@/hooks/useTheme';
 import Sidebar from '@/components/layout/Sidebar';
 import TopBar from '@/components/layout/TopBar';
 import Footer from '@/components/layout/Footer';
+import { useMaintenance } from '@/hooks/useMaintenance';
+import MaintenanceOverlay from '@/components/maintenance/MaintenanceOverlay';
+import DeveloperControlPanel from '@/components/maintenance/DeveloperControlPanel';
+import DevBypassHandler from '@/components/maintenance/DevBypassHandler';
 import './globals.css';
 
 // รอบนี้ระบบเปิดใช้งานเฉพาะหน้า Login, หน้าใช้งานทั่วไป และหน้าของเจ้าหน้าที่ นสส.
@@ -27,18 +31,41 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const isAllowed = allowedRoutes.some(r => pathname.startsWith(r));
   const homePath = '/dashboard';
 
+  // Maintenance Mode interceptor — ทุกหน้าถูกบล็อกเมื่อ is_maintenance_active=true ยกเว้น bypass
+  const { settings, setSettings, loading: maintenanceLoading, isBypass, shouldBlock } = useMaintenance();
+
   useEffect(() => {
     if (!isLoggedIn) {
       if (!isPublicRoute) router.replace('/login');
     } else {
-      // กันการเข้าถึงหน้าอื่น ๆ ที่ยังไม่ได้เปิดใช้งาน — ยกเว้น publicRoutes ที่เข้าได้อยู่แล้ว
       if (!isPublicRoute && !isAllowed) router.replace(homePath);
     }
   }, [isLoggedIn, isPublicRoute, isAllowed, homePath, router]);
 
+  // helper: wrap เนื้อหาปกติ + maintenance overlay + dev panel
+  const wrapWithMaintenance = (inner: React.ReactNode) => (
+    <>
+      {inner}
+      {/* User Maintenance Interceptor — เต็มจอ บล็อกทุกอย่าง */}
+      {shouldBlock && (
+        <MaintenanceOverlay title={settings.maintenance_title} message={settings.maintenance_message} />
+      )}
+      {/* Dev Floating Panel — เห็นเฉพาะเมื่อ bypass */}
+      {isBypass && (
+        <DeveloperControlPanel settings={settings} onSettingsChange={setSettings} onSaved={setSettings} />
+      )}
+      {/* Dev banner เล็กเมื่อ bypass และไม่ถูกบล็อก — แจ้งว่า dev mode active */}
+      {isBypass && !shouldBlock && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[9997] px-3 py-1.5 rounded-full bg-amber-500 text-white text-xs font-bold shadow-lg border border-white/20 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-white animate-pulse" /> โหมดผู้พัฒนา — Bypass เปิดอยู่
+        </div>
+      )}
+    </>
+  );
+
   if (isPublicRoute) {
     if (pathname.startsWith('/dashboard')) {
-      return (
+      return wrapWithMaintenance(
         <div className="min-h-screen bg-gradient-to-br from-emerald-50/50 to-cyan-50/50 dark:from-gray-900 dark:to-gray-950 text-gray-900 dark:text-gray-100 flex overflow-x-hidden">
           {sidebarOpen && (
             <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
@@ -61,10 +88,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       );
     }
-    return <>{children}</>;
+    return wrapWithMaintenance(<>{children}</>);
   }
   if (!isLoggedIn) {
-    return (
+    return wrapWithMaintenance(
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-emerald-50 to-cyan-50 dark:from-gray-900 dark:to-gray-950">
         <div className="flex flex-col items-center gap-3">
           <span className="loading loading-spinner loading-lg text-emerald-600"></span>
@@ -74,21 +101,17 @@ function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return (
+  return wrapWithMaintenance(
     <div className="min-h-screen bg-gradient-to-br from-emerald-50/50 to-cyan-50/50 dark:from-gray-900 dark:to-gray-950 text-gray-900 dark:text-gray-100 flex overflow-x-hidden">
-      {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
       )}
-      {/* Mobile drawer */}
       <div className={`fixed inset-y-0 left-0 z-50 w-[260px] transform transition-transform duration-300 md:hidden ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <Sidebar onClose={() => setSidebarOpen(false)} />
       </div>
-      {/* Desktop sidebar */}
       <div className="hidden md:flex md:w-[260px] md:flex-col md:fixed md:inset-y-0">
         <Sidebar />
       </div>
-      {/* Main content */}
       <div className="flex-1 flex flex-col md:ml-[260px] min-w-0 h-dvh overflow-y-auto">
         <TopBar onMenuClick={() => setSidebarOpen(true)} />
         <main className="flex-1 p-4 md:p-6 lg:p-8 pb-20 md:pb-8 overflow-x-hidden">
@@ -119,6 +142,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen">
         <ThemeProvider>
           <AuthProvider>
+            <Suspense fallback={null}>
+              <DevBypassHandler />
+            </Suspense>
             <AppShell>{children}</AppShell>
           </AuthProvider>
         </ThemeProvider>

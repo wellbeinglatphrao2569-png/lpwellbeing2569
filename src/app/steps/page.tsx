@@ -563,7 +563,24 @@ export default function StepsPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'AI ประมวลผลไม่สำเร็จ');
-      setAiResult(data as AiVerificationResult);
+      // map snake_case -> camelCase สำหรับ popup (visual_evidence, layout_pattern)
+      const mapped: AiVerificationResult = {
+        aiSteps: data.aiSteps ?? data.extracted_steps ?? null,
+        aiStepsRaw: data.aiStepsRaw ?? null,
+        dateRaw: data.dateRaw ?? data.extracted_date ?? null,
+        dateNormalized: data.dateNormalized ?? data.parsed_date_from_image ?? data.extracted_date_normalized ?? null,
+        dateMatch: data.dateMatch ?? data.date_match ?? null,
+        confidence: data.confidence ?? data.confidence_score ?? data.ocr_confidence ?? null,
+        stepsExact: data.stepsExact ?? data.steps_match ?? null,
+        alert: !!data.alert,
+        alertReason: data.alertReason ?? data.reason ?? data.reasoning ?? '',
+        expectedDate: data.expectedDate ?? logDate,
+        inputSteps: data.inputSteps ?? steps,
+        rawText: data.rawText ?? data.visual_evidence ?? '',
+        visualEvidence: data.visualEvidence ?? data.visual_evidence ?? null,
+        layoutPattern: data.layoutPattern ?? data.layout_pattern ?? null,
+      };
+      setAiResult(mapped);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'AI ประมวลผลไม่สำเร็จ';
       // fallback: ยังให้ยืนยันได้ (จะบันทึกเป็น Pending)

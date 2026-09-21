@@ -13,6 +13,8 @@ export interface AiVerificationResult {
   expectedDate: string;
   inputSteps: number | null;
   rawText?: string;
+  visualEvidence?: string | null;
+  layoutPattern?: string | null;
 }
 
 interface Props {
@@ -87,6 +89,9 @@ export default function AiVerificationPopup({ open, preview, inputSteps, expecte
                   {result.dateRaw ? (
                     <>
                       AI พบข้อความวันที่ในภาพว่า <strong className={dateMatch === true ? 'text-emerald-600' : dateMatch === false ? 'text-red-600' : 'text-amber-600'}>“{result.dateRaw}”</strong> ซึ่งแปลงเป็นสากลได้เป็น <strong>{result.dateNormalized || '—'}</strong> {dateMatch === true ? 'ตรงกับวันที่คุณเลือกบันทึกพอดี' : dateMatch === false ? `ไม่ตรงกับวันที่คุณเลือก (จึงถือว่าไม่ผ่านการเทียบวันที่)` : 'แต่ยังอ่านได้ไม่ชัดเจน จึงต้องให้เจ้าหน้าที่ช่วยดูอีกครั้ง'}
+                      {result.visualEvidence && <span className="block mt-1 text-xs text-gray-500">📍 ตำแหน่งที่ AI อ่าน: {result.visualEvidence}</span>}
+                      {result.layoutPattern && <span className="block text-xs text-gray-400">เลย์เอาต์ที่ตรวจพบ: {result.layoutPattern}</span>}
+                      {result.rawText && <span className="block mt-1 text-xs text-gray-400 font-mono bg-gray-50 dark:bg-gray-700/30 p-1.5 rounded">ข้อความดิบ: {result.rawText.slice(0,200)}</span>}
                     </>
                   ) : (
                     <>AI ยังไม่พบข้อความวันที่ที่ชัดเจนในภาพ จึงไม่สามารถเทียบวันที่ได้ — ระบบจะส่งให้เจ้าหน้าที่ช่วยตรวจสอบ</>

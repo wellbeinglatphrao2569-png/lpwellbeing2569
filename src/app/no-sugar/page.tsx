@@ -36,19 +36,21 @@ function isFailedRecord(s: SweetFree): boolean {
 const OTHER_REASONS = ['ลาป่วย','ลากิจ','ลาพักผ่อน','อบรมนอกสถานที่'] as const;
 
 // ช่วงเวลาที่บันทึกผลได้: พุธ 14:00 น. – ศุกร์ 23:59 น. (ตามเวลาประเทศไทย UTC+7)
-function getWindowState(): { open: boolean; message: string } {
+// สเปค: ก่อนพุธ 14:00 ล็อกสนิท (แม้ยังไม่เคยบันทึก) / หลังศุกร์ 23:59 ปิดแต่ให้ย้อนหลังได้ครั้งเดียวสำหรับคนที่ยังไม่เคยบันทึก
+function getWindowState(): { open: boolean; beforeOpen: boolean; message: string } {
   const thai = getThaiNow();
   const day = thai.getUTCDay(); // 0=อาทิตย์ .. 6=เสาร์
   const minutes = thai.getUTCHours() * 60 + thai.getUTCMinutes();
   const open = (day === 3 && minutes >= 14 * 60) || day === 4 || day === 5;
+  const beforeOpen = day === 3 && minutes < 14 * 60;
   if (open) {
-    return { open: true, message: 'ช่วงเวลาบันทึกผล: พุธ 14:00 น. – ศุกร์ 23:59 น.' };
+    return { open: true, beforeOpen: false, message: 'ช่วงเวลาบันทึกผล: พุธ 14:00 น. – ศุกร์ 23:59 น.' };
   }
-  if (day === 3) {
-    return { open: false, message: 'เปิดให้บันทึกผลได้ตั้งแต่พุธ 14:00 น. (วันพุธก่อนเวลา 14:00 น. ไม่เปิด)' };
+  if (beforeOpen) {
+    return { open: false, beforeOpen: true, message: 'ยังไม่ถึงเวลาเปิดบันทึก — เปิดพุธ 14:00 น. (ก่อนเวลาไม่สามารถบันทึกได้)' };
   }
-  // เสาร์ – อังคาร ปิด
-  return { open: false, message: 'หมดเวลาบันทึกผลของสัปดาห์นี้แล้ว — เปิดบันทึกได้ตั้งแต่พุธ 14:00 น. ถึงศุกร์ 23:59 น.' };
+  // เสาร์ – อังคาร หรือพุธหลัง 23:59 ของศุกร์ (สัปดาห์ปัจจุบันปิดแล้ว)
+  return { open: false, beforeOpen: false, message: 'หมดเวลาบันทึกปกติของสัปดาห์นี้แล้ว (ศุกร์ 23:59 น.) — เหลือบันทึกย้อนหลังได้ครั้งเดียวสำหรับคนที่ยังไม่เคยบันทึก (แก้ไขไม่ได้)' };
 }
 
 // ใช้ Personnel_ID เป็น fallback เมื่อ User_ID ยังว่าง (บุคลากรที่รอลงทะเบียน)
@@ -276,12 +278,19 @@ export default function NoSugarPage() {
     return { kept: recs.filter(s => isKeptRecord(s)).length, failed: recs.filter(s => isFailedRecord(s)).length, other: recs.filter(s => isOtherRecord(s)).length };
   };
 
-  // ตรวจว่าสัปดาห์ที่เลือกสามารถบันทึก/แก้ไขได้หรือไม่ (ต่อคน)
+  // ตรวจว่าสัปดาห์ที่เลือกสามารถบันทึก/แก้ไขได้หรือไม่ (ต่อคน) — ตามสเปคใหม่
   const canEditFor = (u: User, recorded?: SweetFree | null) => {
     if (projectWindow && !isInWindow(selectedWedStr)) return false;
     if (isFutureWeek) return false;
-    if (isCurrentWeek && windowState.open) return true; // ในช่วง พ.14:00-ศ.23:59 แก้ได้ตลอด
-    // นอกช่วง หรือสัปดาห์ย้อนหลัง: ถ้ามีบันทึกแล้ว ห้ามแก้ (บันทึกได้ครั้งเดียวแล้วล็อก)
+    // สัปดาห์ปัจจุบัน
+    if (isCurrentWeek) {
+      if (windowState.open) return true; // พ.14:00-ศ.23:59 แก้ได้ตลอด
+      if (windowState.beforeOpen) return false; // ก่อนพุธ 14:00 ล็อกสนิท แม้ยังไม่เคยบันทึก
+      // หลังศุกร์ 23:59 — ปิดปกติ แต่ให้ย้อนหลังได้ครั้งเดียวสำหรับคนที่ยังไม่เคยบันทึก (เหมือนสัปดาห์ย้อนหลัง)
+      if (recorded) return false; // บันทึกแล้ว → ล็อก แก้ไม่ได้
+      return true; // ยังไม่เคยบันทึก → ให้บันทึกย้อนหลังได้ครั้งเดียว
+    }
+    // สัปดาห์ย้อนหลัง: ถ้ามีบันทึกแล้ว ห้ามแก้ (บันทึกได้ครั้งเดียวแล้วล็อก)
     if (recorded) return false;
     return true; // ยังไม่เคยบันทึก -> ให้บันทึกย้อนหลังได้ครั้งเดียว
   };

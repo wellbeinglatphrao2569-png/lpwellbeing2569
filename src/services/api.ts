@@ -344,9 +344,51 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
         try { const arr = JSON.parse(String(data.User_IDs_JSON)); if(Array.isArray(arr)) arr.forEach((x:string)=>uids.push(String(x).trim())); } catch {}
       }
       if (!wed || uids.length===0) return { success:false, message:'ข้อมูลไม่ครบ' };
+      // ตรวจหน้าต่างเวลา: พุธ 14:00-ศุกร์ 23:59, ก่อนเปิดล็อก, ย้อนหลังได้ครั้งเดียว (แก้ไขไม่ได้)
+      const thaiNow = new Date(Date.now() + 7*60*60*1000);
+      const tDay = thaiNow.getUTCDay();
+      const tMin = thaiNow.getUTCHours()*60 + thaiNow.getUTCMinutes();
+      const winOpen = (tDay===3 && tMin>=14*60) || tDay===4 || tDay===5;
+      const winBeforeOpen = tDay===3 && tMin<14*60;
+      // วันพุธปัจจุบัน (ไทย)
+      const curWed = new Date(thaiNow);
+      curWed.setUTCDate(curWed.getUTCDate() + (3 - curWed.getUTCDay()));
+      const curWedStr = `${curWed.getUTCFullYear()}-${String(curWed.getUTCMonth()+1).padStart(2,'0')}-${String(curWed.getUTCDate()).padStart(2,'0')}`;
+      if (wed > curWedStr) return { success:false, message:'ไม่สามารถบันทึกสำหรับสัปดาห์ในอนาคตได้' };
+      const isCurrent = wed===curWedStr;
+      // กรอง uids ที่แก้ไขไม่ได้ (มีบันทึกแล้ว) ในกรณีอยู่นอกหน้าต่าง
+      const allowedUids: string[] = [];
+      const blocked: string[] = [];
+      for (const uid of uids) {
+        const { data: existing } = await sb.from('sweet_free').select('entry_id').eq('user_id', uid).eq('wednesday_date', wed).maybeSingle();
+        const canEdit = (()=> {
+          if (isCurrent) {
+            if (winOpen) return true;
+            if (winBeforeOpen) return false; // ก่อนพุธ 14:00 ล็อกสนิท
+            // หลังศุกร์ 23:59
+            if (existing) return false;
+            return true; // ย้อนหลังครั้งเดียว
+          } else {
+            // สัปดาห์ย้อนหลัง
+            if (existing) return false;
+            return true;
+          }
+        })();
+        if (!canEdit) blocked.push(uid);
+        else allowedUids.push(uid);
+      }
+      if (allowedUids.length===0) {
+        if (winBeforeOpen) return { success:false, message:'ยังไม่ถึงเวลาเปิดบันทึก — เปิดพุธ 14:00 น.' };
+        if (blocked.length>0) return { success:false, message:'บันทึกย้อนหลังได้เพียงครั้งเดียวต่อคน (บันทึกแล้วแก้ไขไม่ได้) — รายการที่เลือกถูกบันทึกไปแล้ว' };
+        return { success:false, message:'อยู่นอกช่วงเวลาบันทึกปกติ' };
+      }
+      // ถ้ามีบางคนถูกบล็อก ให้แจ้งเตือนแต่ยังบันทึกคนที่เหลือ
+      if (blocked.length>0) {
+        console.warn(`[sweet-free] blocked ${blocked.length} uids due to window (ย้อนหลังล็อก)`);
+      }
       const boolStatus = (()=>{ const s=String(status).trim().toLowerCase(); return s==='true'||s==='1'||s==='yes'; })();
       const reason = data?.Reason ? String(data.Reason) : null;
-      const rows = uids.map(uid=>({
+      const rows = allowedUids.map(uid=>({
         entry_id: 'SW' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,5).toUpperCase() + uid.slice(-3),
         user_id: uid,
         wednesday_date: wed,

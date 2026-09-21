@@ -799,7 +799,7 @@ export default function BatchStepsPage(){
                       const hasExisting = !!existing;
                       const hasPending = !!pending;
                       const hasDeleted = !!deleted;
-                      const persisted = (existing || pending || deleted) as any;
+                      const persisted = (pending || existing || deleted) as any; // pending ก่อน เพื่อให้เห็นรอตรวจก่อนอนุมัติ
                       const persistedImageId = persisted?.Image_Drive_ID ? String(persisted.Image_Drive_ID) : '';
                       const img = gridImages[uid]?.[d];
                       const disabled = locked || !uid;

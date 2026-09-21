@@ -198,12 +198,16 @@ export async function analyzeImageWithThaiFoon(
 
     const normalizedISO = parseDDMMYYYYToISO(extractedDateRaw, opts.ctx.currentYear);
 
-    // steps_match / date_match — ถ้า model ให้มาใช้เลย, ถ้าไม่ให้คำนวณเอง
-    let stepsMatch: boolean | null = (parsed as any).steps_match ?? null;
-    if (stepsMatch == null && extractedSteps != null && opts.ctx.inputSteps != null) stepsMatch = extractedSteps === opts.ctx.inputSteps;
+    // steps_match / date_match — คำนวณเองเสมอ (ไม่เชื่อ model ถ้าขัดกับ normalizedISO)
+    let stepsMatch: boolean | null = null;
+    if (extractedSteps != null && opts.ctx.inputSteps != null) stepsMatch = extractedSteps === opts.ctx.inputSteps;
+    else if ((parsed as any).steps_match != null) stepsMatch = !!(parsed as any).steps_match;
 
-    let dateMatch: boolean | null = (parsed as any).date_match ?? null;
-    if (dateMatch == null && normalizedISO) dateMatch = normalizedISO === opts.ctx.targetDate;
+    let dateMatch: boolean | null = null;
+    if (normalizedISO) dateMatch = normalizedISO === opts.ctx.targetDate;
+    else if ((parsed as any).date_match != null) dateMatch = !!(parsed as any).date_match;
+    // ถ้า model บอก true แต่ normalizedISO != targetDate ให้ถือว่า false (กัน hallucination 15/09 vs 02/09)
+    if (normalizedISO && (parsed as any).date_match === true && normalizedISO !== opts.ctx.targetDate) dateMatch = false;
 
     // status
     let status: 'APPROVED' | 'REVIEW' = 'REVIEW';

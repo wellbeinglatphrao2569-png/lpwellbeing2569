@@ -194,18 +194,23 @@ export async function POST(request: NextRequest) {
       else if (aiSteps != null && aiSteps < 100) { aiSteps = null; aiStepsRaw = null; }
     }
 
-    // Normalize วันที่ — ถ้า Typhoon ให้ parsed_date_from_image ที่เป็น YYYY-MM-DD มาแล้วให้ใช้เลย
+    // Normalize วันที่ — เข้มงวด: normalized ต้องตรง expected เท่านั้น ไม่เชื่อ tyIsMatched ถ้าขัด
     let dateNormalized: string | null = null;
     let dateMatch: boolean | null = null;
     if (tyFormattedDate && /^\d{4}-\d{2}-\d{2}$/.test(tyFormattedDate)) {
       dateNormalized = tyFormattedDate;
       dateMatch = tyFormattedDate === expected;
-      if (tyIsMatched != null) dateMatch = tyIsMatched;
+      // ถ้า model บอก true แต่ normalized != expected ให้ถือว่า false (กัน 15/09 vs 02/09)
+      if (tyIsMatched === true && dateNormalized !== expected) dateMatch = false;
+      else if (tyIsMatched === false) dateMatch = false;
     } else {
       dateNormalized = dateRaw ? normalizeOcrDate(dateRaw, expected) : null;
       dateMatch = dateRaw ? isDateMatch(dateRaw, expected) : null;
-      if (tyIsMatched != null) dateMatch = tyIsMatched;
+      if (tyIsMatched === true && dateNormalized !== expected) dateMatch = false;
+      else if (tyIsMatched === false) dateMatch = false;
     }
+    // กันกรณี normalized ไม่ตรงแต่ model ยังบอก true
+    if (dateNormalized && dateNormalized !== expected && dateMatch === true) dateMatch = false;
     if (dateMatch === false || dateNormalized == null) {
       const combinedForDate = [rawText, dateRaw, tyVisualEvidence].filter(Boolean).join(' ');
       const candidates = combinedForDate.match(/\d{1,2}\s*[ก-๙\.]{1,10}\s*(?:\d{2,4})?|Today|วันนี้|Yesterday|เมื่อวาน|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}/gi) || [];

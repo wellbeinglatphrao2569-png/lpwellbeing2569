@@ -97,6 +97,16 @@ export default function AiVerificationPopup({ open, preview, inputSteps, expecte
                     <>AI ยังไม่พบข้อความวันที่ที่ชัดเจนในภาพ จึงไม่สามารถเทียบวันที่ได้ — ระบบจะส่งให้เจ้าหน้าที่ช่วยตรวจสอบ</>
                   )}
                 </p>
+                {dateMatch === false && result.dateRaw && (
+                  <div className="mt-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 text-xs leading-relaxed">
+                    <p className="font-bold text-red-700 dark:text-red-400 flex items-center gap-1"><span className="material-symbols-outlined text-base">event_busy</span>วันที่ไม่ตรงกัน — รายละเอียดที่ AI อ่านได้</p>
+                    <p className="mt-1">วันที่คุณเลือกบันทึก: <strong className="font-mono">{expectedDate}</strong> ({formatThaiDate(expectedDate)})</p>
+                    <p>วันที่ AI อ่านได้: <strong className="font-mono text-red-700">“{result.dateRaw}” → {result.dateNormalized || '—'}</strong></p>
+                    {result.visualEvidence && <p className="text-gray-600 dark:text-gray-300">📍 ตำแหน่งที่พบในภาพ: {result.visualEvidence}</p>}
+                    {result.layoutPattern && <p className="text-gray-500">เลย์เอาต์: {result.layoutPattern}</p>}
+                    <p className="mt-1 text-gray-500">หากวันที่ในภาพควรเป็น {expectedDate} โปรดตรวจสอบว่าภาพที่อัปโหลดเป็นวันที่ถูกต้องและวันที่อยู่ใกล้จำนวนก้าว (หัวการ์ด) ไม่ใช่แถบสถานะ</p>
+                  </div>
+                )}
                 <p className="mt-2">
                   {result.aiSteps != null ? (
                     <>

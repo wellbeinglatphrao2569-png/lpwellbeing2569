@@ -1,21 +1,35 @@
 /**
- * อัปโหลดภาพหลักฐานก้าวเดิน → ส่งต่อ GAS backend
- * (GAS เป็นคนอัปโหลดไฟล์ไป Google Drive + บันทึก Steps_Log)
- * ระบบบันทึกแบบ Pending รอตรวจสอบ manual ล้วน
+ * อัปโหลดภาพหลักฐานก้าวเดิน → Supabase primary + GAS backup
+ * 1) ตรวจห้วงเวลา/Mode (Supabase ก่อน, fallback GAS)
+ * 2) วิเคราะห์ภาพด้วย AI (Typhoon/ThaiFoon)
+ * 3) อัปโหลดรูปไป Google Drive ผ่าน GAS {action:"upload"} → ได้ fileId
+ *    ถ้า GAS ยังไม่รองรับ จะ fallback ไป Supabase Storage (steps-images)
+ * 4) INSERT steps_log ใน Supabase (image_drive_id = fileId หรือ storage URL)
+ *    แล้วบันทึกจะโผล่ทันทีเมื่อ fetchData('steps') (Supabase primary)
  *
  * POST /api/steps/image-upload
- * Body: { imageBase64, userId, steps, dateThai }
+ * Body: { imageBase64, userId, steps, dateThai, ...aiFields }
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeStepsImageWithTyphoon, isTyphoonConfigured } from '@/lib/typhoon';
 import { extractStepsFromText } from '@/lib/stepsExtractor';
 import { normalizeOcrDate, isDateMatch } from '@/lib/stepsDateParser';
+import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 
-const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+const GAS_API_URL =
+  process.env.NEXT_PUBLIC_GAS_WEB_APP_URL ||
+  process.env.GAS_WEB_APP_URL ||
+  process.env.NEXT_PUBLIC_GAS_API_URL ||
+  process.env.GAS_API_URL ||
+  '';
 
 function extractBase64(imageBase64: string): string {
   const match = imageBase64.match(/^data:[^;]+;base64,(.+)$/);
   return match ? match[1] : imageBase64;
+}
+function extractMimeType(dataUrl: string): string {
+  const m = dataUrl.match(/^data:([^;]+);base64,/);
+  return m ? m[1] : 'image/jpeg';
 }
 
 export const runtime = 'nodejs';
@@ -39,42 +53,79 @@ export async function POST(request: NextRequest) {
     if (!dateThai) {
       return NextResponse.json({ error: 'dateThai is required' }, { status: 400 });
     }
-    if (!GAS_API_URL) {
-      return NextResponse.json({ error: 'GAS API not configured' }, { status: 500 });
-    }
 
-    // ห้วงเวลา + Mode check แบบ parallel (เร็วขึ้น)
+    // ห้วงเวลา + Mode check — ลอง Supabase ก่อน, fallback GAS
     let windowOk = true;
     let windowErr: string | null = null;
     let usersForMode: any[] | null = null;
-    try {
-      const [winRes, uRes] = await Promise.all([
-        fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store', signal: request.signal }),
-        fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store', signal: request.signal }),
-      ]);
-      if (winRes.ok) {
-        const win = await winRes.json().catch(() => null);
-        if (win && win.start && win.end) {
+    if (isSupabaseConfigured()) {
+      try {
+        const sb = getSupabase()!;
+        const { data: win } = await sb.from('project_settings').select('start_date,end_date').eq('id', 1).maybeSingle();
+        const s = (win as { start_date: string } | null)?.start_date;
+        const e = (win as { end_date: string } | null)?.end_date;
+        if (s && e) {
           const today = new Date().toISOString().slice(0, 10);
-          if (today > String(win.end).slice(0, 10)) {
-            windowErr = `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)`;
+          if (today > String(e).slice(0, 10)) {
+            windowErr = `โครงการสิ้นสุดแล้ว (${s} ถึง ${e}) — ระบบล็อคการรับข้อมูล (Data Freeze)`;
             windowOk = false;
           } else {
             const d = String(dateThai).trim().slice(0, 10);
-            if (d < String(win.start).slice(0, 10) || d > String(win.end).slice(0, 10)) {
-              windowErr = `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถบันทึกวันที่ ${d} ได้`;
+            if (d < String(s).slice(0, 10) || d > String(e).slice(0, 10)) {
+              windowErr = `นอกห้วงเวลาบันทึก (${s} ถึง ${e}) — ไม่สามารถบันทึกวันที่ ${d} ได้`;
               windowOk = false;
             }
           }
         }
+        // users สำหรับเช็ค Mode 2
+        let all: any[] = [];
+        let from = 0;
+        while (true) {
+          const { data, error } = await sb.from('users').select('user_id, step_record_mode').range(from, from + 999);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < 1000) break;
+          from += 1000;
+        }
+        usersForMode = all.map((r: Record<string, unknown>) => ({
+          User_ID: r.user_id,
+          Step_Record_Mode: r.step_record_mode,
+        }));
+      } catch (e) {
+        console.warn('image-upload Supabase window check failed, will fallback to GAS', e);
       }
-      if (uRes.ok) {
-        const j = await uRes.json().catch(() => null);
-        if (Array.isArray(j)) usersForMode = j;
+    }
+    if (!usersForMode && GAS_API_URL) {
+      try {
+        const [winRes, uRes] = await Promise.all([
+          fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store', signal: request.signal }),
+          fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store', signal: request.signal }),
+        ]);
+        if (winRes.ok) {
+          const win = await winRes.json().catch(() => null);
+          if (win && win.start && win.end) {
+            const today = new Date().toISOString().slice(0, 10);
+            if (today > String(win.end).slice(0, 10)) {
+              windowErr = `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)`;
+              windowOk = false;
+            } else {
+              const d = String(dateThai).trim().slice(0, 10);
+              if (d < String(win.start).slice(0, 10) || d > String(win.end).slice(0, 10)) {
+                windowErr = `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถบันทึกวันที่ ${d} ได้`;
+                windowOk = false;
+              }
+            }
+          }
+        }
+        if (uRes.ok) {
+          const j = await uRes.json().catch(() => null);
+          if (Array.isArray(j)) usersForMode = j;
+        }
+      } catch (e) {
+        if ((e as Error)?.name === 'AbortError') return NextResponse.json({ error: 'คำขอถูกยกเลิก' }, { status: 499 });
+        console.warn('image-upload GAS window/users fallback failed', e);
       }
-    } catch (e) {
-      if ((e as Error)?.name === 'AbortError') return NextResponse.json({ error: 'คำขอถูกยกเลิก' }, { status: 499 });
-      console.warn('image-upload window/users parallel failed', e);
     }
     if (!windowOk && windowErr) {
       const isFreeze = windowErr.includes('สิ้นสุดแล้ว');
@@ -82,22 +133,11 @@ export async function POST(request: NextRequest) {
     }
 
     // กัน Mode 2 บันทึกเอง
-    try {
-      const users = usersForMode ?? await (async () => {
-        const r = await fetch(`${GAS_API_URL}?path=users`, { cache: 'no-store' });
-        if (r.ok) { const j = await r.json(); if (Array.isArray(j)) return j; }
-        return null;
-      })();
-      if (users && Array.isArray(users)) {
-        if (Array.isArray(users)) {
-          const target = users.find((u: any) => String(u.User_ID).trim() === String(userId).trim());
-          if (target && String((target as any).Step_Record_Mode || '1').trim() === '2') {
-            return NextResponse.json({ error: 'คุณอยู่ใน Mode 2 (เจ้าหน้าที่ นสส. บันทึกให้) — ไม่สามารถบันทึกเองได้' }, { status: 403 });
-          }
-        }
+    if (usersForMode && Array.isArray(usersForMode)) {
+      const target = usersForMode.find((u: any) => String(u.User_ID).trim() === String(userId).trim());
+      if (target && String((target as any).Step_Record_Mode || '1').trim() === '2') {
+        return NextResponse.json({ error: 'คุณอยู่ใน Mode 2 (เจ้าหน้าที่ นสส. บันทึกให้) — ไม่สามารถบันทึกเองได้' }, { status: 403 });
       }
-    } catch (e) {
-      console.warn('image-upload mode check failed', e);
     }
 
     // ตรวจสอบด้วย Typhoon OCR — ถ้ามีข้อมูล AI จาก client ส่งมา (aiSteps/dateMatch) ให้ใช้เลย, ถ้าไม่มีให้ลองอ่านเอง
@@ -194,6 +234,153 @@ export async function POST(request: NextRequest) {
     const autoApprove = alertFlag === 'FALSE' && stepsExact === true && dateMatch === true && conf >= 0.85;
     const serverStatus: 'Approved' | 'Pending' = autoApprove ? 'Approved' : 'Pending';
 
+    // ===== Supabase primary path (แก้บั๊ก: รีเฟรชแล้วไม่ขึ้น) =====
+    if (isSupabaseConfigured()) {
+      let imageDriveId: string | null = null;
+      let uploadWarn: string | null = null;
+
+      // 1) พยายามอัปโหลดรูปไป Drive ผ่าน GAS {action:"upload"} (สเปคใหม่)
+      if (GAS_API_URL) {
+        try {
+          const pureB64 = extractBase64(String(imageBase64));
+          const mimeType = extractMimeType(String(imageBase64));
+          const filename = `steps_${String(userId)}_${String(dateThai)}_${Date.now()}.jpg`;
+          const upRes = await fetch(GAS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'upload', filename, mimeType, base64: pureB64 }),
+            cache: 'no-store',
+            signal: request.signal,
+          });
+          const upJson = await upRes.json().catch(() => ({}));
+          if (upRes.ok && upJson.status === 'success' && upJson.fileId) {
+            imageDriveId = String(upJson.fileId);
+          } else if (upRes.ok && upJson.fileId) {
+            imageDriveId = String(upJson.fileId);
+          } else {
+            uploadWarn = upJson.message || upJson.error || `GAS upload ${upRes.status}`;
+            console.warn('[image-upload] GAS upload failed, will try Storage fallback:', uploadWarn, upJson);
+          }
+        } catch (e) {
+          uploadWarn = e instanceof Error ? e.message : String(e);
+          console.warn('[image-upload] GAS upload exception, fallback to Storage:', uploadWarn);
+        }
+      }
+
+      // 2) Fallback: Supabase Storage (steps-images) ถ้า GAS upload ไม่ได้
+      if (!imageDriveId) {
+        try {
+          const sbFallback = getSupabase()!;
+          const pureB64 = extractBase64(String(imageBase64));
+          const bytes = Buffer.from(pureB64, 'base64');
+          const ext = extractMimeType(String(imageBase64)) === 'image/png' ? 'png' : 'jpg';
+          const path = `${String(userId)}_${String(dateThai)}_${Date.now()}_${Math.random().toString(36).slice(2,6)}.${ext}`;
+          const { error: upErr } = await sbFallback.storage.from('steps-images').upload(path, bytes, {
+            contentType: extractMimeType(String(imageBase64)),
+            upsert: false,
+          });
+          if (upErr) throw upErr;
+          const { data: pub } = sbFallback.storage.from('steps-images').getPublicUrl(path);
+          imageDriveId = pub.publicUrl; // ProofImage รองรับ URL
+          console.log('[image-upload] Storage fallback uploaded:', path);
+        } catch (e) {
+          console.error('[image-upload] Storage fallback failed:', e);
+          // ถ้าอัปโหลดรูปไม่ได้จริงๆ ให้เก็บ null ไว้ก่อน แต่ยังบันทึกก้าวได้ (ไม่บล็อก)
+          uploadWarn = (uploadWarn ? uploadWarn + ' | ' : '') + (e instanceof Error ? e.message : String(e));
+        }
+      }
+
+      // 3) INSERT ลง Supabase (primary)
+      try {
+        const sb = getSupabase()!;
+        const recordId = 'ST' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+        const insertRow: Record<string, unknown> = {
+          record_id: recordId,
+          user_id: String(userId),
+          date_thai: String(dateThai).slice(0, 10),
+          steps_count: Number(steps),
+          submitted_steps: Number(steps),
+          record_method: 'ภาพถ่าย',
+          image_drive_id: imageDriveId,
+          status: serverStatus,
+          week_number: null,
+          auditor_id: null,
+          reviewed_at: serverStatus === 'Approved' ? new Date().toISOString() : null,
+          recorded_at: new Date().toISOString(),
+          reject_reason: null,
+          ai_steps: aiSteps,
+          ai_confidence: aiConfidence ?? conf,
+          date_match: dateMatch,
+          alert_flag: alertFlag === 'TRUE',
+          alert_reason: alertReason,
+          notes: aiStepsRaw ? `AIอ่าน: ${aiStepsRaw} | วันที่ดิบ: ${dateInImageRaw || '—'}` : '',
+        };
+        const { error: insErr } = await sb.from('steps_log').insert(insertRow);
+        if (insErr) throw insErr;
+
+        // cache invalidation
+        try {
+          const { invalidate } = await import('@/lib/gasCache');
+          invalidate('gas:steps');
+          invalidate('gas:steps-pending-count');
+        } catch {}
+
+        // backup ไป GAS แบบ fire-and-forget (ไม่บล็อก response)
+        if (GAS_API_URL && imageDriveId) {
+          fetch(GAS_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'add-step',
+              User_ID: String(userId),
+              Steps_Count: Number(steps),
+              Date_Thai: String(dateThai),
+              Record_Method: 'ภาพถ่าย',
+              Status: serverStatus,
+              // ส่ง fileId ไปแทน base64 เพื่อไม่ซ้ำซ้อน (GAS จะบันทึก fileId โดยตรงถ้ามี Image_Drive_ID)
+              Image_Drive_ID: imageDriveId,
+              AI_Steps: aiSteps != null ? String(aiSteps) : (aiStepsRaw || ''),
+              AI_Confidence: aiConfidence != null ? String(aiConfidence) : String(conf),
+              Date_In_Image: dateInImageRaw || dateNormalized || '',
+              Date_Match: dateMatch === true ? 'TRUE' : dateMatch === false ? 'FALSE' : '',
+              Alert_Flag: alertFlag,
+              Alert_Reason: alertReason,
+              Notes: aiStepsRaw ? `AIอ่าน: ${aiStepsRaw} | วันที่ดิบ: ${dateInImageRaw || '—'}` : '',
+            }),
+            cache: 'no-store',
+          }).catch(() => {});
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: 'บันทึกสำเร็จ (Supabase)',
+          Record_ID: recordId,
+          fileId: imageDriveId,
+          image_drive_id: imageDriveId,
+          storageFallback: uploadWarn ? true : false,
+          uploadWarn,
+          aiStatus: serverStatus,
+          aiSteps,
+          aiStepsRaw,
+          aiConfidence,
+          dateInImageRaw,
+          dateNormalized,
+          dateMatch,
+          alertFlag,
+          alertReason,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error('[image-upload] Supabase insert failed:', msg, e);
+        // Fallthrough ไปลอง GAS add-step แบบเดิม
+        console.warn('[image-upload] falling through to GAS add-step due to Supabase error');
+      }
+    }
+
+    // Fallback: GAS add-step แบบเดิม (เมื่อไม่มี Supabase หรือ Supabase ล้ม)
+    if (!GAS_API_URL) {
+      return NextResponse.json({ error: 'GAS API not configured and Supabase insert failed' }, { status: 500 });
+    }
     const gasRes = await fetch(GAS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -220,6 +407,13 @@ export async function POST(request: NextRequest) {
       console.error('GAS add-step failed:', gasRes.status, gasJson);
       return NextResponse.json({ error: gasJson.error || `GAS error: ${gasRes.status}` }, { status: gasRes.ok ? 500 : gasRes.status });
     }
+
+    // Invalidate cache แม้จะเป็น fallback
+    try {
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:steps');
+      invalidate('gas:steps-pending-count');
+    } catch {}
 
     return NextResponse.json({
       ...gasJson,

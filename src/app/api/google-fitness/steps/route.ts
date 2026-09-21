@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
 
     // Data Freeze + ห้วงเวลา: ล็อคถ้าเกินวันสิ้นสุดโครงการ
     try {
-      const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+      const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL || '';
       if (GAS_API_URL) {
         const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
         if (winRes.ok) {
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
     // ⚡ ตรวจ 1 Gmail = 1 คน: ถ้า Gmail นี้ถูกผูกกับบัญชีระบบอื่น ไม่อนุญาตให้ดึงข้อมูล
     if (email && user_id) {
       try {
-        const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+      const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL || '';
         const res = await fetch(
           `${GAS_API_URL}?path=action&action=check-google-fit-email&email=${encodeURIComponent(email)}`
         );

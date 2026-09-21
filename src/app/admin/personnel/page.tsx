@@ -97,8 +97,8 @@ export default function AdminPersonnelPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
-  async function load() {
-    const data = await fetchData<User[]>('users');
+  async function load(opts?: { forceRefresh?: boolean }) {
+    const data = await fetchData<User[]>('users', undefined, { forceRefresh: !!opts?.forceRefresh });
     if (data) setUsers(data);
   }
 
@@ -297,7 +297,8 @@ export default function AdminPersonnelPage() {
       }
       if (res?.success) {
         setNotice({ type: 'success', text: res.message || 'เปลี่ยนโหมดสำเร็จ' });
-        await load();
+        try { const { invalidate } = await import('@/lib/gasCache'); invalidate('gas:users'); } catch {}
+        await load({ forceRefresh: true });
       } else {
         setNotice({ type: 'error', text: (res?.message || 'เปลี่ยนโหมดไม่สำเร็จ') + (res?.error ? ' ('+res.error+')':'' ) });
         console.error('set-step-record-mode failed', res, { sent: { Personnel_ID: u.Personnel_ID, User_ID: u.User_ID, mode } });

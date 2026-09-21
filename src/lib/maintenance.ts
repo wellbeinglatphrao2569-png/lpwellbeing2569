@@ -26,9 +26,9 @@ export interface SystemSettings {
 
 export const DEFAULT_SETTINGS: SystemSettings = {
   is_maintenance_active: true,
-  maintenance_title: 'ระบบอยู่ระหว่างการปรับปรุง',
+  maintenance_title: 'แจ้งปิดปรับปรุงระบบชั่วคราว',
   maintenance_message:
-    'เรากำลังปรับปรุงระบบเพื่อประสบการณ์ที่ดีขึ้น กรุณากลับมาใหม่ในภายหลัง ขออภัยในความไม่สะดวก',
+    'ขณะนี้ระบบกำลังย้ายฐานข้อมูลเพื่อเพิ่มความเร็วในการใช้งาน คาดว่าจะเปิดให้บริการวันพรุ่งนี้ เวลา 06:00 น.',
 };
 
 // Fallback เมื่อ Supabase ยังไม่ถูกตั้งค่า — ใช้ file/memory store ฝั่ง server (ดู route.ts)

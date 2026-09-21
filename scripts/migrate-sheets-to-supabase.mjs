@@ -15,12 +15,12 @@ function normalizeSupabaseUrl(u){
   s = s.replace(/\/+$/,'');
   return s;
 }
-const GAS_URL = process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL;
+const GAS_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL;
 const SUPABASE_URL = normalizeSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL);
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!GAS_URL || !SUPABASE_URL || !SERVICE_KEY) {
-  console.error('Missing ENV: NEXT_PUBLIC_GAS_API_URL, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
+  console.error('Missing ENV: NEXT_PUBLIC_GAS_WEB_APP_URL (หรือ NEXT_PUBLIC_GAS_API_URL), NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
   process.exit(1);
 }
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth:{persistSession:false}});

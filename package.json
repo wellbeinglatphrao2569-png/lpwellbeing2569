@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "backup": "node scripts/backup-supabase-to-sheets.mjs",
+    "backup:dry": "node scripts/backup-supabase-to-sheets.mjs --dry",
+    "restore": "node scripts/restore-sheets-to-supabase.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

@@ -1,4 +1,9 @@
-const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+const GAS_API_URL =
+  process.env.NEXT_PUBLIC_GAS_WEB_APP_URL ||
+  process.env.GAS_WEB_APP_URL ||
+  process.env.NEXT_PUBLIC_GAS_API_URL ||
+  process.env.GAS_API_URL ||
+  '';
 
 // ---------- Supabase helpers ----------
 function isSupabaseAvailable(): boolean {
@@ -404,10 +409,21 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       // ถ้ามีรูป ให้เรียก GAS ลบไฟล์ด้วย (backup)
       if (imageIds.length) {
         backupToGAS(action, { ...data, _imageIds: imageIds.join(',') });
-        // พยายามลบจาก Supabase Storage ด้วย (ถ้ามี)
+        // พยายามลบจาก Supabase Storage ด้วย (ถ้ามี) — รองรับทั้ง path และ public URL
         for (const fid of imageIds) {
-          try { await sb.storage.from('steps-images').remove([fid]); } catch {}
-          try { await sb.storage.from('profile-images').remove([fid]); } catch {}
+          try {
+            let p = String(fid).trim();
+            if (p.includes('/steps-images/')) p = p.split('/steps-images/').pop()!.split('?')[0].split('#')[0];
+            else if (p.startsWith('http')) p = p.split('/').pop()!.split('?')[0];
+            if (p) await sb.storage.from('steps-images').remove([p]);
+          } catch {}
+          try {
+            let p2 = String(fid).trim();
+            if (p2.includes('/profile-images/')) p2 = p2.split('/profile-images/').pop()!.split('?')[0].split('#')[0];
+            else if (p2.startsWith('http') && p2.includes('profile-images')) p2 = p2.split('/').pop()!.split('?')[0];
+            else if (p2.startsWith('http')) continue;
+            if (p2) await sb.storage.from('profile-images').remove([p2]);
+          } catch {}
         }
       } else {
         backupToGAS(action, data);
@@ -479,10 +495,21 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
         try { await sb.from('steps_log').delete().eq('user_id', targetPid); } catch {}
         try { await sb.from('sweet_free').delete().eq('user_id', targetPid); } catch {}
       }
-      // ลบรูปจาก Storage
+      // ลบรูปจาก Storage — รองรับ URL
       for (const fid of allImageIds) {
-        try { await sb.storage.from('steps-images').remove([fid]); } catch {}
-        try { await sb.storage.from('profile-images').remove([fid]); } catch {}
+        try {
+          let p = String(fid).trim();
+          if (p.includes('/steps-images/')) p = p.split('/steps-images/').pop()!.split('?')[0].split('#')[0];
+          else if (p.startsWith('http')) p = p.split('/').pop()!.split('?')[0];
+          if (p) await sb.storage.from('steps-images').remove([p]);
+        } catch {}
+        try {
+          let p2 = String(fid).trim();
+          if (p2.includes('/profile-images/')) p2 = p2.split('/profile-images/').pop()!.split('?')[0].split('#')[0];
+          else if (p2.startsWith('http') && p2.includes('profile-images')) p2 = p2.split('/').pop()!.split('?')[0];
+          else if (p2.startsWith('http')) continue;
+          if (p2) await sb.storage.from('profile-images').remove([p2]);
+        } catch {}
       }
       const { invalidate } = await import('@/lib/gasCache');
       invalidate('gas:users'); invalidate('gas:steps'); invalidate('gas:sweet-free');
@@ -491,6 +518,67 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       if (deleted===0) return { success:false, message:'ไม่พบข้อมูลบุคลากรที่ต้องลบ' };
       return { success:true, message:`ลบบุคลากรสำเร็จ — ลบเกลี้ยงทุกตารางและรูปภาพที่เกี่ยวข้องแล้ว (${allImageIds.length} รูป) (Supabase + GAS สำรอง)` };
     }
+    // set-step-record-mode — Supabase primary (โหมด 1/2)
+    if (action === 'set-step-record-mode') {
+      const pid = String(data?.Personnel_ID || '').trim();
+      const uid = String((data as Record<string, unknown>)?.User_ID || data?.User_ID || '').trim();
+      const mode = String(data?.Step_Record_Mode || '').trim();
+      if (!['1','2'].includes(mode)) return { success:false, message:'Step_Record_Mode ต้องเป็น 1 หรือ 2' };
+      if (!pid && !uid) return { success:false, message:'ต้องระบุ Personnel_ID หรือ User_ID' };
+      let q = sb.from('users').update({ step_record_mode: mode });
+      let res;
+      if (pid) {
+        const { data: found } = await sb.from('users').select('personnel_id').eq('personnel_id', pid).maybeSingle();
+        if (found) res = await q.eq('personnel_id', pid);
+        else if (uid) res = await sb.from('users').update({ step_record_mode: mode }).eq('user_id', uid);
+        else return { success:false, message:'ไม่พบ Personnel_ID' };
+      } else {
+        res = await q.eq('user_id', uid);
+      }
+      if ((res as { error: unknown }).error) throw (res as { error: unknown }).error;
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      backupToGAS(action, data);
+      return { success:true, message: mode==='2' ? 'เปลี่ยนเป็น Mode 2 (เจ้าหน้าที่บันทึกให้) สำเร็จ (Supabase)' : 'เปลี่ยนเป็น Mode 1 (บันทึกเอง) สำเร็จ (Supabase)' };
+    }
+
+    // update-personnel — Supabase primary (กรณี fallback จาก set-step-record-mode หรือแก้ไขข้อมูล)
+    if (action === 'update-personnel') {
+      const pid = String(data?.Personnel_ID || '').trim();
+      if (!pid) return { success:false, message:'Personnel_ID required' };
+      const patch: Record<string, unknown> = {};
+      if (data?.Step_Record_Mode) {
+        const m = String(data.Step_Record_Mode).trim();
+        if (['1','2'].includes(m)) patch.step_record_mode = m;
+      }
+      if (data?.User_ID) patch.user_id = String(data.User_ID).trim();
+      if (data?.Prefix) patch.prefix = String(data.Prefix);
+      if (data?.First_Name) patch.first_name = String(data.First_Name);
+      if (data?.Last_Name) {
+        patch.last_name = String(data.Last_Name);
+        // อัปเดต full_name ด้วย
+        const fn = String(data.First_Name || '').trim();
+        const ln = String(data.Last_Name).trim();
+        if (fn || ln) patch.full_name = `${fn} ${ln}`.trim();
+      }
+      if (data?.Nickname) patch.nickname = String(data.Nickname);
+      if (data?.Position) patch.position = String(data.Position);
+      if (data?.Department) patch.department = String(data.Department);
+      if (data?.Gender) patch.gender = String(data.Gender);
+      if (data?.Birth_Date) patch.birth_date = String(data.Birth_Date).slice(0,10) || null;
+      if (data?.Weight_kg !== undefined) patch.weight_kg = data.Weight_kg ? Number(data.Weight_kg) : null;
+      if (data?.Height_cm !== undefined) patch.height_cm = data.Height_cm ? Number(data.Height_cm) : null;
+      if (data?.Activities) patch.activities = String(data.Activities);
+      if (data?.Role) patch.role = String(data.Role);
+      if (Object.keys(patch).length === 0) return { success:false, message:'ไม่มีข้อมูลให้อัปเดต' };
+      const { error } = await sb.from('users').update(patch).eq('personnel_id', pid);
+      if (error) throw error;
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      backupToGAS(action, data);
+      return { success:true, message:'อัปเดตข้อมูลสำเร็จ (Supabase)', Full_Name: patch.full_name || undefined };
+    }
+
     // อื่นๆ ให้ GAS ทำ
     return null;
   } catch (e) {
@@ -547,11 +635,24 @@ async function fetchWithRetry(
 }
 
 export async function fetchData<T>(path: string, params?: Record<string,string>, opts?: { signal?: AbortSignal; forceRefresh?: boolean }): Promise<T | null> {
-  // 1) ลอง Supabase ก่อน (ถ้าตั้งค่าไว้)
-  if (isSupabaseAvailable() && !opts?.forceRefresh) {
+  // นโยบายใหม่: Supabase เป็นหลัก 100% — เว็บอ่านจาก Supabase เท่านั้น
+  // Google Sheet เป็นสำรอง (backup) ไม่ให้เว็บดึงตรง ยกเว้นกรณีฉุกเฉิน Supabase ล่มจริง
+  // paths ที่ต้องใช้ GAS จริง: dashboard / weight-comparison / baseline (ยังไม่มีใน Supabase) → ให้ fallback ได้
+  const mustFallback = path === 'dashboard' || path === 'weight-comparison' || path === 'baseline';
+
+  if (isSupabaseAvailable()) {
+    if (!opts?.forceRefresh && isReadCacheable(path)) {
+      try {
+        const gasCache = await import('@/lib/gasCache');
+        const key = (gasCache.GAS_CACHE_KEYS as Record<string,string>)[path] || `gas:${path}${params ? ':'+new URLSearchParams(params).toString() : ''}`;
+        if (gasCache.isFresh(key)) {
+          const cached = gasCache.getCached<T>(key);
+          if (cached) return cached;
+        }
+      } catch {}
+    }
     const sbData = await fetchFromSupabase<T>(path, params);
     if (sbData !== null) {
-      // cache ไว้ด้วย
       if (isReadCacheable(path)) {
         try {
           const gasCache = await import('@/lib/gasCache');
@@ -561,8 +662,25 @@ export async function fetchData<T>(path: string, params?: Record<string,string>,
       }
       return sbData;
     }
+    // Supabase ว่าง/พัง — ถ้าเป็น path ที่ต้องพึ่ง GAS ให้ fallback แบบฉุกเฉิน, นอกนั้นถือว่าไม่มีข้อมูล (ไม่ดึง Sheet มาโชว์)
+    if (!mustFallback) {
+      // คืนค่าว่างที่ถูกต้องแทนการดึง Sheet (กันเว็บโชว์ข้อมูลสำรองโดยตรง)
+      if (path === 'users' || path === 'steps' || path === 'sweet-free' || path === 'project-window' || path === 'steps-pending-count') {
+        // ถ้า Supabase ว่างจริงๆ ให้คืน [] หรือ null ที่เรียกใช้ได้ — ไม่ fallback GAS
+        // แต่ถ้า error จะได้ null อยู่แล้ว
+        return sbData as T | null;
+      }
+    }
+    // ต้อง fallback กรณีฉุกเฉินเท่านั้น
   }
-  // 2) fallback GAS
+  // Fallback GAS — ใช้เมื่อ Supabase ไม่ตั้งค่า หรือ path พิเศษ
+  // ถ้า Supabase ตั้งค่าแต่เราไม่ต้องการให้เว็บอ่าน Sheet โดยตรง จะเข้า block นี้เฉพาะ mustFallback
+  if (isSupabaseAvailable() && !mustFallback) {
+    // ปิด fallback ปกติ — คืน null เพื่อบังคับให้เว็บใช้ Supabase ว่าง (admin ต้อง restore ผ่าน script)
+    // ยังคง log ไว้ให้เห็นว่าตัด GAS ออก
+    console.warn(`[fetchData] Supabase หลัก — ข้าม GAS fallback สำหรับ path=${path} (ใช้ Sheet เป็นสำรองรอบ 23:59 เท่านั้น)`);
+    return null;
+  }
   try {
     if (!GAS_API_URL) return null;
     const url = `${GAS_API_URL}?path=${path}${params ? '&'+new URLSearchParams(params) : ''}`;

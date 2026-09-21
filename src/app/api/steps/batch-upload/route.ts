@@ -8,7 +8,12 @@ import { extractStepsFromText } from '@/lib/stepsExtractor';
 import { normalizeOcrDate, isDateMatch } from '@/lib/stepsDateParser';
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 
-const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+const GAS_API_URL =
+  process.env.NEXT_PUBLIC_GAS_WEB_APP_URL ||
+  process.env.GAS_WEB_APP_URL ||
+  process.env.NEXT_PUBLIC_GAS_API_URL ||
+  process.env.GAS_API_URL ||
+  '';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -297,10 +302,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Supabase primary — insert โดยตรง (Supabase เก็บแค่ข้อความ/ตัวเลข + Drive File ID)
-    // ถ้ามีรูป ให้ GAS เป็นคนอัปโหลด Drive ก่อนแล้วค่อยเอา File ID มาเก็บ (ตามที่ขอ: รูปไป Drive ก่อน)
+    // Supabase primary — insert โดยตรง (รวมกรณีมีรูป: อัปโหลด Drive ผ่าน GAS ก่อน แล้วค่อยบันทึก)
     const hasImage = (processedSteps as any[]).some(s => String(s.Image_Base64||'').trim());
-    if (isSupabaseConfigured() && !hasImage) {
+    if (isSupabaseConfigured()) {
       try {
         const sb = getSupabase()!;
         // ตรวจซ้ำ Approved ถ้าไม่อนุญาต overwrite
@@ -314,7 +318,32 @@ export async function POST(request: NextRequest) {
           // check existing Approved
           const { data: existing } = await sb.from('steps_log').select('record_id').eq('user_id', uid).eq('date_thai', day).eq('status','Approved').maybeSingle();
           if (existing && !allowOverwriteBool) { skipped++; continue; }
-          const imagePath: string | null = null; // ไม่มีรูป — เก็บ null
+          // อัปโหลดรูป (ถ้ามี) ไป Drive ก่อน — ได้ fileId มาเก็บใน Supabase
+          let imagePath: string | null = null;
+          const b64 = String(s.Image_Base64 || '').trim();
+          if (b64) {
+            try {
+              const upRes = await fetch(GAS_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'upload', filename: `batch_${uid}_${day}_${Date.now()}.jpg`, mimeType: 'image/jpeg', base64: b64 }),
+                cache: 'no-store',
+              });
+              const upJson = await upRes.json().catch(() => ({}));
+              if (upRes.ok && (upJson.fileId || upJson.status === 'success')) imagePath = String(upJson.fileId);
+            } catch {}
+            if (!imagePath) {
+              try {
+                const bytes = Buffer.from(b64, 'base64');
+                const path = `${uid}_${day}_${Date.now()}_${Math.random().toString(36).slice(2,6)}.jpg`;
+                const { error: upErr } = await sb.storage.from('steps-images').upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
+                if (!upErr) {
+                  const { data: pub } = sb.storage.from('steps-images').getPublicUrl(path);
+                  imagePath = pub.publicUrl;
+                }
+              } catch {}
+            }
+          }
           // ถ้ามีอยู่แล้วและ allow → update, ถ้าไม่มี → insert
           if (existing) {
             const { error } = await sb.from('steps_log').update({

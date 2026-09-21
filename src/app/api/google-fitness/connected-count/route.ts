@@ -4,7 +4,7 @@
  */
 import { NextResponse } from 'next/server';
 
-const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_API_URL || '';
+const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL || '';
 
 export async function GET() {
   try {

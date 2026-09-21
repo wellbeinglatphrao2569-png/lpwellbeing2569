@@ -46,6 +46,8 @@ export function useMaintenance() {
     } catch (e) {
       if ((e as Error).name === 'AbortError') return;
       setError(e instanceof Error ? e.message : String(e));
+      // Fallback Safety: เมื่อเชื่อมต่อไม่ได้ให้ถือว่า maintenance = true เสมอ (กันเปิดเว็บขณะ DB ล่ม)
+      setSettings((prev) => ({ ...prev, is_maintenance_active: true }));
     } finally {
       setLoading(false);
     }

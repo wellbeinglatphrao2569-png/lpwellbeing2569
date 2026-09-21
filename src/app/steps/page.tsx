@@ -264,7 +264,7 @@ export default function StepsPage() {
     if (!user?.User_ID) return;
     let cancelled = false;
     (async () => {
-      const usersData = await fetchData<User[]>('users');
+      const usersData = await fetchData<User[]>('users', undefined, { forceRefresh: true });
       if (cancelled || !usersData) return;
       const fresh = usersData.find(u => String(u.User_ID).trim() === String(user.User_ID).trim());
       if (!fresh) return;
@@ -279,8 +279,8 @@ export default function StepsPage() {
     return () => { cancelled = true; };
   }, [user?.User_ID]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadData() {
-    const data = await fetchData<StepsLog[]>('steps');
+  async function loadData(opts?: { forceRefresh?: boolean }) {
+    const data = await fetchData<StepsLog[]>('steps', undefined, { forceRefresh: !!opts?.forceRefresh });
     if (data) setStepsData(data);
   }
 
@@ -653,8 +653,9 @@ export default function StepsPage() {
       setLogDate(new Date().toISOString().split('T')[0]);
       setHistoryWeekDate(savedWeek);
       try { localStorage.setItem('steps_historyWeek', savedWeek); } catch {}
-      await loadData();
+      await loadData({ forceRefresh: true });
       await loadDeptUsers();
+      try { const { invalidate } = await import('@/lib/gasCache'); invalidate('gas:steps'); invalidate('gas:steps-pending-count'); } catch {}
       setSaving(false);
       setTimeout(() => window.location.reload(), 700);
       return;

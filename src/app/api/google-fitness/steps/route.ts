@@ -139,6 +139,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // กันดึง/บันทึกวันที่ล่วงหน้า (อนาคต)
+    {
+      const { todayThaiKey } = await import('@/utils/thaiDate');
+      const today = todayThaiKey();
+      if (String(date).trim().slice(0, 10) > today) {
+        return NextResponse.json({ error: `ไม่สามารถดึงข้อมูลวันที่ล่วงหน้าได้ — วันนี้คือ ${today}` }, { status: 400 });
+      }
+    }
+
     const totalSteps = await getStepsForDay(accessToken, date);
 
     return NextResponse.json({ totalSteps, date });

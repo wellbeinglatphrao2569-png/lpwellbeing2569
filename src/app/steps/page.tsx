@@ -530,8 +530,9 @@ export default function StepsPage() {
   const requestSave = async () => {
     if (!user) return;
     if (isMode2) { setSubmitError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
-    if (isProjectFrozen(toIsoLocal(new Date()))) { setSubmitError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร'); return; }
+    if (isProjectFrozen(todayThaiKey())) { setSubmitError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร'); return; }
     if (projectWindow && !isInWindow(logDate)) { setSubmitError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`); return; }
+    if (logDate > todayThaiKey()) { setSubmitError(`ไม่สามารถบันทึกวันที่ล่วงหน้าได้ — วันนี้คือ ${todayThaiKey()}`); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || 0);
     if (!steps || steps <= 0) return;
     if (logMethod === 'image-upload' && !imagePreview) {
@@ -919,11 +920,12 @@ export default function StepsPage() {
               <label className="font-medium text-gray-700 dark:text-gray-300 text-sm block mb-1.5">
                 เลือกวันที่ — {getLogDateDisplay(logDate)}
               </label>
-              <input type="date" value={logDate} min={projectWindow?.start} max={projectWindow?.end} onChange={e => {
+              <input type="date" value={logDate} min={projectWindow?.start} max={projectWindow?.end && projectWindow.end < todayStr ? projectWindow.end : todayStr} onChange={e => {
                 setLogDate(e.target.value); resetSteps(); setImageFile(null); setImagePreview(null);
               }}
                 className="w-full p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm [color-scheme:light] dark:[color-scheme:dark]" />
               {projectWindow && !isInWindow(logDate) && <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-bold">⚠ วันที่นี้อยู่นอกห้วงเวลาบันทึก ({projectWindow.start} ถึง {projectWindow.end}) — บันทึกไม่ได้</p>}
+              {logDate > todayStr && <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-bold">⚠ ไม่สามารถบันทึกวันที่ล่วงหน้าได้ (วันนี้ {todayStr})</p>}
               {isCurrentDate && <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">📍 วันนี้</p>}
             </div>
 

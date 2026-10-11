@@ -133,6 +133,15 @@ export async function POST(request: NextRequest) {
       const isFreeze = windowErr.includes('สิ้นสุดแล้ว');
       return NextResponse.json({ error: windowErr }, { status: isFreeze ? 403 : 400 });
     }
+    // กันบันทึกวันที่ล่วงหน้า (อนาคต)
+    {
+      const { todayThaiKey } = await import('@/utils/thaiDate');
+      const today = todayThaiKey();
+      const d = String(dateThai).trim().slice(0, 10);
+      if (d > today) {
+        return NextResponse.json({ error: `ไม่สามารถบันทึกวันที่ล่วงหน้าได้ — วันนี้คือ ${today} แต่เลือก ${d}` }, { status: 400 });
+      }
+    }
 
     // กัน Mode 2 บันทึกเอง
     if (usersForMode && Array.isArray(usersForMode)) {

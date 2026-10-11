@@ -11,6 +11,7 @@ import AiBatchSummaryPopup, { BatchAiItem } from "@/components/ui/AiBatchSummary
 import type { User, StepsLog } from "@/types";
 import { displayName, profileImageUrl } from "@/utils/personnel";
 import { useProjectWindow } from "@/hooks/useProjectWindow";
+import { todayThaiKey } from "@/utils/thaiDate";
 
 const thaiShortMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function toThaiYear(date: Date): string { return String(date.getFullYear()+543); }
@@ -65,7 +66,18 @@ export default function BatchStepsPage(){
   const [users, setUsers] = useState<User[]>([]);
   const [stepsData, setStepsData] = useState<StepsLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [weekStart, setWeekStart] = useState(()=> toIsoLocal(getMonday(new Date())));
+  const [weekStart, setWeekStart] = useState(()=> toIsoLocal(getMonday(new Date(todayThaiKey() + 'T12:00:00'))));
+  // จันทร์ของสัปดาห์ปัจจุบัน (ยึดวันไทย) — ใช้ล็อกไม่ให้เลือกสัปดาห์ล่วงหน้า (อนาคต)
+  const thisWeekStart = useMemo(()=> toIsoLocal(getMonday(new Date(todayThaiKey() + 'T12:00:00'))),[]);
+  const goWeek = (dir: 1 | -1) => {
+    setWeekStart(prev => {
+      const d = new Date(prev + 'T12:00:00');
+      d.setDate(d.getDate() + dir * 7);
+      let key = toIsoLocal(d);
+      if (key > thisWeekStart) key = thisWeekStart; // กันสัปดาห์อนาคต
+      return key;
+    });
+  };
   const [deptFilter, setDeptFilter] = useState<string>('');
   const [search, setSearch] = useState('');
   const [userFiles, setUserFiles] = useState<Record<string, FileItem[]>>({});
@@ -668,9 +680,9 @@ export default function BatchStepsPage(){
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">สัปดาห์:</span>
-            <button onClick={()=>{ const prev=new Date(weekStart); prev.setDate(prev.getDate()-7); setWeekStart(toIsoLocal(prev)); }} className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-200"><span className="material-symbols-outlined text-base">chevron_left</span></button>
-            <input type="date" value={weekStart} onChange={e=>{ if(e.target.value){ const m=getMonday(new Date(e.target.value)); setWeekStart(toIsoLocal(m)); }}} className="text-sm font-medium bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700" />
-            <button onClick={()=>{ const next=new Date(weekStart); next.setDate(next.getDate()+7); setWeekStart(toIsoLocal(next)); }} className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-200"><span className="material-symbols-outlined text-base">chevron_right</span></button>
+            <button onClick={()=>goWeek(-1)} className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-200"><span className="material-symbols-outlined text-base">chevron_left</span></button>
+            <input type="date" value={weekStart} max={thisWeekStart} onChange={e=>{ if(e.target.value){ const m=getMonday(new Date(e.target.value + 'T12:00:00')); let key=toIsoLocal(m); if(key>thisWeekStart) key=thisWeekStart; setWeekStart(key); }}} className="text-sm font-medium bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700" />
+            <button onClick={()=>goWeek(1)} disabled={weekStart>=thisWeekStart} className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center hover:bg-gray-200 disabled:opacity-40"><span className="material-symbols-outlined text-base">chevron_right</span></button>
             <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-full border">{formatWeekRangeThai(weekMonday)}</span>
           </div>
           <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 hidden md:block" />

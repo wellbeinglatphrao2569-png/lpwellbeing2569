@@ -226,6 +226,12 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
         const e = (win as {end_date:string}|null)?.end_date;
         if (s && e && (dateThai < s || dateThai > e)) return { success:false, message:`นอกห้วงเวลา ${s} ถึง ${e}` };
       } catch {}
+      // กันบันทึกวันที่ล่วงหน้า (อนาคต)
+      try {
+        const { todayThaiKey } = await import('@/utils/thaiDate');
+        const today = todayThaiKey();
+        if (dateThai > today) return { success:false, message:`ไม่สามารถบันทึกวันที่ล่วงหน้าได้ (วันนี้ ${today})` };
+      } catch {}
       const recordId = 'ST' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,6).toUpperCase();
       const status = String(data?.Status||'Pending');
       const { error } = await sb.from('steps_log').insert({

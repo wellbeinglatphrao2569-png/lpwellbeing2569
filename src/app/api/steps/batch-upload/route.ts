@@ -116,6 +116,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // กันบันทึกวันที่ล่วงหน้า (อนาคต) — ข้อมูลก้าวของวันที่ยังไม่ถึงจริงไม่ได้
+    {
+      const { todayThaiKey } = await import('@/utils/thaiDate');
+      const today = todayThaiKey();
+      const future: string[] = [];
+      for (const s of Steps as any[]) {
+        const d = String(s.Day || '').trim().slice(0, 10);
+        if (d && d > today && !future.includes(d)) future.push(d);
+      }
+      if (future.length > 0) return NextResponse.json({ error: `ไม่สามารถบันทึกวันที่ล่วงหน้าได้ — วันนี้คือ ${today} แต่พบวันที่อนาคต: ${future.slice(0, 3).join(', ')}${future.length > 3 ? ' …' : ''}` }, { status: 400 });
+    }
+
     // ตรวจสิทธิ์ฝ่าย
     let actorDept = String(Logged_Department || '').trim();
     if (!usersFetchOk || usersList.length === 0) {

@@ -3,7 +3,7 @@ export interface User {
   Position: string; Department: string; Birth_Date: string; Gender: string;
   Weight_kg: string; Height_cm: string; BMI_Value: string; Waist_Inch: string;
   Role: 'Admin' | 'Committee' | 'Employee';
-  Password: string; Total_Points: number; Level: string;
+  Password?: string; Total_Points: number; Level: string;
   Personnel_ID?: string; Registration_Status?: 'Pending' | 'Registered' | 'Inactive' | '';
   Created_By?: string; Created_Date?: string; LGBTQ_Identity?: string;
   First_Name?: string; Last_Name?: string; Profile_Image?: string; Activities?: string;

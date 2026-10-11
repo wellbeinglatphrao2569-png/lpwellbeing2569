@@ -18,7 +18,7 @@ function mapUserRow(r: Record<string, unknown>): Record<string, unknown> {
     User_ID: r.user_id, Prefix: r.prefix, Full_Name: r.full_name, Nickname: r.nickname,
     Position: r.position, Department: r.department, Birth_Date: r.birth_date, Gender: r.gender,
     Weight_kg: r.weight_kg, Height_cm: r.height_cm, BMI_Value: r.bmi_value, Waist_Inch: r.waist_inch,
-    Role: r.role, Password: r.password, Total_Points: r.total_points, Level: r.level,
+    Role: r.role, Total_Points: r.total_points, Level: r.level,
     Personnel_ID: r.personnel_id, Registration_Status: r.registration_status,
     Created_By: r.created_by, Created_Date: r.created_date,
     First_Name: r.first_name, Last_Name: r.last_name, Profile_Image: r.profile_image,
@@ -129,19 +129,11 @@ async function fetchFromSupabase<T>(path: string, params?: Record<string,string>
   }
 }
 
-function hashPasswordNode(pwd: string): string {
-  // GAS: salt(16) + '$' + sha256(salt+pwd) — ใช้ Node crypto
-  try {
-    // dynamic import crypto
-    const crypto = require('crypto') as typeof import('crypto');
-    const salt = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-    const hash = crypto.createHash('sha256').update(salt + pwd, 'utf8').digest('hex');
-    return `${salt}$${hash}`;
-  } catch {
-    // fallback browser
-    const salt = Math.random().toString(36).slice(2, 18).padEnd(16, '0').slice(0, 16);
-    return `${salt}$${salt}${pwd}`;
-  }
+// แก้บั๊ก: เดิมใช้ crypto.randomUUID() ซึ่งไม่มีใน browser polyfill → เขียน salt$salt+plaintext
+// ตอนนี้ใช้ portable SHA-256 ที่ทำงานเหมือนกันทั้ง browser/Node และฟอร์แมตเดียวกับ GAS
+async function hashPasswordNode(pwd: string): Promise<string> {
+  const { hashPassword } = await import('@/lib/passwordHash');
+  return hashPassword(pwd);
 }
 async function backupToGAS(action: string, data?: Record<string, unknown>): Promise<void> {
   // Google Sheet เป็น backup — เขียนแบบ fire-and-forget ไม่บล็อก Supabase
@@ -183,7 +175,7 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       if (!target) return { success:false, message:'ไม่พบ Personnel_ID ในระบบ' };
       if ((target as {registration_status:string}).registration_status === 'Registered') return { success:false, message:'บุคลากรนี้ลงทะเบียนแล้ว' };
       const bmi = data?.BMI_Value ? String(data.BMI_Value) : null;
-      const hashed = hashPasswordNode(pwd);
+      const hashed = await hashPasswordNode(pwd);
       const { error } = await sb.from('users').update({
         user_id: uid,
         prefix: data?.Prefix ? String(data.Prefix) : null,
@@ -299,19 +291,10 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       const { data: user, error } = await sb.from('users').select('*').eq('user_id', uid).maybeSingle();
       if (error) throw error;
       if (!user) return { success:false, message:'ไม่พบผู้ใช้งาน' };
-      // verify password (hash$sha256)
+      // verify password — ใช้ portable verify (รองรับ salt$hash + plaintext legacy)
       const stored = String((user as Record<string,unknown>).password||'');
-      let ok = false;
-      try {
-        const parts = stored.split('$');
-        if (parts.length===2 && parts[0].length===16) {
-          const crypto = require('crypto') as typeof import('crypto');
-          const hash = crypto.createHash('sha256').update(parts[0] + pwd, 'utf8').digest('hex');
-          ok = hash === parts[1];
-        } else {
-          ok = stored === pwd; // fallback plain
-        }
-      } catch { ok = stored === pwd; }
+      const { verifyPassword } = await import('@/lib/passwordHash');
+      const ok = verifyPassword(pwd, stored);
       if (!ok) return { success:false, message:'รหัสผ่านไม่ถูกต้อง' };
       // device single-login: ถ้ามี device_token อื่นอยู่แล้วและไม่ใช่ Force
       const force = String(data?.Force||'').toLowerCase()==='true' || String(data?.Force||'')==='1';
@@ -627,10 +610,148 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       return { success:true, message:'อัปเดตข้อมูลสำเร็จ (Supabase)', Full_Name: patch.full_name || undefined };
     }
 
+    // add-personnel — Supabase primary (เดิมเขียน Sheet เงียบๆ ทำให้รายชื่อไม่เข้าระบบ)
+    if (action === 'add-personnel') {
+      const list = Array.isArray(data?.Personnel) ? (data!.Personnel as Record<string, unknown>[]) : [];
+      const createdById = String(data?.Created_By || '').trim();
+      if (list.length === 0) return { success: false, message: 'ไม่มีข้อมูลบุคลากร' };
+      // หาเลข P### ล่าสุดใน Supabase เพื่อกันชน
+      const { data: existing } = await sb.from('users').select('personnel_id').not('personnel_id', 'is', null);
+      let maxNum = 0;
+      for (const r of (existing || []) as { personnel_id: string }[]) {
+        const m = /^P(\d+)$/.exec(String(r.personnel_id || ''));
+        if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+      }
+      const inserted: Record<string, unknown>[] = [];
+      let dupCount = 0, errCount = 0;
+      for (let i = 0; i < list.length; i++) {
+        const p = list[i] || {};
+        const fn = String(p.First_Name || '').trim();
+        const ln = String(p.Last_Name || '').trim();
+        const dept = String(p.Department || '').trim();
+        if (!fn || !dept) { errCount++; continue; }
+        // กันซ้ำแบบเดียวกับ GAS: Full_Name + Department
+        const fullName = `${String(p.Prefix || '').trim()}${fn} ${ln}`.trim();
+        const { data: dup } = await sb.from('users')
+          .select('user_id').eq('full_name', fullName).eq('department', dept).maybeSingle();
+        if (dup) { dupCount++; continue; }
+        const pid = 'P' + String(maxNum + i + 1).padStart(3, '0');
+        inserted.push({
+          user_id: '', prefix: p.Prefix ? String(p.Prefix) : null,
+          full_name: fullName, first_name: fn, last_name: ln || null,
+          nickname: p.Nickname ? String(p.Nickname) : null,
+          position: p.Position ? String(p.Position) : null,
+          department: dept, gender: p.Gender ? String(p.Gender) : null,
+          role: 'Employee', personnel_id: pid, registration_status: 'Pending',
+          created_by: createdById || null,
+          created_date: new Date().toISOString().slice(0, 10),
+        });
+      }
+      if (inserted.length > 0) {
+        const { error } = await sb.from('users').insert(inserted);
+        if (error) throw error;
+      }
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      doBackup();
+      let message = `เพิ่มบุคลากร ${inserted.length} รายสำเร็จ (Supabase)`;
+      if (dupCount > 0) message += ` (ซ้ำ ${dupCount} ราย)`;
+      if (errCount > 0) message += ` (ข้อมูลไม่ครบ ${errCount} ราย)`;
+      return { success: true, message, added: inserted.length };
+    }
+
+    // reset-password — Supabase primary (เดิมเขียน Sheet เงียบๆ แต่ login อ่าน Supabase → pass1234 ใช้ไม่ได้)
+    if (action === 'reset-password') {
+      const pid = String(data?.Personnel_ID || '').trim();
+      const loggedBy = String(data?.Logged_By || '').trim();
+      if (!pid) return { success: false, message: 'Personnel_ID required' };
+      // ตรวจสิทธิ์ Admin
+      const { data: actor } = await sb.from('users').select('role').eq('user_id', loggedBy).maybeSingle();
+      if (!actor || String((actor as { role: string }).role) !== 'Admin') {
+        return { success: false, message: 'เฉพาะเจ้าหน้าที่ นสส. เท่านั้นที่คืนค่ารหัสผ่านได้' };
+      }
+      const hashed = await hashPasswordNode('pass1234');
+      const { error } = await sb.from('users')
+        .update({ password: hashed, registration_status: 'Registered' })
+        .eq('personnel_id', pid);
+      if (error) throw error;
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      doBackup();
+      return { success: true, message: 'คืนค่ารหัสผ่านเป็น pass1234 เรียบร้อยแล้ว (Supabase)' };
+    }
+
+    // change-password — Supabase primary (เปลี่ยนรหัสผ่านตัวเอง)
+    if (action === 'change-password') {
+      const uid = String(data?.User_ID || '').trim();
+      const oldPwd = String(data?.Old_Password || '');
+      const newPwd = String(data?.New_Password || '');
+      if (!uid || !newPwd) return { success: false, message: 'ข้อมูลไม่ครบ' };
+      if (newPwd.length < 6) return { success: false, message: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร' };
+      const { data: user, error: selErr } = await sb.from('users').select('password').eq('user_id', uid).maybeSingle();
+      if (selErr) throw selErr;
+      if (!user) return { success: false, message: 'ไม่พบผู้ใช้งาน' };
+      const { verifyPassword } = await import('@/lib/passwordHash');
+      if (!verifyPassword(oldPwd, String((user as { password: string }).password || ''))) {
+        return { success: false, message: 'รหัสผ่านเดิมไม่ถูกต้อง' };
+      }
+      const hashed = await hashPasswordNode(newPwd);
+      const { error } = await sb.from('users').update({ password: hashed }).eq('user_id', uid);
+      if (error) throw error;
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      doBackup();
+      return { success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จ (Supabase)' };
+    }
+
+    // update-my-profile — Supabase primary (ผู้ใช้แก้โปรไฟล์ตัวเอง)
+    if (action === 'update-my-profile') {
+      const uid = String(data?.User_ID || '').trim();
+      if (!uid) return { success: false, message: 'User_ID required' };
+      const patch: Record<string, unknown> = {};
+      if (data?.Nickname !== undefined) patch.nickname = data.Nickname ? String(data.Nickname) : null;
+      if (data?.Weight_kg !== undefined) patch.weight_kg = data.Weight_kg ? Number(data.Weight_kg) : null;
+      if (data?.Height_cm !== undefined) patch.height_cm = data.Height_cm ? Number(data.Height_cm) : null;
+      if (data?.Activities !== undefined) patch.activities = data.Activities ? String(data.Activities) : null;
+      if (data?.Birth_Date) patch.birth_date = String(data.Birth_Date).slice(0, 10) || null;
+      if (Object.keys(patch).length === 0) return { success: false, message: 'ไม่มีข้อมูลให้อัปเดต' };
+      const { error } = await sb.from('users').update(patch).eq('user_id', uid);
+      if (error) throw error;
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      doBackup();
+      return { success: true, message: 'อัปเดตโปรไฟล์สำเร็จ (Supabase)' };
+    }
+
+    // upload-profile-image — Supabase primary (เก็บ Drive File ID / URL ลงคอลัมน์ profile_image)
+    if (action === 'upload-profile-image') {
+      const pid = String(data?.Personnel_ID || '').trim();
+      const uid = String(data?.User_ID || '').trim();
+      // ค่าที่ส่งมาเป็น Drive File ID หรือ URL หลัง upload ผ่าน GAS แล้ว
+      const imageVal = String(data?.Image_Drive_ID || data?.Profile_Image || '').trim();
+      if (!imageVal) return { success: false, message: 'ไม่พบรูปภาพ' };
+      const col = pid ? { col: 'personnel_id', val: pid } : { col: 'user_id', val: uid };
+      if (!col.val) return { success: false, message: 'Personnel_ID หรือ User_ID required' };
+      const { error } = await sb.from('users').update({ profile_image: imageVal }).eq(col.col, col.val);
+      if (error) throw error;
+      const { invalidate } = await import('@/lib/gasCache');
+      invalidate('gas:users');
+      doBackup();
+      return { success: true, message: 'อัปโหลดรูปโปรไฟล์สำเร็จ (Supabase)' };
+    }
+
     // อื่นๆ ให้ GAS ทำ
     return null;
   } catch (e) {
     console.warn(`[supabase post ${action}]`, e);
+    // action ที่ต้องเขียน Supabase เท่านั้น — ห้าม fallthrough ไปเขียน Sheet เงียบๆ
+    const SUPABASE_ONLY = new Set([
+      'add-personnel', 'reset-password', 'change-password',
+      'update-my-profile', 'upload-profile-image', 'login', 'register',
+    ]);
+    if (SUPABASE_ONLY.has(action)) {
+      return { success: false, message: `บันทึกลง Supabase ไม่สำเร็จ: ${(e as Error)?.message || e}` };
+    }
     return null;
   }
 }
@@ -795,6 +916,7 @@ export async function postData(action: string, data?: Record<string,unknown>, op
       }
       if (action.includes('sweet')) invalidate('gas:sweet-free');
       if (action.includes('personnel') || action.includes('user')) invalidate('gas:users');
+      if (['reset-password', 'change-password', 'update-my-profile', 'upload-profile-image', 'register'].includes(action)) invalidate('gas:users');
       if (action === 'validate-session' || action === 'logout') invalidate('gas:users');
     } catch {}
     return json as Record<string,unknown>;
@@ -843,6 +965,7 @@ export async function postDataJson(action: string, data?: Record<string,unknown>
       }
       if (action.includes('sweet')) invalidate('gas:sweet-free');
       if (action.includes('personnel') || action.includes('user') || action === 'register') invalidate('gas:users');
+      if (['reset-password', 'change-password', 'update-my-profile', 'upload-profile-image'].includes(action)) invalidate('gas:users');
       if (action === 'set-project-window') invalidate('gas:project-window');
       if (action === 'validate-session' || action === 'logout' || action === 'login') invalidate('gas:users');
     } catch {}

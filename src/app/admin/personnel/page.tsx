@@ -27,7 +27,8 @@ function statusOf(u: User): 'pending' | 'registered' | 'inactive' {
   if (u.Registration_Status === 'Pending') return 'pending';
   if (u.Registration_Status === 'Registered') return 'registered';
   if (u.Registration_Status === 'Inactive') return 'inactive';
-  return u.Password ? 'registered' : 'pending';
+  // ไม่ใช้ u.Password แล้ว (mapUserRow ไม่ส่ง hash กลับเพื่อความปลอดภัย) — ค่า default = รอลงทะเบียน
+  return 'pending';
 }
 
 const badge = {

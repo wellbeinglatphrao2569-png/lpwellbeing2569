@@ -1437,9 +1437,13 @@ export default function StepsPage() {
               <ProofImage fileId={zoomImage.fileId} alt={zoomImage.alt} onClick={src => window.open(src, '_blank')} />
             </div>
             <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700">
-              <button onClick={() => window.open(`https://drive.google.com/file/d/${zoomImage.fileId}/view`, '_blank')}
+              <button onClick={() => {
+                const id = String(zoomImage.fileId);
+                const isUrl = /^https?:\/\//i.test(id);
+                window.open(isUrl ? id : `https://drive.google.com/file/d/${id}/view`, '_blank');
+              }}
                 className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-all text-sm">
-                เปิดใน Google Drive
+                เปิดภาพเต็ม
               </button>
             </div>
           </div>

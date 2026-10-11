@@ -14,6 +14,7 @@ import { profileImageUrl, displayName } from '@/utils/personnel';
 type HistoryItem = StepsLog & { userName: string; userDept: string; userNickname: string; userProfileImage?: string };
 
 function driveViewUrl(id: string): string {
+  if (/^https?:\/\//i.test(id)) return id;
   return `https://drive.google.com/file/d/${id}/view`;
 }
 function safeThaiDate(v: unknown): string {

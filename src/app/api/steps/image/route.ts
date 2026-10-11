@@ -38,11 +38,12 @@ async function fetchAndServe(
     });
     if (!upstream.ok) return null;
     const contentType = upstream.headers.get('content-type') || '';
-    // บังคับต้องเป็นรูปจริง — ถ้า Google เสิร์ฟ HTML (interstitial/sign-in) ให้ข้ามไป source ถัดไป
-    if (!contentType.startsWith('image/')) return null;
+    // ปฏิเสธเฉพาะเมื่อ Google เสิร์ฟ HTML (interstitial/sign-in) ชัดเจน —
+    // ถ้าไม่มี content-type ให้ถือว่าเป็นรูป (ค่าเดิม default เป็น image/jpeg)
+    if (contentType && !contentType.startsWith('image/')) return null;
 
     const headers: Record<string, string> = {
-      'Content-Type': contentType,
+      'Content-Type': contentType || 'image/jpeg',
       'Cache-Control': 'public, max-age=86400, stale-while-revalidate=86400, immutable',
       'Access-Control-Allow-Origin': '*',
       ETag: etag,

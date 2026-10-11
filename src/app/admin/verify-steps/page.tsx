@@ -28,6 +28,7 @@ function normalizeDateKey(value: unknown): string {
 }
 
 function driveViewUrl(id: string): string {
+  if (/^https?:\/\//i.test(id)) return id;
   return `https://drive.google.com/file/d/${id}/view`;
 }
 

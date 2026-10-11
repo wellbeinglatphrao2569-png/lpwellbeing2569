@@ -255,15 +255,80 @@ async function cmdCompareGas() {
   console.log(`[compare-gas] อัปเดตสำเร็จ ${ok}/${diffs.length}`);
 }
 
+async function cmdCompareGasUsers() {
+  // เทียบ users.birth_date/created_date กับ Sheet ทีละ user_id (กันบั๊ก toAD slice แบบเดียวกับ steps_log)
+  const GAS_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL;
+  if (!GAS_URL) {
+    console.error('ต้องมี GAS URL ใน env');
+    process.exit(1);
+  }
+  let j = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${GAS_URL}?path=users`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`GAS users HTTP ${res.status}`);
+      j = await res.json();
+      break;
+    } catch (e) {
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  if (!j) throw new Error('GAS fetch failed');
+  const gasRows = Array.isArray(j) ? j : j.data || j.users || j.rows || [];
+  const gB = new Map(gasRows.map((r) => [String(r.User_ID || r.user_id), gasThaiKey(r.Birth_Date || r.birth_date || '')]));
+  const gC = new Map(gasRows.map((r) => [String(r.User_ID || r.user_id), gasThaiKey(r.Created_Date || r.created_date || '')]));
+  console.log(`[compare-gas-users] GAS users: ${gasRows.length}`);
+  const rows = [];
+  let page = 0;
+  while (true) {
+    const { data, error } = await sb.from('users').select('user_id,birth_date,created_date').range(page * 1000, page * 1000 + 999);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+    page++;
+  }
+  const fixes = [];
+  for (const r of rows) {
+    const id = String(r.user_id);
+    if (r.birth_date) {
+      const g = gB.get(id);
+      const s = String(r.birth_date).slice(0, 10);
+      if (g && g !== s) fixes.push({ id, col: 'birth_date', from: s, to: g });
+    }
+    if (r.created_date) {
+      const g = gC.get(id);
+      const s = String(r.created_date).slice(0, 10);
+      if (g && g !== s) fixes.push({ id, col: 'created_date', from: s, to: g });
+    }
+  }
+  console.log(`[compare-gas-users] ต่างจาก Sheet: ${fixes.length}/${rows.length}`);
+  for (const f of fixes.slice(0, 10)) console.log(`  ${f.id}.${f.col}: ${f.from} → ${f.to}`);
+  if (!APPLY) {
+    console.log('[compare-gas-users] DRY-RUN — เพิ่ม --apply เพื่อเขียนให้ตรง Sheet');
+    return;
+  }
+  let ok = 0;
+  for (const f of fixes) {
+    const { error } = await sb.from('users').update({ [f.col]: f.to }).eq('user_id', f.id);
+    if (error) console.warn(`  FAIL ${f.id}.${f.col}: ${error.message}`);
+    else ok++;
+  }
+  console.log(`[compare-gas-users] อัปเดตสำเร็จ ${ok}/${fixes.length}`);
+}
+
 const mode = process.argv.includes('--fix-dates')
   ? 'fix-dates'
   : process.argv.includes('--fix-timestamps')
     ? 'fix-timestamps'
-    : process.argv.includes('--compare-gas')
-      ? 'compare-gas'
-      : 'check';
+    : process.argv.includes('--compare-gas-users')
+      ? 'compare-gas-users'
+      : process.argv.includes('--compare-gas')
+        ? 'compare-gas'
+        : 'check';
 console.log(`mode=${mode} from=${FROM} apply=${APPLY ? 'YES' : 'no (dry-run)'}`);
 if (mode === 'check') await cmdCheck();
 else if (mode === 'fix-dates') await cmdFixDates();
 else if (mode === 'fix-timestamps') await cmdFixTimestamps();
+else if (mode === 'compare-gas-users') await cmdCompareGasUsers();
 else await cmdCompareGas();

@@ -70,7 +70,8 @@ export async function POST(request: NextRequest) {
         }));
         usersFetchOk = usersList.length>0;
         if (win && win.start && win.end) {
-          const today = new Date().toISOString().slice(0, 10);
+          const { todayThaiKey } = await import('@/utils/thaiDate');
+          const today = todayThaiKey();
           if (today > win.end) return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
           const out: string[] = [];
           for (const s of Steps as any[]) {
@@ -94,7 +95,8 @@ export async function POST(request: NextRequest) {
           const w = await winRes.json().catch(() => null);
           if (w && w.start && w.end) {
             win = { start: String(w.start).slice(0,10), end: String(w.end).slice(0,10) };
-            const today = new Date().toISOString().slice(0, 10);
+            const { todayThaiKey } = await import('@/utils/thaiDate');
+            const today = todayThaiKey();
             if (today > win.end) return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
             const out: string[] = [];
             for (const s of Steps as any[]) {
@@ -217,10 +219,12 @@ export async function POST(request: NextRequest) {
           const day = String(step.Day || '');
           const base64Raw = String(step.Image_Base64 || '');
           try {
+            const { todayThaiKey, thaiYearNow } = await import('@/utils/thaiDate');
             const now = new Date();
+            const { year, thaiYear } = thaiYearNow(now);
             const ty = await analyzeStepsImageWithTyphoon(base64Raw, {
               timeoutMs: 15000,
-              ctx: { systemDate: now.toISOString().slice(0, 10), targetDate: day, currentYear: String(now.getFullYear()), currentThaiYear: String(now.getFullYear() + 543) },
+              ctx: { systemDate: todayThaiKey(now), targetDate: day, currentYear: year, currentThaiYear: thaiYear },
             });
             const tySteps = (ty as any).step_count ?? ty.steps ?? null;
             let aiSteps: number | null = null;
@@ -265,23 +269,26 @@ export async function POST(request: NextRequest) {
       const userSteps = Number(step.Steps_Count) || 0;
       let { aiSteps, aiStepsRaw, aiConf, dateRaw, dateNorm, dateMatch, alertFlag, alertReason } = preParsed[i];
 
-      // Strict 0% tolerance — คำนวณ alert ใหม่ถ้า client ไม่ได้ส่ง reason มา
+      // Strict 0% tolerance — คำนวณ alert ใหม่ถ้า client ไม่ได้ส่ง reason มา (เหตุผลสั้น ≤90 อักษร)
       const stepsExact = aiSteps != null ? aiSteps === userSteps : null;
       const conf = aiConf ?? (aiSteps != null && dateNorm ? 0.7 : 0.3);
+      const { shortAlertReason: shortReason2, shortenReason: shorten2 } = await import('@/lib/aiSummary');
       if (sAny.Alert_Reason == null && sAny.alertReason == null) {
         if (aiSteps == null) {
-          alertFlag = 'TRUE'; alertReason = 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ';
+          alertFlag = 'TRUE'; alertReason = shortReason2('unreadable');
         } else if (stepsExact === false) {
-          alertFlag = 'TRUE'; alertReason = `ก้าวไม่ตรงกัน (กรอก ${userSteps.toLocaleString()} AI อ่านได้ ${aiSteps.toLocaleString()})`;
+          alertFlag = 'TRUE'; alertReason = shortReason2('steps', { inputSteps: userSteps, aiSteps });
         } else if (dateMatch === false) {
-          alertFlag = 'TRUE'; alertReason = `วันที่ในภาพไม่ตรง (${day} AI อ่านได้ "${dateRaw}" → ${dateNorm || 'อ่านไม่ได้'})`;
+          alertFlag = 'TRUE'; alertReason = shortReason2('date', { expected: day, dateRaw, dateNormalized: dateNorm });
         } else if (dateMatch == null) {
-          alertFlag = 'TRUE'; alertReason = `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}")`;
+          alertFlag = 'TRUE'; alertReason = shortReason2('date-missing', { dateRaw });
         } else if (conf < 0.85) {
-          alertFlag = 'TRUE'; alertReason = `ความมั่นใจต่ำ (${Math.round(conf * 100)}%)`;
+          alertFlag = 'TRUE'; alertReason = shortReason2('lowconf', { conf });
         } else {
           alertFlag = 'FALSE'; alertReason = '';
         }
+      } else {
+        alertReason = shorten2(String(alertReason || ''), 90);
       }
 
       const autoApprove = alertFlag === 'FALSE' && stepsExact === true && dateMatch === true && conf >= 0.85;

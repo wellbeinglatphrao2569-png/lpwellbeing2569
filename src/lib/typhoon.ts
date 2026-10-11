@@ -6,6 +6,7 @@
 
 import { analyzeImageWithThaiFoon, isThaiFoonConfigured } from '@/lib/thaifoon';
 import type { ThaiFoonContext } from '@/lib/thaifoon';
+import { todayThaiKey, thaiYearNow } from '@/utils/thaiDate';
 
 export interface TyphoonOcrResult {
   rawText: string;
@@ -52,12 +53,13 @@ export async function analyzeStepsImageWithTyphoon(
   if (!apiKey) throw new Error('TYPHOON_API_KEY not configured');
 
   const now = new Date();
-  const systemDate = now.toISOString().slice(0, 10);
+  const systemDate = todayThaiKey(now);
+  const { year, thaiYear } = thaiYearNow(now);
   const ctx: ThaiFoonContext = {
     systemDate: opts?.ctx?.systemDate ?? systemDate,
     targetDate: opts?.ctx?.targetDate ?? systemDate,
-    currentYear: opts?.ctx?.currentYear ?? String(now.getFullYear()),
-    currentThaiYear: opts?.ctx?.currentThaiYear ?? String(now.getFullYear() + 543),
+    currentYear: opts?.ctx?.currentYear ?? year,
+    currentThaiYear: opts?.ctx?.currentThaiYear ?? thaiYear,
     inputSteps: (opts?.ctx as any)?.inputSteps ?? null,
   };
 

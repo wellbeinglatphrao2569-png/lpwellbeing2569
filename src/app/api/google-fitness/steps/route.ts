@@ -12,8 +12,9 @@ const GOOGLE_FIT_API = 'https://www.googleapis.com/fitness/v1/users/me/dataset:a
  */
 async function getStepsForDay(accessToken: string, date: string): Promise<number> {
   const [y, m, d] = date.split('-').map(Number);
-  const start = new Date(y, m - 1, d, 0, 0, 0);
-  const end = new Date(y, m - 1, d, 23, 59, 59, 999);
+  // วันตามปฏิทินไทย (UTC+7): 00:00–23:59:59 ไทย = UTC-7h
+  const start = new Date(Date.UTC(y, m - 1, d, 0, 0, 0) - 7 * 60 * 60 * 1000);
+  const end = new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999) - 7 * 60 * 60 * 1000);
 
   // ลองหลาย data sources — ต่าง device ใช้ต่างกัน
   const aggregateByOptions = [
@@ -103,7 +104,8 @@ export async function POST(request: NextRequest) {
         if (winRes.ok) {
           const win = await winRes.json();
           if (win && win.start && win.end) {
-            const today = new Date().toISOString().slice(0,10);
+            const { todayThaiKey } = await import('@/utils/thaiDate');
+            const today = todayThaiKey();
             if (today > String(win.end).slice(0,10)) {
               return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
             }

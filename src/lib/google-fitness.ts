@@ -211,9 +211,11 @@ export async function fetchStepsRange(
   endDate: string
 ): Promise<{ date: string; steps: number }[]> {
   const dates: string[] = [];
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) dates.push(d.toISOString().split('T')[0]);
+  // parse แบบปฏิทินตรงๆ กันเลื่อนจาก timezone (YYYY-MM-DD → เที่ยงวัน local)
+  const toKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const start = new Date(`${startDate}T12:00:00`);
+  const end = new Date(`${endDate}T12:00:00`);
+  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) dates.push(toKey(d));
 
   const cacheKey = (d: string) => `fit:${d}`;
   const cached = new Map<string, number>();

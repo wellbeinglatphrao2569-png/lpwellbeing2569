@@ -31,10 +31,15 @@ const fmt = (v: unknown, d = 1): string =>
 
 const fmtDate = (iso?: string): string => {
   if (!iso) return '-';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
+  // ยึดปฏิทินไทย: ISO datetime มีเวลา → shift UTC+7 ก่อน (กันวันเลื่อนจาก timestamptz เที่ยงคืน UTC)
+  const s = String(iso).trim();
+  const t = /[T ]\d{1,2}:\d{2}/.test(s) ? new Date(new Date(s).getTime() + 7 * 60 * 60 * 1000) : new Date(`${s.slice(0, 10)}T12:00:00`);
+  const d = /[T ]\d{1,2}:\d{2}/.test(s)
+    ? { y: t.getUTCFullYear(), m: t.getUTCMonth(), day: t.getUTCDate() }
+    : { y: t.getFullYear(), m: t.getMonth(), day: t.getDate() };
+  if (Number.isNaN(new Date(s.slice(0, 10) + 'T12:00:00').getTime()) && Number.isNaN(new Date(s).getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear() + 543}`;
+  return `${pad(d.day)}/${pad(d.m + 1)}/${d.y + 543}`;
 };
 
 function bmiCategory(b: number) {

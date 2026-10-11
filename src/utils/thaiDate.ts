@@ -60,9 +60,33 @@ export function getCurrentThaiDate(): string {
 }
 // เวลาปัจจุบันตามเขตเวลาไทย (UTC+7) — ใช้อ้างอิงวัน/เวลาในการทำงานของระบบ
 // เพื่อไม่ให้ค่าขึ้นอยู่กับ timezone หรือนาฬิกาของเครื่องผู้ใช้
+// หมายเหตุ: คืน Date ที่ shift +7h แล้ว ให้อ่านผ่าน getUTC* เสมอ (เช่น getUTCDate)
 export function getThaiNow(): Date {
   const utc = new Date();
   return new Date(utc.getTime() + 7 * 60 * 60 * 1000);
+}
+
+// ── ICT helpers (กันบั๊ก toISOString().slice ได้วันที่ UTC ถอยหลัง 1 วัน) ──
+// ใช้แทน `new Date().toISOString().slice(0,10)` ทุกจุดที่หมายถึง "วันนี้ที่ไทย"
+export function todayThaiKey(now: Date = new Date()): string {
+  const thai = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  return `${thai.getUTCFullYear()}-${String(thai.getUTCMonth() + 1).padStart(2, '0')}-${String(thai.getUTCDate()).padStart(2, '0')}`;
+}
+
+// ปีปัจจุบันตามปฏิทินไทย (กันเพี้ยนตอนเที่ยงคืน UTC)
+export function thaiYearNow(now: Date = new Date()): { year: string; thaiYear: string } {
+  const thai = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  const y = thai.getUTCFullYear();
+  return { year: String(y), thaiYear: String(y + 543) };
+}
+
+// แปลง timestamptz (UTC) → string เวลาไทย 'YYYY-MM-DD HH:mm:ss' สำหรับ debug/migration
+export function toThaiTimestamp(value: Date | string): string {
+  const d = value instanceof Date ? value : new Date(String(value));
+  if (isNaN(d.getTime())) return String(value);
+  const t = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`;
 }
 
 export function getCurrentWednesdayDate(): string {

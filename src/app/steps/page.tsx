@@ -5,7 +5,7 @@ import ProgressRing from '@/components/ui/ProgressRing';
 import ProofImage from '@/components/ProofImage';
 import ConfirmPopup from '@/components/ui/ConfirmPopup';
 import AiVerificationPopup, { AiVerificationResult } from '@/components/ui/AiVerificationPopup';
-import { toThaiDateShort } from '@/utils/thaiDate';
+import { toThaiDateShort, toDateKey, todayThaiKey } from '@/utils/thaiDate';
 import { profileImageUrl } from '@/utils/personnel';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchData, postData } from '@/services/api';
@@ -124,14 +124,8 @@ function toIsoLocal(d: Date): string {
  */
 function normalizeDateKey(value: unknown): string {
   if (!value) return '';
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    return toIsoLocal(value);
-  }
-  const s = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return toIsoLocal(d);
-  return s;
+  // ยึดปฏิทินไทย (UTC+7): ISO datetime มี zone → shift +7 ก่อน (กันเลื่อนถอย 1 วันบน server UTC)
+  return toDateKey(value);
 }
 
 /** ย่อขนาดภาพเป็น JPEG — สำหรับ AI ใช้คุณภาพสูงขึ้นเพื่ออ่านตัวหนังสือเล็ก (พ. 2 ก.ย.) ได้ชัด */
@@ -172,7 +166,7 @@ export default function StepsPage() {
   const [activeResultCard, setActiveResultCard] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [stepInput, setStepInput] = useState('');
   const [logMethod, setLogMethod] = useState<'google-fit' | 'image-upload'>('google-fit');
-  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
+  const [logDate, setLogDate] = useState(todayThaiKey());
   const [saving, setSaving] = useState(false);
   const [confirmSave, setConfirmSave] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -667,7 +661,7 @@ export default function StepsPage() {
       setImageFile(null);
       setImagePreview(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      setLogDate(new Date().toISOString().split('T')[0]);
+      setLogDate(todayThaiKey());
       setHistoryWeekDate(savedWeek);
       try { localStorage.setItem('steps_historyWeek', savedWeek); } catch {}
       await loadData({ forceRefresh: true });

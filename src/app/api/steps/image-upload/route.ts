@@ -65,7 +65,8 @@ export async function POST(request: NextRequest) {
         const s = (win as { start_date: string } | null)?.start_date;
         const e = (win as { end_date: string } | null)?.end_date;
         if (s && e) {
-          const today = new Date().toISOString().slice(0, 10);
+          const { todayThaiKey } = await import('@/utils/thaiDate');
+          const today = todayThaiKey();
           if (today > String(e).slice(0, 10)) {
             windowErr = `โครงการสิ้นสุดแล้ว (${s} ถึง ${e}) — ระบบล็อคการรับข้อมูล (Data Freeze)`;
             windowOk = false;
@@ -105,7 +106,8 @@ export async function POST(request: NextRequest) {
         if (winRes.ok) {
           const win = await winRes.json().catch(() => null);
           if (win && win.start && win.end) {
-            const today = new Date().toISOString().slice(0, 10);
+            const { todayThaiKey } = await import('@/utils/thaiDate');
+            const today = todayThaiKey();
             if (today > String(win.end).slice(0, 10)) {
               windowErr = `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)`;
               windowOk = false;
@@ -165,11 +167,13 @@ export async function POST(request: NextRequest) {
       // ถ้า client บอกว่า alert=false และ dateMatch true + stepsExact → จะได้ Approved
     } else if (isTyphoonConfigured()) {
       try {
+        const { todayThaiKey, thaiYearNow } = await import('@/utils/thaiDate');
         const now = new Date();
-        const systemDate = now.toISOString().slice(0, 10);
+        const systemDate = todayThaiKey(now);
+        const { year, thaiYear } = thaiYearNow(now);
         const ty = await analyzeStepsImageWithTyphoon(String(imageBase64), {
           timeoutMs: 20000,
-          ctx: { systemDate, targetDate: String(dateThai), currentYear: String(now.getFullYear()), currentThaiYear: String(now.getFullYear() + 543) },
+          ctx: { systemDate, targetDate: String(dateThai), currentYear: year, currentThaiYear: thaiYear },
         });
         const tySteps = (ty as any).step_count ?? ty.steps ?? null;
         if (tySteps != null) {
@@ -204,31 +208,35 @@ export async function POST(request: NextRequest) {
     const stepsExact = aiSteps != null ? aiSteps === inputStepsNum : null;
     const conf = aiConfidence ?? (aiSteps != null && dateNormalized ? 0.7 : 0.3);
 
-    // ถ้าไม่มีข้อมูล AI เลย → Pending
+    // ถ้าไม่มีข้อมูล AI เลย → Pending (เหตุผลสั้น)
+    const { shortAlertReason: shortReason, shortenReason } = await import('@/lib/aiSummary');
     if (aiSteps == null && dateMatch == null && !bodyAi.aiSteps) {
       alertFlag = 'TRUE';
-      alertReason = dateInImageRaw ? 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ' : 'AI อ่านไม่สำเร็จ — รอตรวจสอบ manual';
+      alertReason = dateInImageRaw ? shortReason('unreadable') : shortReason('failed');
     } else if (bodyAi.alertReason == null && bodyAi.Alert_Reason == null) {
       // คำนวณ alert เองถ้า client ไม่ได้ส่งมา
       if (aiSteps == null) {
         alertFlag = 'TRUE';
-        alertReason = 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ตรวจสอบ';
+        alertReason = shortReason('unreadable');
       } else if (stepsExact === false) {
         alertFlag = 'TRUE';
-        alertReason = `ก้าวไม่ตรงกัน (กรอก ${inputStepsNum.toLocaleString()} AI อ่านได้ ${aiSteps.toLocaleString()}) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+        alertReason = shortReason('steps', { inputSteps: inputStepsNum, aiSteps });
       } else if (dateMatch === false) {
         alertFlag = 'TRUE';
-        alertReason = `วันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก (${String(dateThai)} AI อ่านได้ "${dateInImageRaw}" → ${dateNormalized || 'อ่านไม่ได้'})`;
+        alertReason = shortReason('date', { expected: String(dateThai), dateRaw: dateInImageRaw, dateNormalized });
       } else if (dateMatch == null) {
         alertFlag = 'TRUE';
-        alertReason = `อ่านวันที่ในภาพไม่ชัดเจน ("${dateInImageRaw || '—'}") — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+        alertReason = shortReason('date-missing', { dateRaw: dateInImageRaw });
       } else if (conf < 0.85) {
         alertFlag = 'TRUE';
-        alertReason = `ความมั่นใจต่ำ (${Math.round(conf * 100)}%) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+        alertReason = shortReason('lowconf', { conf });
       } else {
         alertFlag = 'FALSE';
         alertReason = '';
       }
+    } else {
+      // client ส่ง reason มา — ตัดให้สั้นกันเรียงความยาว
+      alertReason = shortenReason(String(alertReason || ''), 90);
     }
 
     const autoApprove = alertFlag === 'FALSE' && stepsExact === true && dateMatch === true && conf >= 0.85;

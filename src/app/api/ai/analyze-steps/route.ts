@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeImageWithThaiFoon, isThaiFoonConfigured } from '@/lib/thaifoon';
 import { extractStepsFromText } from '@/lib/stepsExtractor';
 import { normalizeOcrDate, isDateMatch } from '@/lib/stepsDateParser';
+import { shortAlertReason, pickShortReason } from '@/lib/aiSummary';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -88,10 +89,10 @@ export async function POST(request: NextRequest) {
     let extractedDateRaw: string | null = null;
 
     try {
+      const { todayThaiKey, thaiYearNow } = await import('@/utils/thaiDate');
       const now = new Date();
-      const systemDate = now.toISOString().slice(0, 10);
-      const currentYear = String(now.getFullYear());
-      const currentThaiYear = String(now.getFullYear() + 543);
+      const systemDate = todayThaiKey(now);
+      const { year: currentYear, thaiYear: currentThaiYear } = thaiYearNow(now);
       thaifoon = await analyzeImageWithThaiFoon(imageBase64, {
         timeoutMs: 25000,
         ctx: { systemDate, targetDate: expected, currentYear, currentThaiYear, inputSteps: inputNum },
@@ -236,36 +237,36 @@ export async function POST(request: NextRequest) {
 
     let alert: boolean;
     let alertReason: string;
-    // เคสตรงกันพอดี: ไม่ต้องดู confidence ว่า 70% — ให้ผ่านเลย (จะได้ไม่สับสน)
+    // สรุปสั้นแบบตาราง: สถานะ + เหตุผล ≤90 อักษร (ไม่เขียนเรียงความ)
     if (stepsExact === true && dateMatch === true) {
       alert = false;
       alertReason = '';
       if (conf < 0.85) conf = 0.95;
     } else if (tyStatus === 'passed' && stepsExact !== false && dateMatch !== false) {
       alert = false;
-      alertReason = tyReasoning || '';
+      alertReason = pickShortReason(tyReasoning, '');
     } else if (tyStatus === 'flagged_for_review') {
       alert = true;
-      alertReason = tyReasoning || 'AI ประเมินให้ส่งตรวจสอบ — ภาพเบลอ/ไม่พบวันที่/วันที่ไม่ตรง';
+      alertReason = pickShortReason(tyReasoning, shortAlertReason('failed'));
     } else {
       if (aiSteps == null) {
         alert = true;
-        alertReason = tyReasoning || 'อ่านจำนวนก้าวไม่ชัดเจน — ส่งให้เจ้าหน้าที่ นสส. ตรวจสอบ';
+        alertReason = pickShortReason(tyReasoning, shortAlertReason('unreadable'));
       } else if (stepsExact === false) {
         alert = true;
-        alertReason = tyReasoning || `ก้าวไม่ตรงกัน (กรอก ${inputNum?.toLocaleString()} AI อ่านได้ ${aiSteps.toLocaleString()}) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+        alertReason = pickShortReason(tyReasoning, shortAlertReason('steps', { inputSteps: inputNum, aiSteps }));
       } else if (dateMatch === false) {
         alert = true;
-        alertReason = tyReasoning || `วันที่ในภาพไม่ตรงกับวันที่เลือกบันทึก (${expected} AI อ่านได้ "${dateRaw}" → ${dateNormalized || 'อ่านไม่ได้'})`;
+        alertReason = pickShortReason(tyReasoning, shortAlertReason('date', { expected, dateRaw, dateNormalized }));
       } else if (dateMatch == null) {
         alert = true;
-        alertReason = tyReasoning || `อ่านวันที่ในภาพไม่ชัดเจน ("${dateRaw || '—'}") — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+        alertReason = pickShortReason(tyReasoning, shortAlertReason('date-missing', { dateRaw }));
       } else if (conf < 0.85) {
         alert = true;
-        alertReason = tyReasoning || `ความมั่นใจต่ำ (${Math.round(conf * 100)}%) — ส่งให้เจ้าหน้าที่ตรวจสอบ`;
+        alertReason = pickShortReason(tyReasoning, shortAlertReason('lowconf', { conf }));
       } else {
         alert = false;
-        alertReason = tyReasoning || '';
+        alertReason = pickShortReason(tyReasoning, '');
       }
     }
 

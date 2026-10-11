@@ -1,5 +1,5 @@
 import type { StepsLog, User } from '@/types';
-import { toDateKey, thaiMonths, thaiShortMonths } from './thaiDate';
+import { toDateKey, thaiMonths, thaiShortMonths, todayThaiKey, getThaiNow } from './thaiDate';
 
 // ช่วงโครงการลาดพร้าวสร้างสุข — ห้วงเวลาบันทึกข้อมูล (ปรับได้โดย นสส. ที่หน้า Admin)
 export const PROJECT_START_DATE = '2026-08-24';
@@ -171,10 +171,26 @@ export function formatThaiShort(key: string): string {
   return `${Number(m[3])} ${thaiShortMonths[Number(m[2]) - 1]} ${yearBE}`;
 }
 
-/** จัดรูปแบบเวลาบันทึก 'YYYY-MM-DD HH:mm:ss' (เวลาไทย) → '22 ก.ค. 2569 · 14:32 น.' */
+/** จัดรูปแบบเวลาบันทึก → '22 ก.ค. 2569 · 14:32 น.' (ยึดเวลาไทย UTC+7 เสมอ)
+ * - timestamptz จาก Supabase มาเป็น UTC (เช่น ...T00:30:00Z = 07:30 ไทย) ต้อง +7 ก่อนโชว์
+ * - string ไทยเดิม 'YYYY-MM-DD HH:mm:ss' (ไม่มี zone) ให้แสดงตรงๆ กันเลื่อน */
 export function formatRecordedAt(recordedAt?: string): string {
   const s = String(recordedAt ?? '').trim();
   if (!s) return '';
+  // มี zone/time (ISO Z หรือ +07:00 หรือมี T/space+เวลา) → ตีความเป็น moment แล้ว shift +7
+  const hasZone = /Z$|[+-]\d{1,2}:?\d{2}\s*$/.test(s);
+  const hasTime = /[T ]\d{1,2}:\d{2}/.test(s);
+  if (hasZone || (hasTime && s.includes('T'))) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const t = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+      const day = t.getUTCDate();
+      const month = t.getUTCMonth();
+      const yearBE = t.getUTCFullYear() + 543;
+      const time = `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`;
+      return `${day} ${thaiShortMonths[month]} ${yearBE} · ${time} น.`;
+    }
+  }
   const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})/);
   if (m) {
     const day = Number(m[3]);
@@ -244,7 +260,8 @@ export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: stri
     if (weekEndKey > PROJECT_END_DATE) weekEndKey = PROJECT_END_DATE;
     if (weekStartKey < PROJECT_START_DATE) weekStartKey = PROJECT_START_DATE;
   } else {
-    const wm = mondayOf(new Date());
+    // ใช้วันไทย (shift +7 แล้วอ่านแบบ local บน server UTC = wall-clock ไทย)
+    const wm = mondayOf(getThaiNow());
     wm.setDate(wm.getDate() + weekOffset * 7);
     weekStartKey = toIsoLocal(wm);
     weekEndKey = shiftDays(wm, 6);
@@ -415,9 +432,9 @@ export function inclusiveDays(startKey: string, endKey: string): number {
   const diff = Math.round((b.getTime() - a.getTime()) / 86400000);
   return diff + 1;
 }
-/** d = จำนวนวันที่เปิดสะสมจริงตั้งแต่ PROJECT_START ถึงวันนี้ (clamp ที่ PROJECT_END) */
+/** d = จำนวนวันที่เปิดสะสมจริงตั้งแต่ PROJECT_START ถึงวันนี้ (clamp ที่ PROJECT_END) — ยึดวันไทย */
 export function elapsedDays(todayKey?: string, start: string = PROJECT_START_DATE, end: string = PROJECT_END_DATE): number {
-  const nowKey = todayKey || toIsoLocal(new Date());
+  const nowKey = todayKey || todayThaiKey();
   const clamped = nowKey > end ? end : nowKey < start ? start : nowKey;
   return inclusiveDays(start, clamped);
 }
@@ -425,9 +442,9 @@ export function elapsedDays(todayKey?: string, start: string = PROJECT_START_DAT
 export function maxCumulativeCap(todayKey?: string): number {
   return elapsedDays(todayKey) * DAILY_CAP;
 }
-/** โครงการสิ้นสุดแล้วหรือยัง (วันนี้ > END) */
+/** โครงการสิ้นสุดแล้วหรือยัง (วันนี้ > END) — ยึดวันไทย */
 export function isProjectFrozen(todayKey?: string): boolean {
-  const nowKey = todayKey || toIsoLocal(new Date());
+  const nowKey = todayKey || todayThaiKey();
   return nowKey > PROJECT_END_DATE;
 }
 /** วันที่อยู่ในห้วงโครงการหรือไม่ */

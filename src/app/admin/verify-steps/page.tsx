@@ -12,15 +12,19 @@ import { profileImageUrl } from '@/utils/personnel';
 
 type VerifyItem = StepsLog & { userName: string; userDept: string; userNickname: string; userProfileImage?: string };
 
-/** แปลงค่า Date_Thai เป็น key "YYYY-MM-DD" (ตามวันท้องถิ่น) สำหรับจัดกลุ่มรายการตามวันที่ส่งก้าว */
+/** แปลงค่า Date_Thai เป็น key "YYYY-MM-DD" ยึดปฏิทินไทย (UTC+7) กันวันเลื่อนบน server UTC */
 function normalizeDateKey(value: unknown): string {
   if (!value) return '';
-  const toLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  if (value instanceof Date && !isNaN(value.getTime())) return toLocal(value);
-  const s = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? s : toLocal(d);
+  const s = String(value instanceof Date ? value.toISOString() : value).trim();
+  // ISO datetime มีเวลา → shift +7 ก่อนจัดกลุ่ม
+  if (/[T ]\d{1,2}:\d{2}/.test(s)) {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    const t = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+    return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.slice(0, 10);
+  return s;
 }
 
 function driveViewUrl(id: string): string {
@@ -93,7 +97,7 @@ function AiReasonCell({ item }: { item: VerifyItem }) {
       {isAlert && item.Alert_Reason && (
         <div className="flex items-start gap-1 text-xs text-red-600 dark:text-red-400">
           <span className="material-symbols-outlined text-sm shrink-0">warning</span>
-          <span>{item.Alert_Reason}</span>
+          <span className="line-clamp-2" title={String(item.Alert_Reason)}>{String(item.Alert_Reason).replace(/\s+/g, ' ').trim().slice(0, 90)}</span>
         </div>
       )}
       {!isAlert && !aiSteps && !item.Alert_Reason && (

@@ -472,6 +472,11 @@ export default function VerifyHistoryPage() {
                                 </div>
                               );
                             })()}
+                            {isAlert && item.Alert_Reason && (
+                              <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300 truncate" title={String(item.Alert_Reason)}>
+                                {String(item.Alert_Reason).replace(/\s+/g, ' ').trim().slice(0, 80)}
+                              </p>
+                            )}
                             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
                               <div>
                                 {item.Status === 'Deleted' ? (
@@ -599,7 +604,8 @@ export default function VerifyHistoryPage() {
 
               {selIsAlert && sel.Alert_Reason && (
                 <div className="p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
-                  <span className="font-bold">โน้ตแจ้งเตือน: </span>{sel.Alert_Reason}
+                  <span className="font-bold">โน้ตแจ้งเตือน: </span>
+                  <span className="line-clamp-2" title={String(sel.Alert_Reason)}>{String(sel.Alert_Reason).replace(/\s+/g, ' ').trim().slice(0, 90)}</span>
                 </div>
               )}
 

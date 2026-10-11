@@ -26,14 +26,37 @@ if (!GAS_URL || !SUPABASE_URL || !SERVICE_KEY) {
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth:{persistSession:false}});
 
 // แปลง พ.ศ. -> ค.ศ. (2026-08-24 พ.ศ.2569 -> 2026-08-24)
+// รองรับ ISO datetime ที่มี zone (เช่น ...T17:00:00.000Z) → แปลงเป็นวันที่ไทย (+7) ก่อนตัดวัน
+// กันบั๊กวันเลื่อนถอยหลัง 1 วันหลังย้ายมา Supabase
 function toAD(dateStr){
   if(!dateStr) return null;
-  const s = String(dateStr).slice(0,10);
+  const raw = String(dateStr).trim();
+  // ISO datetime มีเวลา → ตีความเป็น moment แล้ว shift +7 (ไทย) ก่อนเอาวันที่
+  if(/[T ]\d{1,2}:\d{2}/.test(raw)){
+    const d = new Date(raw);
+    if(!isNaN(d.getTime())){
+      const t = new Date(d.getTime() + 7*60*60*1000);
+      const y0 = t.getUTCFullYear();
+      const y = y0 > 2400 ? y0 - 543 : y0;
+      return `${String(y).padStart(4,'0')}-${String(t.getUTCMonth()+1).padStart(2,'0')}-${String(t.getUTCDate()).padStart(2,'0')}`;
+    }
+  }
+  const s = raw.slice(0,10);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if(!m) return s;
   let y = parseInt(m[1],10);
   if(y>2400) y-=543; // พ.ศ.
   return `${String(y).padStart(4,'0')}-${m[2]}-${m[3]}`;
+}
+// แปลง datetime จาก Sheet ('YYYY-MM-DD HH:mm:ss' เวลาไทย ไม่มี zone) → ISO พร้อม +07:00
+// ก่อน insert เข้า timestamptz — กัน Postgres ตีความเป็น UTC แล้วเวลาเพี้ยน +7 ชม.
+function toThaiTimestamptz(v){
+  if(v == null || v === '') return null;
+  const s = String(v).trim();
+  if(/Z$|[+-]\d{1,2}:?\d{2}\s*$/.test(s)) return s; // มี zone แล้ว ปล่อยผ่าน
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/);
+  if(m) return `${m[1]}T${m[2]}${m[2].length === 5 ? ':00' : ''}+07:00`;
+  return s;
 }
 function num(v){ const n=Number(v); return Number.isFinite(n)?n:null; }
 function bool(v){ if(v===true||v===false) return v; if(String(v).toLowerCase()==='true') return true; if(String(v).toLowerCase()==='false') return false; return null; }
@@ -190,8 +213,8 @@ async function migrateSteps(){
     })(),
     week_number: r.Week_Number? parseInt(r.Week_Number,10): null,
     auditor_id: r.Auditor_ID||null,
-    reviewed_at: r.Reviewed_At||null,
-    recorded_at: r.Recorded_At||null,
+    reviewed_at: toThaiTimestamptz(r.Reviewed_At),
+    recorded_at: toThaiTimestamptz(r.Recorded_At),
     reject_reason: r.Reject_Reason||null,
     ai_steps: r.AI_Steps!=null? parseInt(r.AI_Steps,10): null,
     ai_confidence: r.AI_Confidence!=null? num(r.AI_Confidence): null,
@@ -239,7 +262,7 @@ async function migrateSweet(){
     status: (bool(r.Status) ?? false),
     logged_by: r.Logged_By||null,
     reason: r.Reason||null,
-    recorded_at: r.Recorded_At||null,
+    recorded_at: toThaiTimestamptz(r.Recorded_At),
   })).filter(x=>x.user_id && x.wednesday_date);
   for(let i=0;i<mapped.length;i+=500){
     const chunk = mapped.slice(i,i+500);

@@ -1365,14 +1365,13 @@ export default function StepsPage() {
                         {proofLog && (
                           <button
                             onClick={() => setZoomImage({ fileId: String(proofLog.Image_Drive_ID), alt: `หลักฐานภาพ ${day.label}` })}
-                            className="mt-2 block rounded-xl overflow-hidden ring-1 ring-gray-200 dark:ring-gray-600 hover:ring-emerald-400 transition-all"
+                            className="mt-2 block w-20 rounded-xl overflow-hidden ring-1 ring-gray-200 dark:ring-gray-600 hover:ring-emerald-400 transition-all"
                             title="คลิกเพื่อขยายภาพหลักฐาน">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img key={proofLog.Image_Drive_ID}
-                              src={`/api/steps/image?fileId=${proofLog.Image_Drive_ID}`}
+                            <ProofImage
+                              fileId={String(proofLog.Image_Drive_ID)}
                               alt="หลักฐานภาพหน้าจอ"
-                              onError={e => { const t = e.currentTarget; t.onerror = null; t.src = `https://drive.google.com/thumbnail?id=${proofLog.Image_Drive_ID}&sz=w400`; }}
-                              className="w-20 h-20 object-cover cursor-zoom-in" />
+                              onClick={() => setZoomImage({ fileId: String(proofLog.Image_Drive_ID), alt: `หลักฐานภาพ ${day.label}` })}
+                              imgClassName="w-20 h-20 object-cover cursor-zoom-in" />
                           </button>
                         )}
                       </td>

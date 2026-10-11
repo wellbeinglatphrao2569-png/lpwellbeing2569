@@ -4,7 +4,7 @@ import { useState } from 'react';
 /**
  * โหลดรูปจาก Drive ผ่าน proxy ของเซิร์ฟเวอร์ (หลีกเลี่ยง rate-limit ของ Google เมื่อฝังภาพโดยตรง)
  */
-export default function ProofImage({ fileId, alt, onClick }: { fileId: string; alt: string; onClick: (src: string) => void }) {
+export default function ProofImage({ fileId, alt, onClick, imgClassName }: { fileId: string; alt: string; onClick: (src: string) => void; imgClassName?: string }) {
   // รองรับทั้ง Drive File ID และ Supabase Storage public URL
   const isUrl = fileId.startsWith('http://') || fileId.startsWith('https://');
   const sources = isUrl
@@ -45,7 +45,7 @@ export default function ProofImage({ fileId, alt, onClick }: { fileId: string; a
           if (idx < sources.length - 1) setIdx(idx + 1);
           else setFailed(true);
         }}
-        className={`w-full max-h-[480px] object-contain cursor-zoom-in transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        className={imgClassName || `w-full max-h-[480px] object-contain cursor-zoom-in transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
       />
     </div>
   );

@@ -559,6 +559,12 @@ function doPost(e) {
       case 'test-drive':
         result = testDrive_();
         break;
+      case 'upload':
+        result = uploadToDrive_(data);
+        break;
+      case 'delete':
+        result = deleteDriveFile_(data);
+        break;
       case 'set-step-record-mode':
         result = setStepRecordMode_(data);
         break;
@@ -2532,6 +2538,53 @@ function uploadProofImage_(base64, userId, fullName) {
   } catch (e) {
     console.error('uploadProofImage_ error:', e);
     return { error: e.toString() };
+  }
+}
+
+/**
+ * อัปโหลดไฟล์ไป Google Drive (action: 'upload')
+ * รับ { filename, mimeType, base64 } → คืน { status:'success', fileId, url }
+ * Next.js เรียกผ่าน POST {action:'upload'} — ใช้เป็น storage หลักของภาพหลักฐานก้าว
+ */
+function uploadToDrive_(data) {
+  try {
+    const filename = String(data.filename || ('upload_' + new Date().getTime() + '.jpg'));
+    const mimeType = String(data.mimeType || 'image/jpeg');
+    const base64 = String(data.base64 || '');
+    if (!base64) return { status: 'error', error: 'ไม่มีข้อมูลรูปภาพ (base64)' };
+    const decoded = Utilities.base64Decode(base64);
+    const blob = Utilities.newBlob(decoded, mimeType, filename);
+    const folder = getStepProofsFolder_();
+    const file = folder.createFile(blob);
+    // แชร์ "ใครมีลิงก์ก็ดูได้" เพื่อให้เว็บแสดงผลได้โดยไม่ต้องขอสิทธิ์
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const fileId = file.getId();
+    return {
+      status: 'success',
+      fileId: fileId,
+      url: 'https://drive.google.com/file/d/' + fileId + '/view',
+    };
+  } catch (e) {
+    console.error('uploadToDrive_ error:', e);
+    return { status: 'error', error: e.toString() };
+  }
+}
+
+/**
+ * ลบไฟล์บน Drive (action: 'delete') — ย้ายไปถังขยะ (trash) ไม่ลบถาวร
+ * รับ { fileId }
+ */
+function deleteDriveFile_(data) {
+  try {
+    const fileId = String(data.fileId || '').trim();
+    if (!fileId) return { status: 'error', error: 'ไม่มี fileId' };
+    const file = DriveApp.getFileById(fileId);
+    file.setTrashed(true);
+    return { status: 'success', fileId: fileId, message: 'ลบไฟล์แล้ว (trash)' };
+  } catch (e) {
+    // ไฟล์ถูกลบไปแล้ว/ไม่พบ — ถือว่าสำเร็จฝั่ง caller ไม่ต้อง error แรง
+    console.warn('deleteDriveFile_ warn:', e.toString());
+    return { status: 'success', fileId: String(data.fileId || ''), message: 'ไม่พบไฟล์ (อาจถูกลบไปแล้ว)' };
   }
 }
 

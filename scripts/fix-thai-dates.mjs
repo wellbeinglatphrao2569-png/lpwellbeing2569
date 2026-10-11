@@ -32,7 +32,9 @@ function arg(name, def = null) {
   return eq >= 0 ? p.slice(eq + 1) : true;
 }
 const APPLY = arg('apply', false) === true || arg('apply') === '';
-const FROM = String(arg('from', '2026-08-24') || '2026-08-24').slice(0, 10);
+// default จากต้นปี (ไม่ใช่ start_date โครงการ) — กันข้อมูลที่บั๊ก UTC ดันลงมาอยู่ใต้ boundary โครงการ (เช่น 2026-08-23)
+// หลุดการตรวจสอบ/แก้ไขแบบไม่รู้ตัว (เคยทำให้ 55 แถวช้ากว่า Sheet 1 วันค้างอยู่)
+const FROM = String(arg('from', '2026-01-01') || '2026-01-01').slice(0, 10);
 
 function normalizeSupabaseUrl(u) {
   if (!u) return u;

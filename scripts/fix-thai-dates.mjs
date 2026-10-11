@@ -130,54 +130,109 @@ async function cmdFixDates() {
   console.log(`[fix-dates] อัปเดตสำเร็จ ${ok}/${targets.length}`);
 }
 
+const utcWall = (v) => {
+  const d = new Date(v);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+};
+const thaiWallOf = (v) => {
+  // wall-clock ไทยของ instant ใดๆ (ใช้กับค่า ISO จาก GAS ซึ่งมี zone ถูกต้อง)
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return '';
+  const t = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`;
+};
+async function fetchGasSteps() {
+  const GAS_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL;
+  if (!GAS_URL) throw new Error('ต้องมี GAS URL ใน env');
+  let j = null;
+  let lastErr = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${GAS_URL}?path=steps`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`GAS steps HTTP ${res.status}`);
+      j = await res.json();
+      break;
+    } catch (e) {
+      lastErr = e.message;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  if (!j) throw new Error(`GAS fetch failed: ${lastErr}`);
+  return Array.isArray(j) ? j : j.data || j.steps || j.rows || [];
+}
 async function cmdFixTimestamps() {
-  // แถวที่เวลาตก :00 ตรงๆ และชั่วโมง 07:00–23:59 บ่อยผิดปกติ มักมาจาก migrate แบบไม่มี zone
+  // ซ่อม recorded_at/reviewed_at ที่ถูก migrate แบบไม่มี zone (เวลาไทยถูกเก็บเป็น UTC ตรงๆ)
+  // กฎต่อแถว (เข้มงวด): แก้เฉพาะแถวที่ wall-clock UTC ใน Supabase ตรงกับ wall-clock ไทยใน Sheet พอดี
+  // เช่น Sheet "25/08 14:00" (ISO 07:00Z) แต่ Supabase เก็บ "14:00Z" → ลบ 7 ชม. เหลือ 07:00Z (instant จริง)
+  const gasRows = await fetchGasSteps();
+  const gasById = new Map(gasRows.map((r) => [String(r.Record_ID || r.record_id), r]));
+  console.log(`[fix-timestamps] GAS rows: ${gasRows.length}`);
   const rows = await fetchAllSteps(FROM);
-  console.log(`[fix-timestamps] ตรวจ ${rows.length} แถว (dry-run ยกเว้นใส่ --apply)`);
   const targets = [];
   for (const r of rows) {
-    for (const col of ['recorded_at', 'reviewed_at']) {
-      const v = r[col];
-      if (!v) continue;
-      const d = new Date(v);
-      if (isNaN(d.getTime())) continue;
-      // heuristic: ถ้าเวลามีวินาที = 00 และนาที = 00 เป๊ะ + มาจากช่วง migrate เก่า → น่าสงสัย
-      // (แสดงตัวอย่างเฉยๆ ไม่ฟันธง — ให้ผู้ใช้ยืนยันก่อน apply)
-      if (d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0) {
-        targets.push({ id: r.record_id, col, val: v });
+    const g = gasById.get(String(r.record_id));
+    if (!g) continue; // แถวใหม่หลัง migrate — ข้าม (instant ถูกต้องอยู่แล้ว)
+    for (const [col, gasField] of [['recorded_at', 'Recorded_At'], ['reviewed_at', 'Reviewed_At']]) {
+      const supa = r[col];
+      const gas = g[gasField];
+      if (!supa || !gas) continue;
+      if (utcWall(supa) === thaiWallOf(gas)) {
+        targets.push({ id: r.record_id, col, from: supa, to: new Date(new Date(supa).getTime() - 7 * 60 * 60 * 1000).toISOString() });
       }
     }
   }
-  console.log(`[fix-timestamps] แถว timestamp ที่ลงท้าย :00 (candidate): ${targets.length} ค่า`);
-  for (const t of targets.slice(0, 10)) console.log(`  ${t.id}.${t.col} = ${t.val}`);
-  console.log(
-    '[fix-timestamps] หมายเหตุ: การลบ 7 ชม. มีผลต่อการแสดงเวลาเท่านั้น ไม่กระทบ date_thai.\n' +
-      'ให้ apply ก็ต่อเมื่อยืนยันว่าเวลาใน Supabase เร็วกว่าเวลาจริง 7 ชม. (เช่น บันทึกบ่ายสองแต่โชว์สองทุ่ม)'
-  );
+  console.log(`[fix-timestamps] ยืนยันเพี้ยน +7 ชม. ตรงกับ Sheet: ${targets.length} ค่า`);
+  for (const t of targets.slice(0, 10)) console.log(`  ${t.id}.${t.col}: ${t.from} → ${t.to}`);
   if (!APPLY) {
-    console.log('[fix-timestamps] DRY-RUN — เพิ่ม --apply เพื่อเขียนจริง (ลบ 7 ชม.)');
+    console.log('[fix-timestamps] DRY-RUN — เพิ่ม --apply เพื่อเขียนจริง');
     return;
   }
   let ok = 0;
   for (const t of targets) {
-    const d = new Date(new Date(t.val).getTime() - 7 * 60 * 60 * 1000);
-    const { error } = await sb.from('steps_log').update({ [t.col]: d.toISOString() }).eq('record_id', t.id);
-    if (!error) ok++;
+    const { error } = await sb.from('steps_log').update({ [t.col]: t.to }).eq('record_id', t.id);
+    if (error) console.warn(`  FAIL ${t.id}.${t.col}: ${error.message}`);
+    else ok++;
   }
   console.log(`[fix-timestamps] อัปเดตสำเร็จ ${ok}/${targets.length}`);
 }
 
+// วันที่ไทยของค่า Date_Thai จาก GAS — GAS ส่ง Date object เป็น ISO (script TZ = Asia/Bangkok)
+// เช่น "2026-08-24T17:00:00.000Z" = 25 ส.ค. 00:00 ไทย → ต้อง +7 ก่อนตัดวัน (ห้าม slice ตรงๆ)
+function gasThaiKey(v) {
+  if (v == null || v === '') return '';
+  const s = String(v).trim();
+  if (/[T ]\d{1,2}:\d{2}/.test(s)) {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s.slice(0, 10);
+    return thaiKeyOf(d);
+  }
+  return s.slice(0, 10);
+}
 async function cmdCompareGas() {
   const GAS_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL;
   if (!GAS_URL) {
     console.error('ต้องมี GAS URL ใน env เพื่อใช้ --compare-gas');
     process.exit(1);
   }
-  const res = await fetch(`${GAS_URL}?path=steps`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`GAS steps HTTP ${res.status}`);
-  const j = await res.json();
+  let j = null;
+  let lastErr = '';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${GAS_URL}?path=steps`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`GAS steps HTTP ${res.status}`);
+      j = await res.json();
+      break;
+    } catch (e) {
+      lastErr = e.message;
+      console.warn(`  GAS retry ${attempt + 1}/3: ${lastErr}`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  if (!j) throw new Error(`GAS fetch failed: ${lastErr}`);
   const gasRows = Array.isArray(j) ? j : j.data || j.steps || j.rows || [];
-  const gasById = new Map(gasRows.map((r) => [String(r.Record_ID || r.record_id), String(r.Date_Thai || r.date_thai || '').slice(0, 10)]));
+  const gasById = new Map(gasRows.map((r) => [String(r.Record_ID || r.record_id), gasThaiKey(r.Date_Thai || r.date_thai || '')]));
   console.log(`[compare-gas] GAS rows: ${gasRows.length}`);
   const rows = await fetchAllSteps(FROM);
   const diffs = rows.filter((r) => {

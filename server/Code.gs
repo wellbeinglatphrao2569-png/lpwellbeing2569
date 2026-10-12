@@ -1032,7 +1032,16 @@ function addPersonnel_(data) {
       return;
     }
 
-    const pid = 'P' + String(maxNum + idx + 1).padStart(3, '0');
+    // ถ้าต้นทาง (Supabase) ออก Personnel_ID มาแล้ว ให้ใช้ ID เดียวกัน — กันแจก ID ซ้ำซ้อนคนละฐาน (เคส P124/P125)
+    // ถ้าไม่ส่งมา / รูปแบบผิด / ชนกับที่มีอยู่ ให้รันเลขถัดไปตามเดิม
+    var pid = String(p.Personnel_ID || '').trim();
+    const pidTaken = function (id) {
+      return existing.some(function (u) { return String(u.Personnel_ID) === id; }) ||
+        added.some(function (a) { return a.Personnel_ID === id && a.status === 'added'; });
+    };
+    if (!/^P\d+$/.test(pid) || pidTaken(pid)) {
+      do { maxNum++; pid = 'P' + String(maxNum).padStart(3, '0'); } while (pidTaken(pid));
+    }
     const dataRow = {
       User_ID: '',
       Prefix: p.Prefix || '',
@@ -1272,6 +1281,19 @@ function updatePersonnel_(data) {
     if (pidCol > 0 && String(rows[i][pidCol - 1]) === String(data.Personnel_ID)) { rowIndex = i; break; }
   }
   if (rowIndex < 1) return { success: false, message: 'ไม่พบบุคลากร' };
+
+  // เปลี่ยนรหัสบุคลากร (rename Pxxx → Pyyy) — ใช้ซ่อมแถวที่ Personnel_ID ไม่ตรงกับ Supabase
+  // ส่ง New_Personnel_ID มาด้วยเท่านั้นถึงจะทำงาน ไม่ส่ง = ไม่แตะ ID เดิม
+  if (data.New_Personnel_ID !== undefined) {
+    const newPid = String(data.New_Personnel_ID).trim();
+    const oldPid = String(data.Personnel_ID);
+    if (!/^P\d+$/.test(newPid)) return { success: false, message: 'รหัสบุคลากรใหม่ต้องเป็น P ตามด้วยตัวเลข' };
+    if (newPid !== oldPid) {
+      const clash = getData_('Users').find(function (u) { return String(u.Personnel_ID) === newPid; });
+      if (clash) return { success: false, message: 'มี ' + newPid + ' ในระบบแล้ว ไม่สามารถเปลี่ยนซ้ำได้' };
+      if (pidCol > 0) sheet.getRange(rowIndex + 1, pidCol).setValue(newPid);
+    }
+  }
 
   const first = data.First_Name !== undefined ? String(data.First_Name).trim() : '';
   const last = data.Last_Name !== undefined ? String(data.Last_Name).trim() : '';

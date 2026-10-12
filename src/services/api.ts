@@ -172,7 +172,7 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       if (dup) return { success:false, message:'เลขบัตรประชาชนนี้มีผู้ใช้งานแล้ว' };
       // find row by personnel_id
       const { data: target } = await sb.from('users').select('personnel_id,registration_status').eq('personnel_id', pid).maybeSingle();
-      if (!target) return { success:false, message:'ไม่พบ Personnel_ID ในระบบ' };
+      if (!target) return { success:false, message:'ยังไม่มีรหัสบุคลากรนี้ในทะเบียน กรุณาติดต่อเจ้าหน้าที่ นสส. ให้เพิ่มชื่อก่อนลงทะเบียน' };
       if ((target as {registration_status:string}).registration_status === 'Registered') return { success:false, message:'บุคลากรนี้ลงทะเบียนแล้ว' };
       const bmi = data?.BMI_Value ? String(data.BMI_Value) : null;
       const hashed = await hashPasswordNode(pwd);
@@ -203,6 +203,39 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       invalidate('gas:users');
       doBackup();
       return { success:true, message:'ลงทะเบียนสำเร็จ (Supabase)' };
+    }
+
+    // search-personnel — Supabase primary (เดิมตกไป GAS ทำให้ค้นเจอแถวที่ไม่มีใน Supabase → กดยืนยันแล้วตก)
+    // นโยบาย: "ค้นเจอ = มี ID พร้อมลงทะเบียน" เสมอ
+    if (action === 'search-personnel') {
+      const q = String(data?.q || '').trim();
+      const dept = String(data?.department || '').trim();
+      let query = sb.from('users')
+        .select('personnel_id,prefix,full_name,first_name,last_name,nickname,position,department,gender,registration_status')
+        .neq('registration_status', 'Inactive')
+        .limit(50);
+      if (dept) query = query.eq('department', dept);
+      if (q) query = query.ilike('full_name', `%${q.replace(/[%_]/g, '')}%`);
+      const { data: rows, error } = await query;
+      if (error) throw error;
+      const results = ((rows || []) as Record<string, unknown>[])
+        .map(r => ({
+          Personnel_ID: String(r.personnel_id || ''),
+          Prefix: String(r.prefix || ''),
+          Full_Name: String(r.full_name || ''),
+          First_Name: String(r.first_name || ''),
+          Last_Name: String(r.last_name || ''),
+          Nickname: String(r.nickname || ''),
+          Position: String(r.position || ''),
+          Department: String(r.department || ''),
+          Gender: String(r.gender || ''),
+          Activities: 'sweet_free',
+          Registration_Status: String(r.registration_status || ''),
+        }))
+        .filter(r => r.Full_Name && r.Personnel_ID)
+        .sort((a, b) => ((a.Registration_Status === 'Pending' ? 0 : 1) - (b.Registration_Status === 'Pending' ? 0 : 1))
+          || String(a.Full_Name).localeCompare(String(b.Full_Name), 'th'));
+      return { success: true, results };
     }
 
     // add-step — Supabase primary + GAS backup
@@ -623,6 +656,7 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
         if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
       }
       const inserted: Record<string, unknown>[] = [];
+      const mintedIds: (string | null)[] = list.map(() => null);
       let dupCount = 0, errCount = 0;
       for (let i = 0; i < list.length; i++) {
         const p = list[i] || {};
@@ -636,8 +670,9 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
           .select('user_id').eq('full_name', fullName).eq('department', dept).maybeSingle();
         if (dup) { dupCount++; continue; }
         const pid = 'P' + String(maxNum + i + 1).padStart(3, '0');
+        mintedIds[i] = pid;
         inserted.push({
-          user_id: '', prefix: p.Prefix ? String(p.Prefix) : null,
+          user_id: pid, prefix: p.Prefix ? String(p.Prefix) : null,
           full_name: fullName, first_name: fn, last_name: ln || null,
           nickname: p.Nickname ? String(p.Nickname) : null,
           position: p.Position ? String(p.Position) : null,
@@ -653,7 +688,8 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       }
       const { invalidate } = await import('@/lib/gasCache');
       invalidate('gas:users');
-      doBackup();
+      // backup ไป Sheet พร้อม Personnel_ID ที่ออกให้ — GAS จะใช้ ID เดียวกัน (กันแจก ID ซ้ำซ้อนคนละฐานแบบเคส P124/P125)
+      backupToGAS(action, { ...data, Personnel: list.map((p, i) => ({ ...((p || {}) as Record<string, unknown>), Personnel_ID: mintedIds[i] })).filter(p => p.Personnel_ID) });
       let message = `เพิ่มบุคลากร ${inserted.length} รายสำเร็จ (Supabase)`;
       if (dupCount > 0) message += ` (ซ้ำ ${dupCount} ราย)`;
       if (errCount > 0) message += ` (ข้อมูลไม่ครบ ${errCount} ราย)`;

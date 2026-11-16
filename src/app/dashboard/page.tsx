@@ -5,6 +5,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import ProfileAvatar from '@/components/ui/ProfileAvatar';
 import { getCurrentWednesdayDate, getThaiNow, toDateKey, thaiMonths as thaiMonthsLong } from '@/utils/thaiDate';
 import { useAuth } from '@/hooks/useAuth';
+import { useProjectWindow } from '@/hooks/useProjectWindow';
 import { fetchData } from '@/services/api';
 import type { StepsLog, User, SweetFree } from '@/types';
 import { DEPARTMENTS } from '@/utils/personnel';
@@ -23,7 +24,6 @@ import {
   DAILY_CAP,
   elapsedDays,
   maxCumulativeCap,
-  isProjectFrozen,
   toIsoLocal,
   type RankTab,
   type DeptCappedRow,
@@ -32,13 +32,14 @@ import {
 
 export default function DashboardPage() {
   const { user, isLoggedIn } = useAuth();
+  const { window: projectWindow } = useProjectWindow();
   const [users, setUsers] = useState<User[]>([]);
   const [stepsData, setStepsData] = useState<StepsLog[]>([]);
   const [sweetData, setSweetData] = useState<SweetFree[]>([]);
 
   const [tab, setTab] = useState<RankTab>('weekly');
   // แยก state ต่อ Tab ป้องกันซ้อนกัน (Bug 1.3 Option B)
-  const weeks = useMemo(() => projectWeeks(), []);
+  const weeks = useMemo(() => projectWeeks(projectWindow?.start, projectWindow?.end), [projectWindow?.start, projectWindow?.end]);
   const [weeklyWeekOffset, setWeeklyWeekOffset] = useState(0);
   const [weeklySelectedWeekStart, setWeeklySelectedWeekStart] = useState<string>(() => {
     const todayKey = (() => {
@@ -81,8 +82,19 @@ export default function DashboardPage() {
     return () => { cancelled = true; ac.abort(); };
   }, []);
 
+  // ปรับสัปดาห์ที่เลือกให้อยู่ในรายการสัปดาห์ของห้วงเวลาปัจจุบัน (กันค่าค้างเมื่อห้วงเวลาถูกปรับที่หน้าตั้งค่า)
+  useEffect(() => {
+    if (weeks.length === 0) return;
+    if (weeklySelectedWeekStart && weeks.some(w => w.startKey === weeklySelectedWeekStart)) return;
+    const todayKey = toIsoLocal(new Date());
+    const found = weeks.find(w => todayKey >= w.startKey && todayKey <= w.endKey);
+    if (found) setWeeklySelectedWeekStart(found.startKey); // eslint-disable-line react-hooks/set-state-in-effect
+    else if (todayKey < weeks[0].startKey) setWeeklySelectedWeekStart(weeks[0].startKey);
+    else setWeeklySelectedWeekStart(weeks[weeks.length - 1].startKey);
+  }, [weeks, weeklySelectedWeekStart]);
+
   // ใช้ state แยกต่อ Tab: weekly ใช้ weeklySelectedWeekStart/weeklyWeekOffset, monthly ใช้ monthFrom/monthTo
-  const period = periodRangeFor(tab, tab === 'weekly' ? weeklyWeekOffset : 0, monthFrom, monthTo, tab === 'weekly' ? weeklySelectedWeekStart : undefined);
+  const period = periodRangeFor(tab, tab === 'weekly' ? weeklyWeekOffset : 0, monthFrom, monthTo, tab === 'weekly' ? weeklySelectedWeekStart : undefined, projectWindow);
   const activeRange = { startKey: period.startKey, endKey: period.endKey, periodLabel: period.periodLabel };
 
   // ตอนนี้ข้อมูลมาจาก cache เร็วแล้ว ไม่ต้อง fake loading 60ms
@@ -110,13 +122,14 @@ export default function DashboardPage() {
     return individualRankingOf(filteredUsers, perUserStepsActual, user?.User_ID);
   }, [users, perUserStepsActual, bagDept, user]);
 
-  // Banner info: elapsed days & frozen
+  // Banner info: elapsed days & สถานะห้วงเวลา (แจ้งเตือน ไม่ล็อกการบันทึก)
   const todayKey = toIsoLocal(new Date());
-  const frozen = isProjectFrozen(todayKey);
-  const d = elapsedDays(todayKey);
-  const capMax = maxCumulativeCap(todayKey);
+  const windowEnded = !!projectWindow && todayKey > projectWindow.end;
+  const windowNotStarted = !!projectWindow && todayKey < projectWindow.start;
+  const d = elapsedDays(todayKey, projectWindow?.start, projectWindow?.end);
+  const capMax = maxCumulativeCap(todayKey, projectWindow?.end);
 
-  const program = useMemo(() => programTotals(stepsData), [stepsData]);
+  const program = useMemo(() => programTotals(stepsData, projectWindow?.start, projectWindow?.end), [stepsData, projectWindow?.start, projectWindow?.end]);
 
   const userOf = (uid: string): User | undefined => users.find(x => String(x.User_ID) === String(uid).trim() || String((x as any).Personnel_ID || '') === String(uid).trim());
   const resolveUser = (ref: string): User | undefined =>
@@ -175,12 +188,19 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {frozen && (
-        <div className="rounded-2xl border-2 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 px-4 py-3 flex items-start gap-2.5">
-          <span className="material-symbols-outlined text-red-600 dark:text-red-400 text-xl shrink-0 mt-0.5">lock</span>
+      {(windowEnded || windowNotStarted) && projectWindow && (
+        <div className="rounded-2xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 flex items-start gap-2.5">
+          <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-xl shrink-0 mt-0.5">schedule</span>
           <div>
-            <p className="text-sm font-bold text-red-700 dark:text-red-400">โครงการสิ้นสุดแล้ว — ยึดอันดับสุดท้ายเป็นผลสรุปถาวร (Data Freeze)</p>
-            <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-0.5">ขณะนี้เกินวันสิ้นสุดโครงการ ระบบล็อคการรับข้อมูลก้าวย้อนหลังแล้ว (เกิน {capMax.toLocaleString()} ก้าว/คน สูงสุด {d} วัน × 6,000)</p>
+            <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
+              {windowEnded
+                ? `หมดเขตการอัปเดตข้อมูลแล้ว — ห้วงเวลาบันทึกจบลงเมื่อ ${formatThaiShort(projectWindow.end)}`
+                : `ยังไม่เริ่มห้วงเวลาบันทึกข้อมูล — เริ่ม ${formatThaiShort(projectWindow.start)}`}
+            </p>
+            <p className="text-xs text-amber-700/90 dark:text-amber-300/90 mt-0.5">
+              ห้วงเวลาที่อนุญาต: {formatThaiShort(projectWindow.start)} – {formatThaiShort(projectWindow.end)} · ระบบยังเปิดรับการบันทึกย้อนหลังเฉพาะวันที่อยู่ในห้วงเวลาเท่านั้น
+              — วันที่ก่อนวันเริ่มต้นหรือหลังวันสิ้นสุดจะไม่ถูกบันทึก (อันดับคำนวณจากข้อมูลจริงในห้วงเวลา · เพดานอ้างอิง {capMax.toLocaleString()} ก้าว/คน จาก {d} วัน × 6,000)
+            </p>
           </div>
         </div>
       )}

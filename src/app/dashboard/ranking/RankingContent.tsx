@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import GlassCard from '@/components/ui/GlassCard';
 import ProfileAvatar from '@/components/ui/ProfileAvatar';
 import { useAuth } from '@/hooks/useAuth';
+import { useProjectWindow } from '@/hooks/useProjectWindow';
 import { fetchData } from '@/services/api';
 import type { StepsLog, User } from '@/types';
 import { DEPARTMENTS } from '@/utils/personnel';
@@ -30,12 +31,13 @@ export default function RankingContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { user, isLoggedIn } = useAuth();
+  const { window: projectWindow } = useProjectWindow();
 
   const [users, setUsers] = useState<User[]>([]);
   const [stepsData, setStepsData] = useState<StepsLog[]>([]);
   const [tab, setTab] = useState<RankTab>(() => (searchParams.get('tab') as RankTab) || 'weekly');
   const [weekOffset, setWeekOffset] = useState(() => parseInt(searchParams.get('week') || '0', 10) || 0);
-  const weeks = useMemo(() => projectWeeks(), []);
+  const weeks = useMemo(() => projectWeeks(projectWindow?.start, projectWindow?.end), [projectWindow?.start, projectWindow?.end]);
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => searchParams.get('weekStart') || '');
   const [monthFrom, setMonthFrom] = useState(() => searchParams.get('from') || currentMonth());
   const [monthTo, setMonthTo] = useState(() => searchParams.get('to') || currentMonth());
@@ -66,15 +68,16 @@ export default function RankingContent() {
   }, []);
 
   // ── ช่วงเวลา ── (weekly ใช้ selectedWeekStart จาก dropdown ไม่ทับ monthly/project)
-  const period = periodRangeFor(tab, weekOffset, monthFrom, monthTo, tab === 'weekly' && selectedWeekStart ? selectedWeekStart : undefined);
+  const period = periodRangeFor(tab, weekOffset, monthFrom, monthTo, tab === 'weekly' && selectedWeekStart ? selectedWeekStart : undefined, projectWindow);
   const activeRange = { startKey: period.startKey, endKey: period.endKey, periodLabel: period.periodLabel };
-  // ถ้ายังไม่ได้เลือกสัปดาห์และอยู่ tab weekly ให้ default เป็นสัปดาห์ปัจจุบันในโครงการ
+  // ถ้ายังไม่ได้เลือกสัปดาห์ (หรือค่าที่เลือกอยู่นอกห้วงเวลาปัจจุบัน) ให้ปรับเป็นสัปดาห์ที่ถูกต้อง
   useEffect(() => {
-    if (tab === 'weekly' && !selectedWeekStart && weeks.length > 0) {
-      const wk = period.weekStartKey;
-      if (weeks.some(w => w.startKey === wk)) setSelectedWeekStart(wk); // eslint-disable-line react-hooks/set-state-in-effect
-      else setSelectedWeekStart(weeks[weeks.length - 1].startKey); // eslint-disable-line react-hooks/set-state-in-effect
-    }
+    if (tab !== 'weekly' || weeks.length === 0) return;
+    if (selectedWeekStart && weeks.some(w => w.startKey === selectedWeekStart)) return;
+    const wk = period.weekStartKey;
+    if (weeks.some(w => w.startKey === wk)) setSelectedWeekStart(wk); // eslint-disable-line react-hooks/set-state-in-effect
+    else if (wk < weeks[0].startKey) setSelectedWeekStart(weeks[0].startKey);
+    else setSelectedWeekStart(weeks[weeks.length - 1].startKey);
   }, [tab, selectedWeekStart, weeks, period.weekStartKey]);
 
   const indLoading = false;

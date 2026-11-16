@@ -70,9 +70,7 @@ export async function POST(request: NextRequest) {
         }));
         usersFetchOk = usersList.length>0;
         if (win && win.start && win.end) {
-          const { todayThaiKey } = await import('@/utils/thaiDate');
-          const today = todayThaiKey();
-          if (today > win.end) return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
+          // ตรวจ "วันที่ของข้อมูล" ว่าอยู่ในห้วงเวลา — ห้วงหมดอายุแล้วยังบันทึกย้อนหลังได้ (ไม่ล็อกทั้งระบบ)
           const out: string[] = [];
           for (const s of Steps as any[]) {
             const d = String(s.Day || '').trim().slice(0, 10);
@@ -95,9 +93,7 @@ export async function POST(request: NextRequest) {
           const w = await winRes.json().catch(() => null);
           if (w && w.start && w.end) {
             win = { start: String(w.start).slice(0,10), end: String(w.end).slice(0,10) };
-            const { todayThaiKey } = await import('@/utils/thaiDate');
-            const today = todayThaiKey();
-            if (today > win.end) return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
+            // ตรวจ "วันที่ของข้อมูล" ว่าอยู่ในห้วงเวลา — ห้วงหมดอายุแล้วยังบันทึกย้อนหลังได้ (ไม่ล็อกทั้งระบบ)
             const out: string[] = [];
             for (const s of Steps as any[]) {
               const d = String(s.Day || '').trim().slice(0, 10);

@@ -65,17 +65,11 @@ export async function POST(request: NextRequest) {
         const s = (win as { start_date: string } | null)?.start_date;
         const e = (win as { end_date: string } | null)?.end_date;
         if (s && e) {
-          const { todayThaiKey } = await import('@/utils/thaiDate');
-          const today = todayThaiKey();
-          if (today > String(e).slice(0, 10)) {
-            windowErr = `โครงการสิ้นสุดแล้ว (${s} ถึง ${e}) — ระบบล็อคการรับข้อมูล (Data Freeze)`;
+          // ตรวจ "วันที่ของข้อมูล" ว่าอยู่ในห้วงเวลา — ห้วงหมดอายุแล้วยังบันทึกย้อนหลังได้ (ไม่ล็อกทั้งระบบ)
+          const d = String(dateThai).trim().slice(0, 10);
+          if (d < String(s).slice(0, 10) || d > String(e).slice(0, 10)) {
+            windowErr = `นอกห้วงเวลาบันทึก (${s} ถึง ${e}) — ไม่สามารถบันทึกวันที่ ${d} ได้`;
             windowOk = false;
-          } else {
-            const d = String(dateThai).trim().slice(0, 10);
-            if (d < String(s).slice(0, 10) || d > String(e).slice(0, 10)) {
-              windowErr = `นอกห้วงเวลาบันทึก (${s} ถึง ${e}) — ไม่สามารถบันทึกวันที่ ${d} ได้`;
-              windowOk = false;
-            }
           }
         }
         // users สำหรับเช็ค Mode 2
@@ -106,17 +100,11 @@ export async function POST(request: NextRequest) {
         if (winRes.ok) {
           const win = await winRes.json().catch(() => null);
           if (win && win.start && win.end) {
-            const { todayThaiKey } = await import('@/utils/thaiDate');
-            const today = todayThaiKey();
-            if (today > String(win.end).slice(0, 10)) {
-              windowErr = `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)`;
+            // ตรวจ "วันที่ของข้อมูล" ว่าอยู่ในห้วงเวลา — ห้วงหมดอายุแล้วยังบันทึกย้อนหลังได้ (ไม่ล็อกทั้งระบบ)
+            const d = String(dateThai).trim().slice(0, 10);
+            if (d < String(win.start).slice(0, 10) || d > String(win.end).slice(0, 10)) {
+              windowErr = `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถบันทึกวันที่ ${d} ได้`;
               windowOk = false;
-            } else {
-              const d = String(dateThai).trim().slice(0, 10);
-              if (d < String(win.start).slice(0, 10) || d > String(win.end).slice(0, 10)) {
-                windowErr = `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถบันทึกวันที่ ${d} ได้`;
-                windowOk = false;
-              }
             }
           }
         }
@@ -130,8 +118,7 @@ export async function POST(request: NextRequest) {
       }
     }
     if (!windowOk && windowErr) {
-      const isFreeze = windowErr.includes('สิ้นสุดแล้ว');
-      return NextResponse.json({ error: windowErr }, { status: isFreeze ? 403 : 400 });
+      return NextResponse.json({ error: windowErr }, { status: 400 });
     }
     // กันบันทึกวันที่ล่วงหน้า (อนาคต)
     {

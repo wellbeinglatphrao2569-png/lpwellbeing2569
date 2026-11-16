@@ -4,6 +4,7 @@
  * Google Fit Aggregate API ต้องใช้ POST + JSON body + access token
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const GOOGLE_FIT_API = 'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate';
 
@@ -96,24 +97,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'date is required' }, { status: 400 });
     }
 
-    // Data Freeze + ห้วงเวลา: ล็อคถ้าเกินวันสิ้นสุดโครงการ
+    // ห้วงเวลา: อ่านจาก Supabase (หน้าตั้งค่าห้วงเวลา) — fallback ไป GAS
+    // ตรวจเฉพาะ "วันที่ของข้อมูล" ว่าอยู่ในห้วงเท่านั้น — ห้วงหมดอายุแล้วยังดึง/บันทึกย้อนหลังได้ (ไม่ล็อกทั้งระบบ)
     try {
-      const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL || '';
-      if (GAS_API_URL) {
-        const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
-        if (winRes.ok) {
-          const win = await winRes.json();
-          if (win && win.start && win.end) {
-            const { todayThaiKey } = await import('@/utils/thaiDate');
-            const today = todayThaiKey();
-            if (today > String(win.end).slice(0,10)) {
-              return NextResponse.json({ error: `โครงการสิ้นสุดแล้ว (${win.start} ถึง ${win.end}) — ระบบล็อคการรับข้อมูล (Data Freeze)` }, { status: 403 });
-            }
-            const d = String(date).trim().slice(0,10);
-            if (d < String(win.start).slice(0,10) || d > String(win.end).slice(0,10)) {
-              return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end})` }, { status: 400 });
-            }
+      let win: { start: string; end: string } | null = null;
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase()!;
+          const { data: winRow } = await sb.from('project_settings').select('start_date,end_date').eq('id', 1).maybeSingle();
+          if (winRow) win = { start: String((winRow as { start_date: string }).start_date).slice(0, 10), end: String((winRow as { end_date: string }).end_date).slice(0, 10) };
+        } catch (e) { console.warn('google-fit window (Supabase) failed', e); }
+      }
+      if (!win) {
+        const GAS_API_URL = process.env.NEXT_PUBLIC_GAS_WEB_APP_URL || process.env.GAS_WEB_APP_URL || process.env.NEXT_PUBLIC_GAS_API_URL || process.env.GAS_API_URL || '';
+        if (GAS_API_URL) {
+          const winRes = await fetch(`${GAS_API_URL}?path=project-window`, { cache: 'no-store' });
+          if (winRes.ok) {
+            const w = await winRes.json().catch(() => null);
+            if (w && w.start && w.end) win = { start: String(w.start).slice(0, 10), end: String(w.end).slice(0, 10) };
           }
+        }
+      }
+      if (win && win.start && win.end) {
+        const d = String(date).trim().slice(0, 10);
+        if (d < win.start || d > win.end) {
+          return NextResponse.json({ error: `นอกห้วงเวลาบันทึก (${win.start} ถึง ${win.end}) — ไม่สามารถดึง/บันทึกวันที่ ${d} ได้` }, { status: 400 });
         }
       }
     } catch (e) { console.warn('google-fit window check failed', e); }

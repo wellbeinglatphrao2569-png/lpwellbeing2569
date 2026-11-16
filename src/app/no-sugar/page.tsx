@@ -442,6 +442,12 @@ export default function NoSugarPage() {
           </select>
         </div>
 
+        {projectWindow && currentWedStr > projectWindow.end && (
+          <div className="mb-4 text-sm rounded-xl p-2.5 border bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800 flex items-start gap-2">
+            <span className="material-symbols-outlined text-base shrink-0 mt-0.5">schedule</span>
+            <span>หมดเขตการอัปเดตข้อมูลแล้ว — ห้วงเวลาบันทึกจบลงเมื่อ {projectWindow.end} · ยังบันทึกย้อนหลังได้เฉพาะ<strong>วันพุธที่อยู่ในห้วง</strong> ({projectWindow.start} ถึง {projectWindow.end}) เท่านั้น — วันพุธนอกห้วงจะไม่ถูกบันทึก</span>
+          </div>
+        )}
         {isOutOfWindow && projectWindow && (
           <div className="mb-4 text-sm rounded-xl p-2.5 border bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800">
             ⛔ วันพุธที่เลือกอยู่นอกห้วงเวลาที่ตั้งค่าไว้ ({projectWindow.start} ถึง {projectWindow.end}) — กรุณาเลือกวันพุธในห้วงเท่านั้น (ตั้งค่าได้ที่ Admin → ตั้งค่าห้วงเวลา)

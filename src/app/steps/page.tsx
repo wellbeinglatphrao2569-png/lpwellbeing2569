@@ -13,7 +13,7 @@ import type { StepsLog, User } from '@/types';
 import * as GF from '@/lib/google-fitness';
 import { useProjectWindow } from '@/hooks/useProjectWindow';
 import RankingInfoModal from '@/components/ui/RankingInfoModal';
-import { DAILY_CAP, isProjectFrozen } from '@/utils/stepsRanking';
+import { DAILY_CAP, formatThaiShort } from '@/utils/stepsRanking';
 
 type DepartmentMember = {
   name: string;
@@ -530,7 +530,6 @@ export default function StepsPage() {
   const requestSave = async () => {
     if (!user) return;
     if (isMode2) { setSubmitError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
-    if (isProjectFrozen(todayThaiKey())) { setSubmitError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze) — ยึดอันดับสุดท้ายเป็นผลถาวร'); return; }
     if (projectWindow && !isInWindow(logDate)) { setSubmitError(`นอกห้วงเวลาบันทึก (${projectWindow.start} ถึง ${projectWindow.end}) — ไม่สามารถบันทึกวันที่ ${logDate} ได้`); return; }
     if (logDate > todayThaiKey()) { setSubmitError(`ไม่สามารถบันทึกวันที่ล่วงหน้าได้ — วันนี้คือ ${todayThaiKey()}`); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || 0);
@@ -593,7 +592,6 @@ export default function StepsPage() {
     setShowAiPopup(false);
     if (!user) return;
     if (isMode2) { setSubmitError('คุณอยู่ใน Mode 2 — ไม่สามารถบันทึกเองได้'); return; }
-    if (isProjectFrozen(toIsoLocal(new Date()))) { setSubmitError('โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูล (Data Freeze)'); return; }
     const steps = logMethod === 'google-fit' ? googleFitSteps : (parseInt(stepInput) || 0);
     if (!steps || steps <= 0) return;
     if (projectWindow && !isInWindow(logDate)) {
@@ -678,17 +676,26 @@ export default function StepsPage() {
   const activeSteps = logMethod === 'google-fit' ? googleFitSteps : (stepInput ? parseInt(stepInput) : null);
   const isCurrentDate = logDate === todayStr;
   const isMode2 = String(user?.Step_Record_Mode || '1') === '2';
-  const frozen = isProjectFrozen(toIsoLocal(new Date()));
-  const isFrozen = frozen || (projectWindow ? !isInWindow(logDate) && logDate > (projectWindow.end || '') : false);
+  // สถานะห้วงเวลา (อ่านจากหน้าตั้งค่าห้วงเวลา) — ใช้ "แจ้งเตือน" เท่านั้น ไม่ล็อกการบันทึก
+  // การบันทึกยังเปิดได้เฉพาะวันที่อยู่ในห้วง (ก่อนวันเริ่ม / หลังวันสิ้นสุด ระบบจะปฏิเสธ)
+  const windowEnded = !!projectWindow && todayStr > projectWindow.end;
+  const windowNotStarted = !!projectWindow && todayStr < projectWindow.start;
 
   return (
     <div className="space-y-6">
-      {frozen && (
-        <div className="rounded-2xl border-2 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 px-4 py-3 flex items-start gap-2.5">
-          <span className="material-symbols-outlined text-red-600 dark:text-red-400 text-xl shrink-0 mt-0.5">lock</span>
+      {(windowEnded || windowNotStarted) && projectWindow && (
+        <div className="rounded-2xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 flex items-start gap-2.5">
+          <span className="material-symbols-outlined text-amber-600 dark:text-amber-400 text-xl shrink-0 mt-0.5">schedule</span>
           <div>
-            <p className="text-sm font-bold text-red-700 dark:text-red-400">โครงการสิ้นสุดแล้ว — ระบบล็อคการรับข้อมูลก้าว (Data Freeze)</p>
-            <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-0.5">ขณะนี้เกินวันสิ้นสุดโครงการ อันดับสุดท้ายถูกยึดเป็นผลสรุปถาวร ไม่สามารถบันทึกย้อนหลังได้</p>
+            <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
+              {windowEnded
+                ? `หมดเขตการอัปเดตข้อมูลแล้ว — ห้วงเวลาบันทึกจบลงเมื่อ ${formatThaiShort(projectWindow.end)}`
+                : `ยังไม่เริ่มห้วงเวลาบันทึกข้อมูล — เริ่ม ${formatThaiShort(projectWindow.start)}`}
+            </p>
+            <p className="text-xs text-amber-700/90 dark:text-amber-300/90 mt-0.5">
+              ห้วงเวลาที่อนุญาต: {formatThaiShort(projectWindow.start)} – {formatThaiShort(projectWindow.end)} · คุณยังบันทึกย้อนหลังได้เฉพาะวันที่อยู่ในห้วงเวลาเท่านั้น
+              — วันที่ก่อนวันเริ่มต้นหรือหลังวันสิ้นสุดจะ <strong>ไม่ถูกบันทึก</strong> (ปรับห้วงเวลาได้ที่ นสส. → ตั้งค่าห้วงเวลาบันทึกข้อมูล)
+            </p>
           </div>
         </div>
       )}

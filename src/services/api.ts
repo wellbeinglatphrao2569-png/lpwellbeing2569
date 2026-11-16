@@ -285,6 +285,8 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
       if (error) throw error;
       const { invalidate } = await import('@/lib/gasCache');
       invalidate('gas:project-window');
+      // sync ไป GAS ด้วย (สำรอง/fallback) กันค่าสองแหล่งไม่ตรงกัน
+      doBackup();
       return { success: true, message: 'บันทึกห้วงเวลาสำเร็จ (Supabase)' };
     }
     // cleanup-out-of-window — ลบ steps/sweet นอกห้วง
@@ -366,6 +368,15 @@ async function postToSupabase(action: string, data?: Record<string, unknown>): P
         try { const arr = JSON.parse(String(data.User_IDs_JSON)); if(Array.isArray(arr)) arr.forEach((x:string)=>uids.push(String(x).trim())); } catch {}
       }
       if (!wed || uids.length===0) return { success:false, message:'ข้อมูลไม่ครบ' };
+      // ตรวจห้วงเวลาโครงการ: วันพุธต้องอยู่ใน [start, end] — วันที่ก่อนเริ่ม/หลังสิ้นสุดห้วงจะไม่ถูกบันทึก
+      try {
+        const { data: winRow } = await sb.from('project_settings').select('start_date,end_date').eq('id',1).maybeSingle();
+        const winStart = (winRow as {start_date:string}|null)?.start_date;
+        const winEnd = (winRow as {end_date:string}|null)?.end_date;
+        if (winStart && winEnd && (wed < winStart || wed > winEnd)) {
+          return { success:false, message:`นอกห้วงเวลา ${winStart} ถึง ${winEnd} — ไม่สามารถบันทึกวันพุธ ${wed} ได้` };
+        }
+      } catch {}
       // ตรวจหน้าต่างเวลา: พุธ 14:00-ศุกร์ 23:59, ก่อนเปิดล็อก, ย้อนหลังได้ครั้งเดียว (แก้ไขไม่ได้)
       const thaiNow = new Date(Date.now() + 7*60*60*1000);
       const tDay = thaiNow.getUTCDay();

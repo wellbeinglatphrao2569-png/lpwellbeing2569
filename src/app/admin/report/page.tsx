@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useProjectWindow } from '@/hooks/useProjectWindow';
 import { fetchData } from '@/services/api';
 import type { User, StepsLog, SweetFree } from '@/types';
 import { toDateKey } from '@/utils/thaiDate';
@@ -45,11 +46,12 @@ function isTrue(val: unknown) {
 
 export default function AdminReportPage() {
   const { isAdmin, isLoggedIn } = useAuth();
+  const { window: projectWindow } = useProjectWindow();
   const [users, setUsers] = useState<User[]>([]);
   const [steps, setSteps] = useState<StepsLog[]>([]);
   const [sweet, setSweet] = useState<SweetFree[]>([]);
   const [loading, setLoading] = useState(true);
-  const weeks = useMemo(() => projectWeeks(), []);
+  const weeks = useMemo(() => projectWeeks(projectWindow?.start, projectWindow?.end), [projectWindow?.start, projectWindow?.end]);
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => {
     const todayKey = (() => {
       const d = new Date();
@@ -67,8 +69,27 @@ export default function AdminReportPage() {
     if (todayKey < ws[0].startKey) return ws[0].startKey;
     return ws[ws.length-1].startKey;
   });
-  const [programStart] = useState(PROJECT_START_DATE);
-  const [programEnd] = useState(PROJECT_END_DATE);
+  // ช่วงโครงการ — ตามห้วงเวลาจากหน้าตั้งค่า (fallback = ค่าคงที่เดิม)
+  const programStart = projectWindow?.start ?? PROJECT_START_DATE;
+  const programEnd = projectWindow?.end ?? PROJECT_END_DATE;
+
+  // ปรับสัปดาห์ที่เลือกให้อยู่ในรายการสัปดาห์ของห้วงเวลาปัจจุบัน
+  useEffect(() => {
+    if (weeks.length === 0) return;
+    if (selectedWeekStart && weeks.some(w => w.startKey === selectedWeekStart)) return;
+    const todayKey = (() => {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const m = new Date(d);
+      m.setDate(diff);
+      return `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}-${String(m.getDate()).padStart(2, '0')}`;
+    })();
+    const found = weeks.find(w => todayKey >= w.startKey && todayKey <= w.endKey);
+    if (found) setSelectedWeekStart(found.startKey); // eslint-disable-line react-hooks/set-state-in-effect
+    else if (todayKey < weeks[0].startKey) setSelectedWeekStart(weeks[0].startKey);
+    else setSelectedWeekStart(weeks[weeks.length - 1].startKey);
+  }, [weeks, selectedWeekStart]);
 
   useEffect(() => {
     let cancelled = false;

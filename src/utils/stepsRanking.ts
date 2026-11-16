@@ -1,7 +1,8 @@
 import type { StepsLog, User } from '@/types';
 import { toDateKey, thaiMonths, thaiShortMonths, todayThaiKey, getThaiNow } from './thaiDate';
 
-// ช่วงโครงการลาดพร้าวสร้างสุข — ห้วงเวลาบันทึกข้อมูล (ปรับได้โดย นสส. ที่หน้า Admin)
+// ช่วงโครงการลาดพร้าวสร้างสุข — ค่าเริ่มต้นของห้วงเวลาบันทึกข้อมูล
+// ห้วงเวลาจริงอ่านจาก project_settings (หน้า Admin → ตั้งค่าห้วงเวลา) — ค่าคงที่นี้ใช้เป็น fallback เท่านั้น
 export const PROJECT_START_DATE = '2026-08-24';
 export const PROJECT_END_DATE = '2026-11-13';
 
@@ -217,48 +218,53 @@ export function monthRangeOf(monthFrom: string, monthTo: string): DateRange {
   return { startKey, endKey };
 }
 
-/** รายการสัปดาห์ทั้งหมดในโครงการ (จันทร์–อาทิตย์) สำหรับ dropdown เลือกสัปดาห์ */
-export function projectWeeks(): { startKey: string; endKey: string; label: string; weekLabel: string }[] {
+/** รายการสัปดาห์ทั้งหมดในโครงการ (จันทร์–อาทิตย์) สำหรับ dropdown เลือกสัปดาห์
+ *  รับ start/end ได้ (ค่าจากหน้าตั้งค่าห้วงเวลา) — ไม่ส่งให้ใช้ค่าคงที่เดิม */
+export function projectWeeks(start: string = PROJECT_START_DATE, end: string = PROJECT_END_DATE): { startKey: string; endKey: string; label: string; weekLabel: string }[] {
+  if (!start || !end || start > end) return [];
   const weeks: { startKey: string; endKey: string; label: string; weekLabel: string }[] = [];
-  // เริ่มจากจันทร์ของสัปดาห์แรกที่มี PROJECT_START_DATE
-  const cur = mondayOf(new Date(PROJECT_START_DATE + 'T12:00:00'));
+  // เริ่มจากจันทร์ของสัปดาห์แรกที่มี start
+  const cur = mondayOf(new Date(start + 'T12:00:00'));
   let idx = 1;
   while (true) {
     const startKey = toIsoLocal(cur);
-    if (startKey > PROJECT_END_DATE) break;
+    if (startKey > end) break;
     let endKey = shiftDays(cur, 6);
-    if (endKey > PROJECT_END_DATE) endKey = PROJECT_END_DATE;
+    if (endKey > end) endKey = end;
     const label = `สัปดาห์ที่ ${idx} · ${formatThaiShort(startKey)} – ${formatThaiShort(endKey)}`;
     const weekLabel = `สัปดาห์ ${formatThaiShort(startKey)} – ${formatThaiShort(endKey)}`;
     weeks.push({ startKey, endKey, label, weekLabel });
     idx++;
     cur.setDate(cur.getDate() + 7);
-    // กันลูปไม่สิ้นสุด
-    if (idx > 20) break;
+    // กันลูปไม่สิ้นสุด (สูงสุด 5 ปี เผื่อห้วงเวลาถูกขยายโดย นสส.)
+    if (idx > 261) break;
   }
   return weeks;
 }
 
 /**
  * คำนวณช่วงวันที่ + ป้ายกำกับช่วงเวลาของการ์ดจัดอันดับ
- * (สัปดาห์อ้างอิงจากวันนี้ + weekOffset หรือเลือกสัปดาห์ตรงๆ ผ่าน selectedWeekStart · รายเดือนจาก [monthFrom, monthTo] · ตลอดโครงการจากค่าคงที่)
- * แต่ละ tab ใช้ช่วงแยกกันชัด ไม่ทับซ้อน: weekly=7วัน จ-อา, monthly=ตามเดือนที่เลือก, project=24สค63-13พย69
+ * (สัปดาห์อ้างอิงจากวันนี้ + weekOffset หรือเลือกสัปดาห์ตรงๆ ผ่าน selectedWeekStart · รายเดือนจาก [monthFrom, monthTo] · ตลอดโครงการจากห้วงเวลาที่ตั้งไว้)
+ * แต่ละ tab ใช้ช่วงแยกกันชัด ไม่ทับซ้อน: weekly=7วัน จ-อา, monthly=ตามเดือนที่เลือก, project=ตามห้วงเวลาโครงการ
+ * @param window ห้วงเวลาจากหน้าตั้งค่า (project_settings) — ไม่ส่งให้ใช้ค่าคงที่เดิม
  */
-export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: string, monthTo: string, selectedWeekStart?: string): {
+export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: string, monthTo: string, selectedWeekStart?: string, window?: { start: string; end: string } | null): {
   startKey: string;
   endKey: string;
   periodLabel: string;
   weekStartKey: string;
   weekEndKey: string;
 } {
+  const winStart = window?.start || PROJECT_START_DATE;
+  const winEnd = window?.end || PROJECT_END_DATE;
   // หา weekStart/weekEnd — ถ้ามี selectedWeekStart (จาก dropdown) ให้ใช้ตรงๆ
   let weekStartKey: string;
   let weekEndKey: string;
   if (selectedWeekStart && /^\d{4}-\d{2}-\d{2}$/.test(selectedWeekStart)) {
     weekStartKey = selectedWeekStart;
     weekEndKey = shiftDays(new Date(weekStartKey + 'T12:00:00'), 6);
-    if (weekEndKey > PROJECT_END_DATE) weekEndKey = PROJECT_END_DATE;
-    if (weekStartKey < PROJECT_START_DATE) weekStartKey = PROJECT_START_DATE;
+    if (weekEndKey > winEnd) weekEndKey = winEnd;
+    if (weekStartKey < winStart) weekStartKey = winStart;
   } else {
     // ใช้วันไทย (shift +7 แล้วอ่านแบบ local บน server UTC = wall-clock ไทย)
     const wm = mondayOf(getThaiNow());
@@ -266,9 +272,9 @@ export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: stri
     weekStartKey = toIsoLocal(wm);
     weekEndKey = shiftDays(wm, 6);
     // clamp ให้อยู่ในขอบโครงการเมื่อแสดงผล (กันสัปดาห์ที่เลยโครงการ)
-    if (weekEndKey > PROJECT_END_DATE && weekStartKey <= PROJECT_END_DATE) {
+    if (weekEndKey > winEnd && weekStartKey <= winEnd) {
       // ถ้าสัปดาห์เลยขอบ ให้ clamp ปลาย
-      if (weekEndKey > PROJECT_END_DATE) weekEndKey = PROJECT_END_DATE;
+      if (weekEndKey > winEnd) weekEndKey = winEnd;
     }
   }
 
@@ -292,9 +298,9 @@ export function periodRangeFor(tab: RankTab, weekOffset: number, monthFrom: stri
     return { startKey: range.startKey, endKey: range.endKey, periodLabel: label, weekStartKey, weekEndKey };
   }
   return {
-    startKey: PROJECT_START_DATE,
-    endKey: PROJECT_END_DATE,
-    periodLabel: `ตลอดโครงการ (${formatThaiShort(PROJECT_START_DATE)} – ${formatThaiShort(PROJECT_END_DATE)})`,
+    startKey: winStart,
+    endKey: winEnd,
+    periodLabel: `ตลอดโครงการ (${formatThaiShort(winStart)} – ${formatThaiShort(winEnd)})`,
     weekStartKey,
     weekEndKey,
   };
@@ -432,20 +438,20 @@ export function inclusiveDays(startKey: string, endKey: string): number {
   const diff = Math.round((b.getTime() - a.getTime()) / 86400000);
   return diff + 1;
 }
-/** d = จำนวนวันที่เปิดสะสมจริงตั้งแต่ PROJECT_START ถึงวันนี้ (clamp ที่ PROJECT_END) — ยึดวันไทย */
+/** d = จำนวนวันที่เปิดสะสมจริงตั้งแต่ start ถึงวันนี้ (clamp ที่ end) — ยึดวันไทย */
 export function elapsedDays(todayKey?: string, start: string = PROJECT_START_DATE, end: string = PROJECT_END_DATE): number {
   const nowKey = todayKey || todayThaiKey();
   const clamped = nowKey > end ? end : nowKey < start ? start : nowKey;
   return inclusiveDays(start, clamped);
 }
-/** เพดานสะสมสูงสุด ณ วันปัจจุบัน = DAILY_CAP * d */
-export function maxCumulativeCap(todayKey?: string): number {
-  return elapsedDays(todayKey) * DAILY_CAP;
+/** เพดานสะสมสูงสุด ณ วันปัจจุบัน = DAILY_CAP * d (end = ห้วงเวลาสิ้นสุดจากหน้าตั้งค่า ถ้าส่งมา) */
+export function maxCumulativeCap(todayKey?: string, end: string = PROJECT_END_DATE): number {
+  return elapsedDays(todayKey, PROJECT_START_DATE, end) * DAILY_CAP;
 }
-/** โครงการสิ้นสุดแล้วหรือยัง (วันนี้ > END) — ยึดวันไทย */
-export function isProjectFrozen(todayKey?: string): boolean {
+/** โครงการสิ้นสุดแล้วหรือยัง (วันนี้ > end) — ยึดวันไทย · ใช้แจ้งสถานะเท่านั้น ไม่ได้ใช้ล็อกการบันทึก */
+export function isProjectFrozen(todayKey?: string, end: string = PROJECT_END_DATE): boolean {
   const nowKey = todayKey || todayThaiKey();
-  return nowKey > PROJECT_END_DATE;
+  return nowKey > end;
 }
 /** วันที่อยู่ในห้วงโครงการหรือไม่ */
 export function isInProjectWindow(dateKey: string, start: string = PROJECT_START_DATE, end: string = PROJECT_END_DATE): boolean {
@@ -455,8 +461,8 @@ export function isInProjectWindow(dateKey: string, start: string = PROJECT_START
 }
 
 /** ก้าวรวม + จำนวนผู้เข้าร่วม ทั้งโครงการ (ภาพใหญ่) — นับเฉพาะข้อมูลล่าสุดของแต่ละวัน */
-export function programTotals(stepsData: StepsLog[]): { total: number; participants: number } {
-  const totals = totalsInRange(stepsData, PROJECT_START_DATE, PROJECT_END_DATE);
+export function programTotals(stepsData: StepsLog[], start: string = PROJECT_START_DATE, end: string = PROJECT_END_DATE): { total: number; participants: number } {
+  const totals = totalsInRange(stepsData, start, end);
   let total = 0;
   for (const v of totals.values()) total += v;
   return { total, participants: totals.size };

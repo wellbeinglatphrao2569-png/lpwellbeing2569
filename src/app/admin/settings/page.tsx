@@ -102,7 +102,12 @@ export default function AdminSettingsPage() {
 
         <div className="mt-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
           <span className="material-symbols-outlined text-sm align-middle mr-1">warning</span>
-          ข้อมูลที่บันทึก <strong>นอกห้วง</strong> จะถูกปฏิเสธ (บันทึกไม่สำเร็จ) — ข้อมูลเก่าที่อยู่นอกห้วงจะไม่ถูกนับและสามารถกด <strong>“ลบข้อมูลนอกห้วง”</strong> ด้านล่างเพื่อลบออกจากฐานข้อมูลถาวร
+          ข้อมูลที่บันทึก <strong>นอกห้วง</strong> (ก่อนวันเริ่ม / หลังวันสิ้นสุด) จะถูกปฏิเสธ (บันทึกไม่สำเร็จ) — ข้อมูลเก่าที่อยู่นอกห้วงจะไม่ถูกนับและสามารถกด <strong>“ลบข้อมูลนอกห้วง”</strong> ด้านล่างเพื่อลบออกจากฐานข้อมูลถาวร
+        </div>
+
+        <div className="mt-3 p-3 rounded-xl bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 text-xs text-sky-700 dark:text-sky-300 leading-relaxed">
+          <span className="material-symbols-outlined text-sm align-middle mr-1">info</span>
+          เมื่อ<strong>เกินวันสิ้นสุดห้วงเวลา</strong> ระบบจะ<strong>แจ้งเตือน</strong>ผู้ใช้ทุกหน้า (แถบสีเหลืองอำพัน) แต่ยังเปิดให้บันทึก<strong>ย้อนหลังภายในห้วง</strong>ได้ตามปกติ — ไม่มีการล็อกทั้งระบบแบบ Data Freeze อีกต่อไป
         </div>
 
         <div className="mt-5 flex gap-2">
